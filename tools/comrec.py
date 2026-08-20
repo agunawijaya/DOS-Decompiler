@@ -447,12 +447,26 @@ class Reconstructor:
             # Karateka six tables: `jmp word [cs:si + 0x163e]` failed to match
             # at all, so the most direct evidence a program can offer about
             # where its tables are was being skipped in silence.
+            #
+            # The `cs:` override is optional. Karateka spells it out because
+            # its compiler emits a switch table into the code segment while
+            # DS points at the data segment; a single-segment .COM has no such
+            # distinction, so `jmp word [bx + 0xdf18]` reaches its table the
+            # same way. Dam Busters hides three dispatchers behind that form
+            # and every routine reached only through them stayed as data.
             m = re.fullmatch(
-                r"(?:jmp|call) word \[cs:(\w+)(?: \+ (0x[0-9a-f]+|\d+))?\]",
+                r"(?:jmp|call) word \[(?:cs:)?(\w+)"
+                r"(?: ([+\-]) (0x[0-9a-f]+|\d+))?\]",
                 text)
             if not m:
                 continue
-            reg, disp = m.group(1), int(m.group(2) or "0", 0)
+            reg, sign, disp = m.group(1), m.group(2), int(m.group(3) or "0", 0)
+            # `[bx - 0x20e8]` is `[bx + 0xdf18]` in 16-bit -- capstone prints
+            # the two's-complement small negative rather than the wrap. Dam
+            # Busters' scenery dispatch is written that way and stayed data
+            # otherwise, so mask the displacement back to a segment offset.
+            if sign == "-":
+                disp = (-disp) & 0xFFFF
 
             # The base is loaded a few instructions earlier, usually as the
             # last thing before the jump. Look back a short way and no further:
@@ -1117,6 +1131,16 @@ class Reconstructor:
                         addr = int(insn.op_str, 16)
                     except ValueError:
                         addr = None
+                    # Capstone sign-extends near-branch targets that wrap the
+                    # 16-bit segment, so `E8 C0 E0` at IP 0x2F prints as
+                    # `call 0xffffe0f2` for a target the CPU reaches at 0xE0F2.
+                    # contains_addr then rejects it, and every callee reached
+                    # only that way stays in the file as data. Dam Busters had
+                    # twenty such call sites and 12.3% of the file decoded.
+                    if addr is not None and addr > 0xFFFF:
+                        wrapped = seg.base + ((addr - seg.base) & 0xFFFF)
+                        if seg.contains_addr(wrapped):
+                            addr = wrapped
                     if addr is not None and seg.contains_addr(addr):
                         target = seg.file_off(addr)
                         self.labels.add(target)
