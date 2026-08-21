@@ -182,7 +182,7 @@ def variants(text, has_label):
 
 
 class Reconstructor:
-    def __init__(self, path, segments, entries, image=None):
+    def __init__(self, path, segments, entries, image=None, cs_base=0):
         self.path = Path(path)
         # `image` overrides what is on disk. An MZ's load image is the file
         # minus its header, and reconstructing the header as though it were
@@ -191,6 +191,16 @@ class Reconstructor:
         self.image = self.path.read_bytes() if image is None else bytes(image)
         self.segments = segments
         self.entries = entries
+        # For a MZ that took the .COM route, `cs_base` is the image offset at
+        # which the runtime CS lives (CS << 4 from the MZ header). A single-
+        # segment .COM has CS := load_seg at boot, so `cs_base` is 0 and every
+        # `cs:` reference resolves to a flat file offset directly. A multi-
+        # segment MZ that took the .COM route (Alley Cat: CS = 0x0723, so
+        # `cs_base` = 0x7230) has code starting partway into the image, and
+        # every `[cs:disp]` addressing in that code needs `cs_base` added to
+        # reach the file offset the CPU actually reads. When `cs_base` is 0,
+        # nothing added, and the original behaviour stands.
+        self.cs_base = cs_base
         self.md = Cs(CS_ARCH_X86, CS_MODE_16)
         self.md.detail = True
         self.decoded = {}          # file_off -> (size, text, target_file_off)
@@ -455,18 +465,33 @@ class Reconstructor:
             # same way. Dam Busters hides three dispatchers behind that form
             # and every routine reached only through them stayed as data.
             m = re.fullmatch(
-                r"(?:jmp|call) word \[(?:cs:)?(\w+)"
+                r"(?:jmp|call) word \[(cs:)?(\w+)"
                 r"(?: ([+\-]) (0x[0-9a-f]+|\d+))?\]",
                 text)
             if not m:
                 continue
-            reg, sign, disp = m.group(1), m.group(2), int(m.group(3) or "0", 0)
+            has_cs = m.group(1) is not None
+            reg = m.group(2)
+            sign = m.group(3)
+            disp = int(m.group(4) or "0", 0)
             # `[bx - 0x20e8]` is `[bx + 0xdf18]` in 16-bit -- capstone prints
             # the two's-complement small negative rather than the wrap. Dam
             # Busters' scenery dispatch is written that way and stayed data
             # otherwise, so mask the displacement back to a segment offset.
             if sign == "-":
                 disp = (-disp) & 0xFFFF
+            # A `cs:` prefix on a MZ that took the .COM route means the
+            # displacement is CS-relative, not flat. For a program whose CS
+            # segment lives partway into the image (Alley Cat: CS = 0x0723,
+            # cs_base = 0x7230), the CPU reads its dispatch table at
+            # cs_base + disp -- not at disp alone. For Karateka and every
+            # other program handled here so far, cs_base = 0 and this is a
+            # no-op. Without it, Alley Cat's `jmp word [cs:bx + 0x250]` at
+            # L_07479 resolves to image 0x0250 (zero-fill inside the data
+            # segment) instead of image 0x7480 (the real 8-word table), and
+            # the seven per-phase handlers behind that table stay data.
+            if has_cs:
+                disp = (disp + self.cs_base) & 0xFFFF
 
             # The base is loaded a few instructions earlier, usually as the
             # last thing before the jump. Look back a short way and no further:
@@ -523,6 +548,17 @@ class Reconstructor:
                 if ahead and at >= min(ahead):
                     break
                 word = self.image[at] | (self.image[at + 1] << 8)
+                # The words in a `cs:`-addressed dispatch table are themselves
+                # CS-relative offsets, so they need the same base fix as the
+                # displacement that named the table. Alley Cat's phase table
+                # holds seven distinct entries in the range 0x260..0x459 which
+                # are all inside the zero-fill data region when read flat, and
+                # walks_to_return correctly rejects every one of them. Add
+                # cs_base and they land on the seven per-phase handlers at
+                # 0x7490..0x7689. For a table found without the `cs:` prefix,
+                # or on a program with cs_base = 0, this changes nothing.
+                if has_cs:
+                    word = (word + self.cs_base) & 0xFFFF
                 if not seg.contains_addr(word):
                     break
                 dest = seg.file_off(word)
@@ -1687,7 +1723,7 @@ def mz_load_image(data, max_reloc=8):
     # low for no visible reason. Read the decode rate as the second opinion.
     if nreloc > max_reloc:
         return None
-    return data[:hdr], data[hdr:end], (cs << 4) + ip
+    return data[:hdr], data[hdr:end], (cs << 4) + ip, cs << 4
 
 
 def detect_layout(image, md):
@@ -1854,8 +1890,9 @@ def main():
 
     image = Path(args.com).read_bytes()
     mz = mz_load_image(image, args.max_relocations)
+    cs_base = 0
     if mz is not None:
-        header, image, mz_entry = mz
+        header, image, mz_entry, cs_base = mz
         print(f"format      : MZ, {len(header)}-byte header stripped; "
               f"entry CS:IP -> image offset 0x{mz_entry:X}")
         print("              a single-segment MZ takes the .COM route, which "
@@ -1894,7 +1931,8 @@ def main():
     segments = parse_segments(args.segment, len(image))
 
     r = Reconstructor(args.com, segments, entries,
-                      image=image if mz is not None else None)
+                      image=image if mz is not None else None,
+                      cs_base=cs_base)
     source, last, rounds, err = r.run(nasm)
 
     total = len(image)

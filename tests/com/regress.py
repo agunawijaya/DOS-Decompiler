@@ -127,6 +127,21 @@ EXPECTATIONS = {
          "L_00002:",                           # the entry, addressed from 0
          "int 0x21"],
     ),
+    # An MZ that took the .COM route but whose header sets CS != 0, so the
+    # code lives partway into the image and every `cs:` reference in that code
+    # is offset from the CS base rather than flat. Alley Cat (1984) is the
+    # game this covers: seven per-phase handlers behind `jmp word [cs:bx +
+    # 0x250]` stayed data because the walker read the displacement as flat.
+    # 'M' and 'Z' come back only if the CS-prefixed dispatch is followed.
+    "mzdispatchcs": (
+        6.0,                                   # the file is mostly zero-fill data
+        ["MZ, 512-byte header stripped",
+         "-> image offset 0x1000",             # entry landed above the data pad
+         "jump tables : cs:0x",                # reported, from comrec's output
+         "-> 2 targets",
+         "mov dl, 0x4d",                       # 'M' inside the first handler
+         "mov dl, 0x5a"],                      # 'Z' inside the second
+    ),
     # An indirect jump ends recursive descent. Both hidden states are reachable
     # only through the pointer, and the second only after the first has been
     # reached -- so finding `mov dl, 0x42` proves the detection iterated rather
