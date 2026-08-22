@@ -536,6 +536,14 @@ not mean nothing got worse.
 - `knowledge/07-extended-reconstruction.md` — the verified-reconstruction workflow
 - `knowledge/08-com-reconstruction.md` — the `.COM` route, which reaches
   byte-identity in one run
+- `knowledge/15-adventure-engine-shape.md` — recognising 1980s adventure-game
+  engines (byte-code VM, compressed-text streams, container formats) and
+  the mistake pattern of reading Huffman-encoded text as vector graphics
+- `knowledge/16-emulator-driven-exploration.md` — Unicorn-based scripted
+  emulation for adventure engines: the puzzle-explorer bug pattern
+  (unbounded restart loops, silent progress, shared observation/decision
+  sets) and the mini-port method for turning one puzzle into teaching
+  material
 - `tests/sopwith/CASE-STUDY.md` — the whole method worked through, including the
   hypotheses that turned out wrong
 - `tests/com/CASE-STUDY.md` — a 1982 `.COM` game rebuilt byte-for-byte, and the
