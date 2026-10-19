@@ -2,7 +2,11 @@
  *
  * Writes, into the directory given as the first script argument:
  *   decompiled.c    every function Ghidra could decompile, in address order
- *   functions.json  a machine-readable inventory used by the scoring harness
+ *   functions.json  a machine-readable inventory used by the scoring harness,
+ *                   carrying the file it describes (`target`: path, size,
+ *                   SHA-256) and what Ghidra did on import
+ *                   (`observed_profile`), which pipeline.ps1 holds to the
+ *                   profile tools/profile.py wrote before import
  *   failures.txt    functions the decompiler refused, with the reason
  *
  * Written in Java rather than Python on purpose: a .java GhidraScript is
@@ -25,11 +29,16 @@ import ghidra.app.decompiler.DecompInterface;
 import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
+import ghidra.program.database.mem.FileBytes;
+import ghidra.program.model.address.SegmentedAddress;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Parameter;
+import ghidra.program.model.listing.Program;
+import ghidra.program.model.mem.MemoryBlock;
+import ghidra.program.model.mem.MemoryBlockSourceInfo;
 import ghidra.program.model.scalar.Scalar;
 
 public class ExportDecompiledC extends GhidraScript {
@@ -101,6 +110,8 @@ public class ExportDecompiledC extends GhidraScript {
         j.println("  \"program\": " + quote(currentProgram.getName()) + ",");
         j.println("  \"language\": " + quote(currentProgram.getLanguageID().toString()) + ",");
         j.println("  \"image_base\": " + quote(currentProgram.getImageBase().toString()) + ",");
+        j.println("  \"target\": " + targetRecord() + ",");
+        j.println("  \"observed_profile\": " + observedProfile() + ",");
         j.println("  \"decompiled_ok\": " + ok + ",");
         j.println("  \"decompiled_failed\": " + bad + ",");
         j.println("  \"functions\": [");
@@ -120,6 +131,130 @@ public class ExportDecompiledC extends GhidraScript {
         }
 
         println("ExportDecompiledC: " + ok + " decompiled, " + bad + " failed -> " + outDir);
+    }
+
+    /* Which file this export describes. The hash is computed over the
+     * program's own copy of the file bytes -- what the analysis actually read
+     * -- rather than taken from the import metadata. Tools that read
+     * functions.json beside an executable compare it with the executable they
+     * were given (tools/evidence.py), so an export of last week's build cannot
+     * be read against this week's without anything saying so. */
+    private String targetRecord() throws Exception {
+        String path = currentProgram.getExecutablePath();
+        // Ghidra keeps a Windows path as "/C:/dir/file"; drop the slash so the
+        // path opens as written.
+        if (path != null && path.matches("^/[A-Za-z]:/.*")) {
+            path = path.substring(1);
+        }
+        long size = -1;
+        String sha = currentProgram.getExecutableSHA256();
+        List<FileBytes> all = currentProgram.getMemory().getAllFileBytes();
+        if (!all.isEmpty()) {
+            FileBytes fb = all.get(0);
+            size = fb.getSize();
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] buf = new byte[65536];
+            for (long at = 0; at < size; at += buf.length) {
+                int n = (int) Math.min(buf.length, size - at);
+                fb.getOriginalBytes(at, buf, 0, n);
+                md.update(buf, 0, n);
+            }
+            StringBuilder hex = new StringBuilder();
+            for (byte b : md.digest()) {
+                hex.append(String.format("%02x", b));
+            }
+            sha = hex.toString();
+        }
+        return "{\"path\": " + quote(path) + ", \"size\": " + size
+                + ", \"sha256\": " + quote(sha) + "}";
+    }
+
+    /** Written by RecoverFunctions.java when it runs; the same key. */
+    private static final String RECOVERY_OPTION = "DOS-Decompiler RecoverFunctions SHA-256";
+
+    /* What Ghidra actually did with this program, in the terms tools/profile.py
+     * expects. The pipeline compares the two after export and stops on any
+     * difference. Nothing here decides what is right; it only reports. */
+    private String observedProfile() throws Exception {
+        String recovery = currentProgram.getOptions(Program.PROGRAM_INFO)
+                .getString(RECOVERY_OPTION, null);
+        StringBuilder sb = new StringBuilder("{");
+        sb.append("\"loader\": ").append(quote(currentProgram.getExecutableFormat())).append(", ");
+        sb.append("\"language\": ")
+          .append(quote(currentProgram.getLanguageID().toString())).append(", ");
+        sb.append("\"compiler_spec\": ")
+          .append(quote(currentProgram.getCompilerSpec().getCompilerSpecID().toString()))
+          .append(", ");
+        sb.append("\"image_base\": ")
+          .append(quote(currentProgram.getImageBase().toString())).append(", ");
+        sb.append("\"load_segment\": ").append(quote(observedLoadSegment())).append(", ");
+        sb.append("\"address_convention\": ").append(quote(observedConvention())).append(", ");
+        sb.append("\"ghidra_version\": ")
+          .append(quote(ghidra.framework.Application.getApplicationVersion())).append(", ");
+        sb.append("\"recovery\": {\"ran\": ").append(recovery != null)
+          .append(", \"script_sha256\": ").append(quote(recovery)).append("}");
+        return sb.append("}").toString();
+    }
+
+    /* The segment the first byte of the load image was put at.
+     *
+     * Program.getImageBase() does not answer this: measured on Ghidra 12.1.2
+     * it returns 0000:0000 for an MZ whose image sits at 1000:0000. So it is
+     * worked out from where the file's bytes landed instead -- each block
+     * backed by the file says which file offset it starts at, and subtracting
+     * the header size gives the image offset. Every such block must agree on
+     * one load address; if they do not, that is reported rather than one of
+     * them being picked. */
+    private String observedLoadSegment() throws Exception {
+        List<FileBytes> all = currentProgram.getMemory().getAllFileBytes();
+        if (all.isEmpty()) {
+            return "unknown: no file bytes";
+        }
+        FileBytes fb = all.get(0);
+        long headerSize = ((fb.getOriginalByte(8) & 0xff)
+                | ((fb.getOriginalByte(9) & 0xff) << 8)) * 16L;
+        Set<Long> bases = new TreeSet<>();
+        for (MemoryBlock b : currentProgram.getMemory().getBlocks()) {
+            for (MemoryBlockSourceInfo si : b.getSourceInfos()) {
+                if (si.getFileBytes().isEmpty()
+                        || !(si.getMinAddress() instanceof SegmentedAddress)) {
+                    continue;       // the HEADER block lives in a space of its own
+                }
+                long imageOffset = si.getFileBytesOffset() - headerSize;
+                if (imageOffset < 0) {
+                    continue;
+                }
+                SegmentedAddress a = (SegmentedAddress) si.getMinAddress();
+                long linear = ((long) a.getSegment() << 4) + a.getSegmentOffset();
+                bases.add(linear - imageOffset);
+            }
+        }
+        if (bases.size() != 1) {
+            return bases.isEmpty() ? "unknown: no block holds the load image"
+                                   : "inconsistent: " + bases;
+        }
+        long base = bases.iterator().next();
+        if (base % 16 != 0) {
+            return String.format("unaligned: 0x%x", base);
+        }
+        return String.format("0x%04x", base >> 4);
+    }
+
+    /* Whether every address this export writes has the form its readers
+     * parse -- four lowercase hex digits, a colon, four more -- or the first
+     * one that does not. */
+    private String observedConvention() {
+        String base = currentProgram.getImageBase().toString();
+        if (!base.matches("[0-9a-f]{4}:[0-9a-f]{4}")) {
+            return "other: " + base;
+        }
+        for (Function f : currentProgram.getFunctionManager().getFunctions(true)) {
+            String s = f.getEntryPoint().toString();
+            if (!s.matches("[0-9a-f]{4}:[0-9a-f]{4}")) {
+                return "other: " + s;
+            }
+        }
+        return "ssss:oooo";
     }
 
     private String functionRecord(Function f, String addr, long size, boolean okFlag) {

@@ -40,6 +40,7 @@ import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
+import ghidra.program.model.listing.Program;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.Reference;
@@ -60,6 +61,38 @@ public class RecoverFunctions extends GhidraScript {
                 + fromCalls + " from call targets, +" + fromPointers + " from code pointers, "
                 + split + " over-long functions split, +"
                 + fromPrologues + " new from prologues, " + total + " functions total");
+
+        // Leave a mark in the program saying this ran, and which version of
+        // this script it was. ExportDecompiledC reports it and the pipeline's
+        // profile handshake holds it to what tools/profile.py expected, so a
+        // recovery lost to chained -postScript flags (knowledge/04-pitfalls.md)
+        // stops the run instead of passing as a plain auto-analysis.
+        currentProgram.getOptions(Program.PROGRAM_INFO)
+                .setString(RECOVERY_OPTION, sourceSha256());
+    }
+
+    /** Program Information key ExportDecompiledC reads back. */
+    static final String RECOVERY_OPTION = "DOS-Decompiler RecoverFunctions SHA-256";
+
+    /* SHA-256 of this script's own source, the same bytes profile.py hashes,
+     * so the handshake can tell which recovery ran and not merely that one
+     * did. */
+    private String sourceSha256() {
+        try (java.io.InputStream in = getSourceFile().getInputStream()) {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                md.update(buf, 0, n);
+            }
+            StringBuilder sb = new StringBuilder();
+            for (byte b : md.digest()) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "unreadable: " + e.getMessage();
+        }
     }
 
     /* Any address that something CALLs is a function entry point. This is

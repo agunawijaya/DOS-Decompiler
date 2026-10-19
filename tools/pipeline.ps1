@@ -10,6 +10,12 @@
     -postScript flags in one headless run silently discards the first script's
     changes.
 
+    Before import it writes profile.json: the loader, language, compiler spec,
+    load segment and recovery this run expects. After export it compares that
+    with what ExportDecompiledC.java observed, writes handshake.json, and stops
+    with the field, the expected value and the observed value if any of them
+    differ (tools/profile.py, knowledge/17-evidence.md).
+
 .PARAMETER Exe
     The DOS executable to analyse.
 
@@ -96,6 +102,15 @@ if (Select-String -Path $report -Pattern '\[ERROR\] packer' -Quiet) {
 }
 
 Write-Host "`n[2/4] Import and analyse" -ForegroundColor Cyan
+# The settings this run expects Ghidra to use, written down before import so
+# the export can be held to them afterwards. Ghidra still chooses; the
+# handshake in step 4 checks that it chose these (tools/profile.py).
+$profileJson = Join-Path $OutDir 'profile.json'
+$profileArgs = @('write', '--exe', $exeItem.FullName, '--ghidra', $Ghidra, '--out', $profileJson)
+if ($SkipRecovery) { $profileArgs += '--skip-recovery' }
+python (Join-Path $toolDir 'profile.py') @profileArgs
+if ($LASTEXITCODE -ne 0) { throw "profile.py could not write $profileJson" }
+
 Invoke-Headless -HeadlessArgs @($projDir, $projName, '-import', $exeItem.FullName, '-overwrite') 'importing'
 
 if (-not $SkipRecovery) {
@@ -109,6 +124,32 @@ if (-not $SkipRecovery) {
 Write-Host "`n[4/4] Decompile and fingerprint" -ForegroundColor Cyan
 Invoke-Headless -HeadlessArgs @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
                   '-scriptPath', $scripts, '-postScript', 'ExportDecompiledC.java', $OutDir) 'exporting'
+
+# Expected against observed. Any difference means these results were not
+# produced under the settings every later tool assumes, so stop here rather
+# than let them be read as though they were.
+Write-Host "  checking the export against the profile" -ForegroundColor DarkGray
+$handshake = Join-Path $OutDir 'handshake.json'
+# Relaxed for the same reason as in Invoke-Headless: a line on stderr must not
+# abort the run before its exit code has been read.
+$previous = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $check = python (Join-Path $toolDir 'profile.py') check --profile $profileJson `
+        --functions (Join-Path $OutDir 'functions.json') --evidence $handshake 2>&1 |
+        ForEach-Object { "$_" }
+    $checkCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previous
+}
+$check | ForEach-Object {
+    Write-Host "    $_" -ForegroundColor $(if ($checkCode -eq 0) { 'DarkCyan' } else { 'Red' })
+}
+if ($checkCode -ne 0) {
+    $drift = @($check | Where-Object { $_ -like 'profile drift:*' })
+    $what = if ($drift) { $drift -join '; ' } else { $check -join '; ' }
+    throw "profile handshake failed, results in $OutDir are not to be used: $what"
+}
 
 Write-Host "`nResults in $OutDir" -ForegroundColor Green
 Get-ChildItem $OutDir -File | ForEach-Object {
