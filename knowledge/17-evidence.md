@@ -304,7 +304,8 @@ It is computed from file contents, not from git, so it means the same thing in
 a copy that is not a checkout, and an uncommitted edit moves it with no `-dirty`
 logic needed. Tested on a copy of the toolkit in a git repository of its own: a
 commit to `knowledge/17-evidence.md` moved `toolkit_version` (`4b21af0` →
-`433afa4`) and left `profile_id` alone; an edit to `tools/evidence.py` made
+`433afa4` in one run — the throwaway repository's own hashes, different every
+run) and left `profile_id` alone; an edit to `tools/evidence.py` made
 `toolkit_version` dirty and left it alone; an edit to any one of the four hashed
 files moved it, and `analysis_code.files` named that file and no other.
 
