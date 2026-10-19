@@ -58,6 +58,9 @@ except ImportError:  # pragma: no cover
     print("comrec: capstone is required (pip install capstone)", file=sys.stderr)
     raise
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import residue  # noqa: E402  (the residue rules bodies.py shares)
+
 # Branches whose operand is a code address we should turn into a label.
 BRANCH = {
     "jmp", "call", "je", "jne", "jz", "jnz", "ja", "jae", "jb", "jbe", "jg",
@@ -143,10 +146,8 @@ def to_nasm(insn):
 
 # Real-mode instructions a 1980s game has no reason to contain. Meeting one
 # while sweeping unreferenced bytes means the sweep has wandered into data.
-IMPLAUSIBLE = {
-    "insb", "insw", "outsb", "outsw", "arpl", "bound",
-    "into", "salc", "aam", "aad", "xlatb", "lock",
-}
+# Defined in residue.py, which bodies.py shares, and kept under this name here.
+IMPLAUSIBLE = residue.IMPLAUSIBLE
 
 
 def variants(text, has_label):
@@ -921,21 +922,14 @@ class Reconstructor:
             n, body = b - a, self.image[a:b]
             if n <= 0:
                 continue
-            if body.count(0) >= 0.9 * n:
-                kinds["zero"] += n
-            elif sum(1 for x in body if 0x20 <= x < 0x7F) >= 0.6 * n and n >= 4:
-                kinds["text"] += n
-            else:
-                w = [body[i] | (body[i + 1] << 8) for i in range(0, n - 1, 2)]
-                hit = sum(1 for x in w
-                          if seg is not None and seg.contains_addr(x)
-                          and lo <= seg.file_off(x) < hi)
-                if len(w) >= 3 and hit >= 0.7 * len(w):
-                    kinds["table"] += n
-                elif n >= 8 and seg is not None and self._decodes_cleanly(a, b, seg):
-                    kinds["code"] += n
-                else:
-                    kinds["other"] += n
+            # The rules are residue.py's, shared with bodies.py; what lands
+            # "in code" and what counts as code are this route's.
+            k = residue.kind(
+                body,
+                lambda x: (seg is not None and seg.contains_addr(x)
+                           and lo <= seg.file_off(x) < hi),
+                lambda: n >= 8 and seg is not None and self._decodes_cleanly(a, b, seg))
+            kinds[k] += n
         return kinds
 
     def _decodes_cleanly(self, lo, hi, seg):
@@ -956,27 +950,10 @@ class Reconstructor:
 
         Together these took the four games from 98 bytes of "worth a look",
         almost all of it noise, to eight bytes that really were a missed jump.
+        The first two tests are residue.plausible, shared with bodies.py.
         """
-        NOT_8088 = {"pushaw", "popaw", "pushal", "popal", "enter", "leave",
-                    "fisttp", "movsx", "movzx", "bt", "bts", "btr", "shld",
-                    "shrd", "setne", "sete", "cmovne", "cpuid"}
-        FLOW = {"jmp", "call", "ret", "retf", "int", "iret", "loop", "loope",
-                "loopne", "jcxz"}
-        off, flow = lo, False
-        while off < hi:
-            insn = next(self.md.disasm(
-                bytes(self.image[off:min(off + 16, hi)]), seg.addr(off)), None)
-            if insn is None or off + insn.size > hi:
-                return False
-            m = insn.mnemonic
-            if m in IMPLAUSIBLE or m in NOT_8088 or m.startswith("f"):
-                return False
-            if m == "add" and insn.op_str == "byte ptr [bx + si], al":
-                return False
-            if m in FLOW or (m.startswith("j") and len(m) <= 4):
-                flow = True
-            off += insn.size
-        return off == hi and flow
+        insns = residue.decode_run(self.md, self.image[lo:hi], seg.addr(lo))
+        return insns is not None and residue.has_flow(insns)
 
     def detect_case_tables(self):
         """Read a switch table out of the tail of a gap, when nothing names it.
