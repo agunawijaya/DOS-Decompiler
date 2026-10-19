@@ -273,6 +273,26 @@ def _():
             f"{len(got)} runs as the labels say; " + lines[-1])
 
 
+@case("a table whose targets no function claims is not a pointer table into code")
+def _():
+    # The same export, but the switch claims only the first byte of its first
+    # case, so the table is a run of its own and two of its three words point
+    # at bytes no function claims, inside the block. "Into the code" means
+    # into some function's body, so it must not be called a pointer table --
+    # in a hand-written program the block is mostly data. (With the whole
+    # cases unclaimed the table joins them in one run, and the test could not
+    # tell the two meanings apart: measured, by the mutation that restores the
+    # block as the test.)
+    want = expected_bodies()
+    want["switcher"] = [(L("switcher"), L(".table") - 1), (L(".case0"), L(".case0"))]
+    env = bodies.analyse(synthetic_export(WORK / "untargeted", [(n, L(n), r) for n, r in want.items()]))
+    runs = {(int(u["start_linear"], 16) - LOAD * 16): u for u in env["result"]["unclaimed"]}
+    table = runs.get(L(".table"))
+    if table is None or table["kind"] == "pointer table":
+        raise AssertionError(f"the table: {table}")
+    return f"{table['start']}..{table['end']}: {table['kind']} ({table['detail']})"
+
+
 @case("with nothing unclaimed that looks like code, bodies.py says so")
 def _():
     want = expected_bodies()
