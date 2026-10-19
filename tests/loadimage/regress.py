@@ -403,6 +403,30 @@ def _():
     return "; ".join(run_tampers(EXE["plain"], saved, "synthetic"))
 
 
+@case("a dump missing part of the module, or from another dumper, is a mismatch")
+def _():
+    exp = loadimage.Expected(EXE["plain"])
+    folder = synthetic_dump(exp, WORK / "synthetic-gap")
+    obs = json.loads((folder / "observed.json").read_text(encoding="utf-8"))
+    gone = obs["blocks"].pop(2)                        # one segment never loaded
+    (folder / "observed.json").write_text(json.dumps(obs), encoding="utf-8")
+    env, first = verified(EXE["plain"], folder)
+    m = gone["mappings"][0]
+    hole = f"file 0x{m['file_offset']:x}..0x{m['file_offset'] + m['length'] - 1:x} not loaded"
+    if env["status"] != "mismatch" or first["name"] != "module.coverage" \
+            or hole not in first["observed"]:
+        raise AssertionError(f"gap: {first}")
+
+    folder = synthetic_dump(exp, WORK / "synthetic-dumper")
+    obs = json.loads((folder / "observed.json").read_text(encoding="utf-8"))
+    obs["script_sha256"] = "0" * 64                    # an older DumpLoadImage.java
+    (folder / "observed.json").write_text(json.dumps(obs), encoding="utf-8")
+    env, first = verified(EXE["plain"], folder)
+    if env["status"] != "mismatch" or first["name"] != "dumper.script_sha256":
+        raise AssertionError(f"dumper: {first}")
+    return f"{hole}; and a dump by another DumpLoadImage.java refused first"
+
+
 # ---------------------------------------------------------------- map
 
 def round_trip(record):
