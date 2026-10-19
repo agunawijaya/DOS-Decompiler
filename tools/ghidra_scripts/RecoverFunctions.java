@@ -64,7 +64,7 @@ public class RecoverFunctions extends GhidraScript {
 
         // Leave a mark in the program saying this ran, and which version of
         // this script it was. ExportDecompiledC reports it and the pipeline's
-        // profile handshake holds it to what tools/profile.py expected, so an
+        // profile handshake holds it to what tools/analysis_profile.py expected, so an
         // export from a project where recovery never ran, or ran an older copy
         // of this script, stops the run instead of passing as the real thing.
         currentProgram.getOptions(Program.PROGRAM_INFO)
@@ -74,7 +74,7 @@ public class RecoverFunctions extends GhidraScript {
     /** Program Information key ExportDecompiledC reads back. */
     static final String RECOVERY_OPTION = "DOS-Decompiler RecoverFunctions SHA-256";
 
-    /* SHA-256 of this script's own source, the same bytes profile.py hashes,
+    /* SHA-256 of this script's own source, the same bytes analysis_profile.py hashes,
      * so the handshake can tell which recovery ran and not merely that one
      * did. */
     private String sourceSha256() {

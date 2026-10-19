@@ -4,7 +4,7 @@ regress.py -- Run the real pipeline through Ghidra and hold it to its profile.
 
 tests/evidence/ checks the handshake's comparison against exports written by
 hand. This checks the part that hand-written exports cannot: that Ghidra,
-driven by pipeline.ps1, really does what tools/profile.py says it will, that
+driven by pipeline.ps1, really does what tools/analysis_profile.py says it will, that
 ExportDecompiledC.java really observes it, and that a drift really stops the
 run.
 
@@ -192,11 +192,11 @@ def main():
             prof = work / "no-recovery-profile.json"
             env = dict(os.environ)
             env.pop("DOS_DECOMPILER_FORCE_DRIFT", None)
-            subprocess.run([sys.executable, str(TOOLS / "profile.py"), "write",
+            subprocess.run([sys.executable, str(TOOLS / "analysis_profile.py"), "write",
                             "--exe", str(exe), "--ghidra", ghidra, "--out",
                             str(prof), "--skip-recovery"],
                            capture_output=True, env=env, check=True)
-            r = subprocess.run([sys.executable, str(TOOLS / "profile.py"), "check",
+            r = subprocess.run([sys.executable, str(TOOLS / "analysis_profile.py"), "check",
                                 "--profile", str(prof), "--functions",
                                 str(work / "plain" / "functions.json")],
                                capture_output=True, text=True)

@@ -813,7 +813,7 @@ tools/
   placements.py              recover "draw sprite S at column C row R" from the code
   pipeline.ps1               one command: .EXE in, decompiled C out, held to
                              the profile it expected
-  profile.py                 the analysis profile, and the handshake that refuses
+  analysis_profile.py        the analysis profile, and the handshake that refuses
                              an export produced under anything else
   evidence.py                the evidence envelope every --evidence writes, and
                              the check that refuses a stale functions.json

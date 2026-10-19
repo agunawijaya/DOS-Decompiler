@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-profile.py -- The analysis profile the pipeline imports under, and the
+analysis_profile.py -- The analysis profile the pipeline imports under, and the
 handshake that refuses an export produced under anything else.
 
 Why this exists
@@ -65,11 +65,11 @@ wrong value, so a test can prove the handshake fails. Dotted fields reach into
 for real work.
 
 Usage:
-    python profile.py write --exe GAME.EXE --ghidra $GHIDRA_HOME --out out/profile.json
-    python profile.py write ... --skip-recovery
-    python profile.py check --profile out/profile.json --functions out/functions.json \\
+    python analysis_profile.py write --exe GAME.EXE --ghidra $GHIDRA_HOME --out out/profile.json
+    python analysis_profile.py write ... --skip-recovery
+    python analysis_profile.py check --profile out/profile.json --functions out/functions.json \\
                             [--evidence out/handshake.json]
-    python profile.py show --ghidra $GHIDRA_HOME
+    python analysis_profile.py show --ghidra $GHIDRA_HOME
 """
 
 import argparse
@@ -176,11 +176,11 @@ def apply_forced_drift(profile, spec):
     applied = []
     for pair in filter(None, (p.strip() for p in spec.split(","))):
         if "=" not in pair:
-            raise SystemExit(f"profile.py: {DRIFT_VARIABLE} wants field=value, "
+            raise SystemExit(f"analysis_profile.py: {DRIFT_VARIABLE} wants field=value, "
                              f"not {pair!r}")
         field, value = (x.strip() for x in pair.split("=", 1))
         if _get(profile, field) is None and field not in COMPARED:
-            raise SystemExit(f"profile.py: {DRIFT_VARIABLE} names {field!r}, "
+            raise SystemExit(f"analysis_profile.py: {DRIFT_VARIABLE} names {field!r}, "
                              f"which is not a profile field")
         parsed = {"true": True, "false": False, "null": None}.get(value, value)
         _set(profile, field, parsed)
@@ -194,12 +194,12 @@ def write(args):
     spec = os.environ.get(DRIFT_VARIABLE)
     if spec:
         forced = apply_forced_drift(profile, spec)
-        print(f"profile.py: {DRIFT_VARIABLE} is set, so this profile expects "
+        print(f"analysis_profile.py: {DRIFT_VARIABLE} is set, so this profile expects "
               f"{', '.join(forced)} instead of the measured value. That is a "
               f"test hook; unset it for real work.", file=sys.stderr)
     profile = with_id(profile)
     env = evidence.envelope(
-        "profile", evidence.target_identity(args.exe), status="ok",
+        "analysis_profile", evidence.target_identity(args.exe), status="ok",
         result={"profile_id": profile["profile_id"], "forced_drift": forced},
         limitations=LIMITATIONS, profile=profile)
     evidence.write(env, args.out)
@@ -270,7 +270,7 @@ def _record(args, expected_env, status, rows, drifted):
                       "location": {"field": field},
                       "value": {"expected": want, "observed": got}})
     env = evidence.envelope(
-        "profile-check", expected_env.get("target"), status=status,
+        "analysis_profile check", expected_env.get("target"), status=status,
         result={"compared": len(rows), "drift": drifted,
                 "functions": str(Path(args.functions).resolve())},
         evidence=items, limitations=LIMITATIONS,

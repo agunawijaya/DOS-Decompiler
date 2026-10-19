@@ -6,7 +6,7 @@
  *                   carrying the file it describes (`target`: path, size,
  *                   SHA-256) and what Ghidra did on import
  *                   (`observed_profile`), which pipeline.ps1 holds to the
- *                   profile tools/profile.py wrote before import
+ *                   profile tools/analysis_profile.py wrote before import
  *   failures.txt    functions the decompiler refused, with the reason
  *
  * Written in Java rather than Python on purpose: a .java GhidraScript is
@@ -172,7 +172,7 @@ public class ExportDecompiledC extends GhidraScript {
     /** Written by RecoverFunctions.java when it runs; the same key. */
     private static final String RECOVERY_OPTION = "DOS-Decompiler RecoverFunctions SHA-256";
 
-    /* What Ghidra actually did with this program, in the terms tools/profile.py
+    /* What Ghidra actually did with this program, in the terms tools/analysis_profile.py
      * expects. The pipeline compares the two after export and stops on any
      * difference. Nothing here decides what is right; it only reports. */
     private String observedProfile() throws Exception {

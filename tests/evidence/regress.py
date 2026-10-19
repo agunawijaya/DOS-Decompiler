@@ -47,7 +47,7 @@ ROOT = HERE.parent.parent
 TOOLS = ROOT / "tools"
 sys.path.insert(0, str(TOOLS))
 import evidence                                          # noqa: E402
-import profile as profile_tool                           # noqa: E402
+import analysis_profile                                  # noqa: E402
 
 CASES = []
 ID_SHAPE = re.compile(r"^ev-[0-9a-f]{8}-[0-9a-f]{8}(-\d+)?$")
@@ -158,6 +158,40 @@ def has_module(name):
         return True
     except ImportError:
         return False
+
+
+# ------------------------------------------------- names in tools/
+
+@case("cProfile, imported with tools/ first on the path, gets the standard module")
+def _():
+    # The analysis profile lived in tools/profile.py for one prompt, which
+    # every script run from tools/ then imported in place of the standard
+    # library's `profile` -- and cProfile imports `profile`.
+    probe = ("import sys, sysconfig; sys.path.insert(0, sys.argv[1]); "
+             "import cProfile, profile; "
+             "cProfile.Profile().runcall(sum, [1, 2]); "
+             "print(profile.__file__); print(sysconfig.get_paths()['stdlib'])")
+    r = subprocess.run([sys.executable, "-c", probe, str(TOOLS)],
+                       capture_output=True, text=True, cwd=TOOLS)
+    if r.returncode != 0:
+        raise AssertionError(f"cProfile failed: {r.stderr.strip()[-300:]}")
+    found, stdlib = r.stdout.split("\n")[:2]
+    if Path(found).resolve().parent == TOOLS.resolve():
+        raise AssertionError(f"`profile` came from {found}")
+    if not Path(found).resolve().is_relative_to(Path(stdlib).resolve()):
+        raise AssertionError(f"`profile` came from {found}, not {stdlib}")
+    return f"profile from {Path(found).parent.name}/{Path(found).name}"
+
+
+@case("no module in tools/ takes a standard library name")
+def _():
+    names = getattr(sys, "stdlib_module_names", None)
+    if names is None:
+        raise Skip("sys.stdlib_module_names needs Python 3.10 -- skipped")
+    clashes = sorted(p.name for p in TOOLS.glob("*.py") if p.stem in names)
+    if clashes:
+        raise AssertionError(f"these shadow the standard library: {clashes}")
+    return f"{len(list(TOOLS.glob('*.py')))} modules, no clash"
 
 
 # ------------------------------------------------------------ identity
@@ -780,11 +814,11 @@ def handshake_setup():
     exe = FIX.mz["smallc"]
     prof = work / "profile.json"
     env = dict(os.environ)
-    env.pop(profile_tool.DRIFT_VARIABLE, None)
-    code, _, err = run(TOOLS / "profile.py", "write", "--exe", exe,
+    env.pop(analysis_profile.DRIFT_VARIABLE, None)
+    code, _, err = run(TOOLS / "analysis_profile.py", "write", "--exe", exe,
                        "--ghidra", ghidra, "--out", prof, env=env)
     if code != 0:
-        raise AssertionError(f"profile.py write failed: {err}")
+        raise AssertionError(f"analysis_profile.py write failed: {err}")
     expected = json.loads(prof.read_text(encoding="utf-8"))
     observed = {k: v for k, v in expected["profile"].items()
                 if k not in ("profile_id", "toolkit_version")}
@@ -797,7 +831,7 @@ def check(work, prof, functions, name="functions.json"):
     path = work / name
     path.write_text(json.dumps(functions), encoding="utf-8")
     record = work / "handshake.json"
-    code, out, err = run(TOOLS / "profile.py", "check", "--profile", prof,
+    code, out, err = run(TOOLS / "analysis_profile.py", "check", "--profile", prof,
                          "--functions", path, "--evidence", record)
     env = json.loads(record.read_text(encoding="utf-8"))
     return code, out.decode("utf-8") + err, env
@@ -811,13 +845,13 @@ def _():
     want = hashlib.sha256(evidence.canonical(body).encode("ascii")).hexdigest()
     if p["profile_id"] != want or expected["result"]["profile_id"] != want:
         raise AssertionError("profile_id does not recompute")
-    if expected["status"] != "ok" or expected["tool"] != "profile":
+    if expected["status"] != "ok" or expected["tool"] != "analysis_profile":
         raise AssertionError(f"status {expected['status']}")
     if expected["target"]["sha256"] != evidence.sha256_file(exe):
         raise AssertionError("profile.json names the wrong target")
     # The id names the settings, not the file: another executable, same id.
     other = work / "other-profile.json"
-    run(TOOLS / "profile.py", "write", "--exe", FIX.mz["spread"], "--ghidra",
+    run(TOOLS / "analysis_profile.py", "write", "--exe", FIX.mz["spread"], "--ghidra",
         ghidra, "--out", other, env=env)
     if json.loads(other.read_text())["profile"]["profile_id"] != want:
         raise AssertionError("profile_id changed with the target")
@@ -872,10 +906,10 @@ def _():
 def _():
     work, ghidra, exe, _, _, functions, env = handshake_setup()
     forced = work / "forced-profile.json"
-    env = dict(env, **{profile_tool.DRIFT_VARIABLE: "load_segment=0x2000"})
-    code, _, err = run(TOOLS / "profile.py", "write", "--exe", exe,
+    env = dict(env, **{analysis_profile.DRIFT_VARIABLE: "load_segment=0x2000"})
+    code, _, err = run(TOOLS / "analysis_profile.py", "write", "--exe", exe,
                        "--ghidra", ghidra, "--out", forced, env=env)
-    if code != 0 or profile_tool.DRIFT_VARIABLE not in err:
+    if code != 0 or analysis_profile.DRIFT_VARIABLE not in err:
         raise AssertionError(f"the forced write did not announce itself: {err!r}")
     code, out, record = check(work, forced, functions)
     if code != 1 or "profile drift: load_segment: expected 0x2000, observed 0x1000" not in out:
@@ -894,7 +928,7 @@ def _():
     if code != 1 or env["status"] != "mismatch":
         raise AssertionError(f"no observed_profile: exit {code}")
     record = work / "absent-handshake.json"
-    code, _, err = run(TOOLS / "profile.py", "check", "--profile", prof,
+    code, _, err = run(TOOLS / "analysis_profile.py", "check", "--profile", prof,
                        "--functions", work / "absent.json", "--evidence", record)
     if code != 2 or json.loads(record.read_text())["status"] != "blocked":
         raise AssertionError(f"absent export: exit {code}")

@@ -14,7 +14,7 @@
     load segment and recovery this run expects. After export it compares that
     with what ExportDecompiledC.java observed, writes handshake.json, and stops
     with the field, the expected value and the observed value if any of them
-    differ (tools/profile.py, knowledge/17-evidence.md).
+    differ (tools/analysis_profile.py, knowledge/17-evidence.md).
 
 .PARAMETER Exe
     The DOS executable to analyse.
@@ -104,12 +104,12 @@ if (Select-String -Path $report -Pattern '\[ERROR\] packer' -Quiet) {
 Write-Host "`n[2/4] Import and analyse" -ForegroundColor Cyan
 # The settings this run expects Ghidra to use, written down before import so
 # the export can be held to them afterwards. Ghidra still chooses; the
-# handshake in step 4 checks that it chose these (tools/profile.py).
+# handshake in step 4 checks that it chose these (tools/analysis_profile.py).
 $profileJson = Join-Path $OutDir 'profile.json'
 $profileArgs = @('write', '--exe', $exeItem.FullName, '--ghidra', $Ghidra, '--out', $profileJson)
 if ($SkipRecovery) { $profileArgs += '--skip-recovery' }
-python (Join-Path $toolDir 'profile.py') @profileArgs
-if ($LASTEXITCODE -ne 0) { throw "profile.py could not write $profileJson" }
+python (Join-Path $toolDir 'analysis_profile.py') @profileArgs
+if ($LASTEXITCODE -ne 0) { throw "analysis_profile.py could not write $profileJson" }
 
 Invoke-Headless -HeadlessArgs @($projDir, $projName, '-import', $exeItem.FullName, '-overwrite') 'importing'
 
@@ -135,7 +135,7 @@ $handshake = Join-Path $OutDir 'handshake.json'
 $previous = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
-    $check = python (Join-Path $toolDir 'profile.py') check --profile $profileJson `
+    $check = python (Join-Path $toolDir 'analysis_profile.py') check --profile $profileJson `
         --functions (Join-Path $OutDir 'functions.json') --evidence $handshake 2>&1 |
         ForEach-Object { "$_" }
     $checkCode = $LASTEXITCODE

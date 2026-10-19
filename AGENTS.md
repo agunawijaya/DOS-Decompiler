@@ -340,8 +340,8 @@ load segment and recovery it expects — and after export compares it with what
 field, the expected value and the observed value. **Do not work around that
 stop.** It means every address and fingerprint in the export was produced under
 settings the rest of the toolkit does not assume; find out why first. If you
-run the three steps by hand, run `python tools/profile.py write` before and
-`python tools/profile.py check` after.
+run the three steps by hand, run `python tools/analysis_profile.py write` before and
+`python tools/analysis_profile.py check` after.
 
 `RecoverFunctions.java` exists because Ghidra's auto-analysis is not enough here.
 Games dispatch through function-pointer tables and install interrupt handlers by

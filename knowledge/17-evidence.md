@@ -31,7 +31,7 @@ it with `--evidence FILE`, or `--evidence -` for the envelope alone on stdout.
 | field | what it holds |
 |---|---|
 | `schema` | `dos-decompiler/evidence/1`. A consumer refuses a schema it does not know. |
-| `tool` | which tool wrote it: `triage`, `survey`, `mzinfo`, `profile`, `profile-check` |
+| `tool` | which tool wrote it: `triage`, `survey`, `mzinfo`, `analysis_profile` (profile.json), `analysis_profile check` (handshake.json) |
 | `tool_version` | the toolkit's git short hash, with `-dirty` if `tools/` has uncommitted or untracked changes, or `unknown` outside a checkout |
 | `target` | `path` (absolute), `size`, `sha256` of the file examined. For a folder: `kind: "directory"`, `files`, total `size`, and one `sha256` over a manifest of every file's relative path, size and hash. `size` and `sha256` are `null` only in an `error` envelope for a file that could not be read |
 | `profile` | the analysis profile the result was produced under, with its `profile_id`; `null` for a tool that runs no analysis |
@@ -57,11 +57,11 @@ An **evidence item**:
 
 | status | means | used by |
 |---|---|---|
-| `ok` | ran to completion; the result describes the target. Nothing was compared against an oracle, so nothing is proved | triage, survey, mzinfo, `profile.py write` |
-| `verified` | compared with an independent oracle, and they agree | `profile.py check` |
-| `mismatch` | compared, and they disagree; the evidence says where | `profile.py check` |
+| `ok` | ran to completion; the result describes the target. Nothing was compared against an oracle, so nothing is proved | triage, survey, mzinfo, `analysis_profile.py write` |
+| `verified` | compared with an independent oracle, and they agree | `analysis_profile.py check` |
+| `mismatch` | compared, and they disagree; the evidence says where | `analysis_profile.py check` |
 | `unsupported` | the target is a kind of input the tool does not handle, and it says so instead of producing something | mzinfo on a file that is not MZ |
-| `blocked` | something outside the target is missing, or a precondition refused the run | `profile.py check` when there is no export to check |
+| `blocked` | something outside the target is missing, or a precondition refused the run | `analysis_profile.py check` when there is no export to check |
 | `error` | the tool failed; nothing in the result is to be trusted | all, for a file that cannot be read |
 
 A tool may use only the statuses it can honestly reach. A tool that compares
@@ -324,7 +324,7 @@ Two of those are worth knowing on their own:
 
 ### The handshake
 
-After export, `profile.py check` compares eleven fields — the nine the export
+After export, `analysis_profile.py check` compares eleven fields — the nine the export
 observes, and the target's SHA-256 and size from `profile.json` against
 `functions.json` — and writes `handshake.json`, status `verified` or
 `mismatch`, one `profile-field` evidence item per field. On any difference the
@@ -339,7 +339,7 @@ Exception: ...\tools\pipeline.ps1:151
 ```
 
 That run was forced: `DOS_DECOMPILER_FORCE_DRIFT=load_segment=0x2000` makes
-`profile.py write` expect a wrong value, and announces itself on stderr when it
+`analysis_profile.py write` expect a wrong value, and announces itself on stderr when it
 does. It exists so a test can prove the check fails; never set it for real
 work. `tests/evidence/` drifts each of the eleven fields in turn against
 hand-written exports and requires each to be refused by name;
@@ -411,7 +411,9 @@ Regenerate out\functions.json from spread.exe with tools/pipeline.ps1, or pass t
   bytes as checked out, so a checkout with CRLF and one with LF have different
   `profile_id`s. Expected and observed always agree on one machine, because
   both read the same file.
-- **`tools/profile.py` shadows the standard library's `profile` module** for
-  any script that puts `tools/` first on `sys.path`. Nothing here uses the
-  standard one; anything that wants `cProfile` while importing from `tools/`
-  would get this module instead.
+- **The module is `analysis_profile.py`, not `profile.py`.** It was
+  `profile.py` for one prompt, which shadowed the standard library's
+  `profile` module — and so `cProfile`, which imports it — for every script
+  run from `tools/`. `tests/evidence/` now imports `cProfile` with `tools/`
+  first on the path, and checks that no module in `tools/` takes a standard
+  library name.
