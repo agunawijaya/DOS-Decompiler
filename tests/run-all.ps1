@@ -71,6 +71,8 @@ $testsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 # com, placements and tplist die on capstone, comrun and unpack on unicorn,
 # pcxlib and tpscan need neither.
 $Prerequisites = @{
+    # Its Ghidra half skips by itself, as loadimage's does.
+    'bodies'     = @('nasm', 'capstone')
     'com'        = @('nasm', 'capstone')
     'comrun'     = @('unicorn')
     'evidence'   = @('nasm')
