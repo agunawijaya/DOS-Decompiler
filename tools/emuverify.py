@@ -23,6 +23,11 @@ How a function is run
 ---------------------
   * The load image is mapped at segment 0x1000; DGROUP goes wherever the
     binary's own layout puts it, so global offsets line up between builds.
+  * A function is found by its whole entry, segment and offset, through the
+    verified load mapping. One outside the segment the image starts in runs
+    at its own CS:IP, entered with a far return address when it ends in RETF.
+    (A function in the first segment that ends in RETF is still entered as a
+    near one, as before.)
   * Small model, so SS == DS. Arguments are pushed right-to-left (cdecl) with
     a sentinel return address underneath; execution stops when it returns.
   * Calls are *not* followed. Each is skipped and given a deterministic stub
@@ -66,6 +71,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence  # noqa: E402
+import loadimage  # noqa: E402
 
 try:
     from unicorn import (Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_CODE,
@@ -186,21 +192,52 @@ def dgroup_from_relocations(exe_path):
     return min(values)
 
 
+class Entry:
+    """A function outside the segment the image starts in: where to run it.
+
+    `segment` is CS as the emulator maps the image (at IMAGE_SEG), `offset`
+    is IP, and `far` says it returns with RETF, so it is entered with a far
+    return address and finds its arguments past CS as well as IP."""
+
+    def __init__(self, segment, offset, far):
+        self.segment, self.offset, self.far = segment, offset, far
+
+    def __repr__(self):
+        return f"Entry({self.segment:04x}:{self.offset:04x}{', far' if self.far else ''})"
+
+
 def entries_from_functions_json(path, exe=None, accept_drift=False):
-    """Function offsets from the pipeline's export, for a binary with no map.
+    """Function locations from the pipeline's export, for a binary with no map.
 
     Names are the Ghidra placeholders, so a match here transfers a name *to*
     this binary rather than confirming one it already has. Given `exe`, the
     export is refused if it was made from a different file: offsets from one
     build run against another are profiles of the wrong code.
+
+    An entry is a whole segment:offset, put through the verified load mapping
+    (loadimage.locate_entries). A function in the segment the image starts in
+    is an offset into the image, run as it always was. One in another segment
+    is an Entry, run at its own segment:offset -- reading the offset alone ran
+    the code at that offset in the first segment instead (measured on four of
+    five real programs; adventur's 1f77:0010 profiled whatever is at 1000:0010).
     """
     data = evidence.load_functions(path, exe, "emuverify.py", accept_drift)
+    where, how, load = loadimage.locate_entries(path, data, exe or (data.get("target") or {}).get("path"))
+    if how != "verified" and any(w["segment"] != load for w in where.values()):
+        print(f"emuverify.py: note: no verified loadimage.json beside {path}; entries "
+              f"outside segment 0x{load:04x} were placed by segment * 16 + offset",
+              file=sys.stderr)
     out = {}
     for f in data["functions"]:
-        if f.get("thunk"):
+        if f.get("thunk") or f["entry"] not in where:
             continue
-        off = int(f["entry"].split(":")[1], 16)
-        out.setdefault(f["entry"], off)
+        w = where[f["entry"]]
+        if w["segment"] == load:
+            out.setdefault(f["entry"], w["image_offset"])
+        else:
+            mnemonics = set(f.get("mnemonics") or [])
+            far = "RETF" in mnemonics and "RET" not in mnemonics
+            out.setdefault(f["entry"], Entry(IMAGE_SEG + w["segment"] - load, w["offset"], far))
     return out
 
 
@@ -220,14 +257,24 @@ class Emulator:
 
     def run(self, offset, args, max_insns=MAX_INSNS):
         """Execute one function. Returns an observation dict, or None if it
-        could not be run to completion."""
+        could not be run to completion.
+
+        `offset` is an offset into the image, for a function in the segment
+        the image starts in, run as this always has; or an Entry, for one in
+        another segment. An Entry runs at its own CS:IP. Its return cannot be
+        caught at the sentinel -- a near return lands at CS:SENTINEL_IP in
+        its own segment -- so it is caught as it happens instead: the first
+        return taken with SP back at the return address pushed for it."""
+        entry = offset if isinstance(offset, Entry) else None
+        cs = entry.segment if entry else IMAGE_SEG
+        ip = entry.offset if entry else offset
         uc = Uc(UC_ARCH_X86, UC_MODE_16)
         uc.mem_map(0, MEM_SIZE)
         uc.mem_write(IMAGE_BASE, bytes(self.image))
         uc.mem_write(IMAGE_BASE + SENTINEL_IP, b"\xF4")     # HLT at the sentinel
 
         ds = self.dgroup + IMAGE_SEG
-        uc.reg_write(UC_X86_REG_CS, IMAGE_SEG)
+        uc.reg_write(UC_X86_REG_CS, cs)
         uc.reg_write(UC_X86_REG_DS, ds)
         uc.reg_write(UC_X86_REG_ES, ds)
         uc.reg_write(UC_X86_REG_SS, ds)                     # small model
@@ -239,9 +286,13 @@ class Emulator:
         for value in reversed(args):                        # cdecl, right to left
             sp -= 2
             uc.mem_write(dbase + sp, struct.pack("<H", value & 0xFFFF))
+        if entry and entry.far:
+            sp -= 2                                         # a far call pushes CS too
+            uc.mem_write(dbase + sp, struct.pack("<H", IMAGE_SEG))
         sp -= 2
         uc.mem_write(dbase + sp, struct.pack("<H", SENTINEL_IP))
         uc.reg_write(UC_X86_REG_SP, sp)
+        return_sp = sp
 
         # "budget" and "aborted" are different outcomes and must not be
         # conflated: running out of instructions is what a non-returning
@@ -256,13 +307,21 @@ class Emulator:
                 state["budget"] = True
                 mu.emu_stop()
                 return
-            ip = address - IMAGE_BASE
+            if entry:
+                ip = address - (mu.reg_read(UC_X86_REG_CS) << 4)
+            else:
+                ip = address - IMAGE_BASE
             try:
                 code = mu.mem_read(address, min(15, size + 14))
             except UcError:
                 return
             insn = next(self.md.disasm(bytes(code), address), None)
             if insn is None:
+                return
+            if entry and insn.mnemonic.startswith("ret") \
+                    and mu.reg_read(UC_X86_REG_SP) == return_sp:
+                state["returned"] = True
+                mu.emu_stop()
                 return
             if insn.mnemonic.startswith("call"):
                 # Skip the call. Both implementations of a function make the
@@ -295,14 +354,16 @@ class Emulator:
         uc.hook_add(UC_HOOK_MEM_READ, on_read)
 
         try:
-            uc.emu_start(IMAGE_BASE + offset, IMAGE_BASE + SENTINEL_IP,
+            uc.emu_start((cs << 4) + ip, IMAGE_BASE + SENTINEL_IP,
                          timeout=2_000_000, count=0)
         except UcError as e:
             state["aborted"] = str(e)
 
         # emu_start stops *before* executing the `until` address, so the code
         # hook never fires there. Completion has to be read from IP afterwards.
-        if (uc.reg_read(UC_X86_REG_IP) & 0xFFFF) == SENTINEL_IP:
+        if entry:
+            state["done"] = state.get("returned", False)
+        elif (uc.reg_read(UC_X86_REG_IP) & 0xFFFF) == SENTINEL_IP:
             state["done"] = True
 
         if not state["done"] and not state["budget"]:

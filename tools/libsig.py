@@ -34,7 +34,10 @@ possible. That makes matching against a *different* binary a genuine
 held-out test.
 
 `apply` refuses a functions.json that records a different executable than
-the one it is given (tools/evidence.py).
+the one it is given (tools/evidence.py). It finds each function's bytes from
+its whole entry, segment and offset, through the verified load mapping in the
+loadimage.json beside functions.json (tools/loadimage.py), so a function in a
+second code segment is read where it is, not at the same offset in the first.
 
 Usage:
     python libsig.py build  libref.exe libref.map --json sigs.json
@@ -52,6 +55,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence  # noqa: E402
+import loadimage  # noqa: E402
 
 try:
     from capstone import Cs, CS_ARCH_X86, CS_MODE_16
@@ -214,17 +218,35 @@ def match_at(code, table):
     return best
 
 
+def entry_file_offset(entry, functions_json, exe=None):
+    """Where in the file the function at `entry` (ssss:oooo) starts, or None
+    when the load mapping does not cover it. See loadimage.locate_entries."""
+    data = json.loads(Path(functions_json).read_text(encoding="utf-8"))
+    exe = exe or (data.get("target") or {}).get("path")
+    where, _, _ = loadimage.locate_entries(functions_json, data, exe)
+    return where[entry]["file_offset"] if entry in where else None
+
+
 def apply(exe, functions_json, db, accept_drift=False):
-    hdr, data = header_size(exe)
-    funcs = evidence.load_functions(functions_json, exe, "libsig.py",
-                                    accept_drift)["functions"]
+    _, data = header_size(exe)
+    export = evidence.load_functions(functions_json, exe, "libsig.py", accept_drift)
+    funcs = export["functions"]
     table = compile_db(db)
+
+    # The whole entry, segment and offset, through the verified load mapping:
+    # the offset alone finds the right bytes only in the segment the image
+    # starts in (measured: Talisman's 2629:80b2 read file 0x82b2, all zeros).
+    where, how, load = loadimage.locate_entries(functions_json, export, exe)
+    if how != "verified" and any(w["segment"] != load for w in where.values()):
+        print(f"libsig.py: note: no verified loadimage.json beside {functions_json}; "
+              f"entries outside segment 0x{load:04x} were placed by segment * 16 + "
+              f"offset", file=sys.stderr)
 
     hits = []
     for f in funcs:
-        seg, off = f["entry"].split(":")
-        offset = int(off, 16)
-        start = hdr + offset
+        if f["entry"] not in where:
+            continue
+        start = where[f["entry"]]["file_offset"]
         code = data[start:start + SIG_BYTES]
         if len(code) < MIN_SIG_BYTES:
             continue

@@ -875,6 +875,53 @@ def map_address(record, file_offset=None, linear=None, address=None):
             "block": m["block"], "notes": notes}
 
 
+def locate_entries(functions_path, data, exe):
+    """Where each function in a functions.json starts, in the file and in the
+    load image: {entry: {"file_offset", "image_offset", "linear", "segment",
+    "offset"}}, and how that was worked out.
+
+    An entry is a segment:offset pair, and the segment is half of it. Reading
+    the offset alone is right only for code in the segment the image starts
+    in. So each entry goes through the verified mapping in the loadimage.json
+    beside functions.json (`map_address`). Without a verified one -- an
+    export from before prompt 02 -- it falls back to the same rule the
+    mapping encodes, linear = segment * 16 + offset, with the export's own
+    load segment, and says which it used. An entry the mapping does not cover
+    is left out."""
+    functions_path = Path(functions_path)
+    record_name = (data.get("load_image") or {}).get("record", "loadimage.json")
+    record = None
+    try:
+        env = json.loads((functions_path.parent / record_name).read_text(encoding="utf-8"))
+        if env.get("status") == "verified":
+            record = env["result"]
+    except (OSError, ValueError, KeyError):
+        record = None
+    if record is not None:
+        load = int(record["load_segment"], 16)
+        how = "verified"
+    else:
+        load = int(((data.get("observed_profile") or {}).get("load_segment")
+                    or "0x1000"), 16)
+        header = struct.unpack_from("<H", Path(exe).read_bytes(), 8)[0] * 16
+        how = "linear-rule"
+    out = {}
+    for f in data.get("functions") or []:
+        entry = f["entry"]
+        seg, off = parse_address(entry)
+        linear = (seg << 4) + off
+        if record is not None:
+            try:
+                file_offset = map_address(record, address=entry)["file_offset"]
+            except MapError:
+                continue
+        else:
+            file_offset = header + linear - (load << 4)
+        out[entry] = {"file_offset": file_offset, "image_offset": linear - (load << 4),
+                      "linear": linear, "segment": seg, "offset": off}
+    return out, how, load
+
+
 # ---------------------------------------------------------------- command line
 
 def _read_profile(path):
