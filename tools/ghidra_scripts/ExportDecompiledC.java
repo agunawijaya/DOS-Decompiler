@@ -129,7 +129,13 @@ public class ExportDecompiledC extends GhidraScript {
         j.println("  \"target\": " + targetRecord() + ",");
         j.println("  \"observed_profile\": " + observedProfile() + ",");
         if (loadStatus != null) {
+            // corrections: null when CorrectMzLoad.java never ran, a count
+            // (0 for a clean file) when it did, so a reader can tell a clean
+            // load from a corrected one.
+            String count = currentProgram.getOptions(Program.PROGRAM_INFO)
+                    .getString(CORRECTION_COUNT, null);
             j.println("  \"load_image\": {\"status\": " + quote(loadStatus)
+                    + ", \"corrections\": " + (count == null ? "null" : count)
                     + ", \"mismatch_allowed\": " + loadAllowed
                     + ", \"record\": \"loadimage.json\"},");
         }
@@ -193,6 +199,10 @@ public class ExportDecompiledC extends GhidraScript {
     /** Written by RecoverFunctions.java when it runs; the same key. */
     private static final String RECOVERY_OPTION = "DOS-Decompiler RecoverFunctions SHA-256";
 
+    /** Written by CorrectMzLoad.java when it runs; the same keys. */
+    private static final String CORRECTION_HASH = "DOS-Decompiler CorrectMzLoad SHA-256";
+    private static final String CORRECTION_COUNT = "DOS-Decompiler CorrectMzLoad corrections";
+
     /* What Ghidra actually did with this program, in the terms tools/analysis_profile.py
      * expects. The pipeline compares the two after export and stops on any
      * difference. Nothing here decides what is right; it only reports. */
@@ -220,7 +230,17 @@ public class ExportDecompiledC extends GhidraScript {
         sb.append("\"export\": {\"script_sha256\": ")
           .append(quote(LoadImageMap.sourceSha256(getSourceFile())))
           .append(", \"helper_sha256\": ")
-          .append(quote(LoadImageMap.helperSha256(getSourceFile()))).append("}");
+          .append(quote(LoadImageMap.helperSha256(getSourceFile()))).append("}, ");
+        // The corrector's mark, as RecoverFunctions' is read above: whether it
+        // ran on this program, which copy, and how many corrections it made.
+        String correction = currentProgram.getOptions(Program.PROGRAM_INFO)
+                .getString(CORRECTION_HASH, null);
+        String corrections = currentProgram.getOptions(Program.PROGRAM_INFO)
+                .getString(CORRECTION_COUNT, null);
+        sb.append("\"load_correction\": {\"ran\": ").append(correction != null)
+          .append(", \"script_sha256\": ").append(quote(correction))
+          .append(", \"corrections\": ").append(corrections == null ? "null" : corrections)
+          .append("}");
         return sb.append("}").toString();
     }
 

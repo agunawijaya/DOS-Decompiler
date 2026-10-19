@@ -6,16 +6,22 @@
     Drop a game's .EXE in, get back a structural report, a Ghidra project with
     recovered functions, decompiled C, and a per-function fingerprint file.
 
-    The three Ghidra stages are deliberately separate invocations. Chaining
+    The Ghidra stages are deliberately separate invocations. Chaining
     -postScript flags in one headless run was once recorded as discarding the
     first script's changes; on Ghidra 12.1.2 (2026-10-19) that did not
     reproduce, but separate runs are known to work and cost little.
 
-    Right after import it checks that Ghidra loaded what the file says:
+    The order is import, correct, verify, analyse and recover, export. Import
+    runs without analysis. CorrectMzLoad.java then puts right the two loads
+    Ghidra 12.1.2 is measured to get wrong -- a full last page it drops, a
+    duplicated relocation it applies once -- and records each correction in
+    load-corrections.json. Then the load is checked against the file:
     DumpLoadImage.java writes down every block, mapping and relocation, and
     tools/loadimage.py compares them with what the MZ header implies, writing
-    loadimage.json. On anything but verified it stops and prints the first
-    failing check, unless -AllowLoadMismatch is given.
+    loadimage.json, without trusting the corrector. On anything but verified
+    it stops and prints the first failing check, unless -AllowLoadMismatch is
+    given. Auto-analysis and recovery run after that, on bytes known to be
+    the file's.
 
     Before import it writes profile.json: the loader, language, compiler spec,
     load segment and recovery this run expects. After export it compares that
@@ -48,6 +54,11 @@
     and in functions.json, and every reader of that functions.json warns.
     For a person who has read loadimage.json and understood the difference.
 
+.PARAMETER NoLoadCorrection
+    Skip CorrectMzLoad.java and verify Ghidra's own load as it stands, to
+    compare with the corrected one. A file Ghidra loads wrong then stops at
+    the load-image check, as it did before the corrector existed.
+
 .EXAMPLE
     .\pipeline.ps1 -Exe C:\games\GAME.EXE
 #>
@@ -58,7 +69,8 @@ param(
     [string]$Ghidra   = $env:GHIDRA_HOME,
     [string]$JavaHome = $env:JAVA_HOME,
     [switch]$SkipRecovery,
-    [switch]$AllowLoadMismatch
+    [switch]$AllowLoadMismatch,
+    [switch]$NoLoadCorrection
 )
 
 $ErrorActionPreference = 'Stop'
@@ -109,11 +121,11 @@ function Invoke-Headless {
     $out | Select-String -Pattern 'ERROR|Exception' |
         Select-Object -First 5 |
         ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-    $out | Select-String -Pattern 'RecoverFunctions:|ExportDecompiledC:|DumpLoadImage:|Using Language/Compiler|Import succeeded' |
+    $out | Select-String -Pattern 'RecoverFunctions:|ExportDecompiledC:|DumpLoadImage:|CorrectMzLoad:|Using Language/Compiler|Import succeeded' |
         ForEach-Object { Write-Host "    $_" -ForegroundColor DarkCyan }
 }
 
-Write-Host "`n[1/5] Structure" -ForegroundColor Cyan
+Write-Host "`n[1/6] Structure" -ForegroundColor Cyan
 $report = Join-Path $OutDir 'mzinfo.txt'
 & $python (Join-Path $toolDir 'mzinfo.py') $exeItem.FullName | Tee-Object -FilePath $report
 & $python (Join-Path $toolDir 'mzinfo.py') $exeItem.FullName --json |
@@ -127,33 +139,61 @@ if (Select-String -Path $report -Pattern '\[ERROR\] packer' -Quiet) {
     return
 }
 
-Write-Host "`n[2/5] Import and analyse" -ForegroundColor Cyan
+Write-Host "`n[2/6] Import" -ForegroundColor Cyan
 # The settings this run expects Ghidra to use, written down before import so
 # the export can be held to them afterwards. Ghidra still chooses; the
-# handshake in step 5 checks that it chose these (tools/analysis_profile.py).
+# handshake in step 6 checks that it chose these (tools/analysis_profile.py).
 $profileJson = Join-Path $OutDir 'profile.json'
 $profileArgs = @('write', '--exe', $exeItem.FullName, '--ghidra', $Ghidra, '--out', $profileJson)
 if ($SkipRecovery) { $profileArgs += '--skip-recovery' }
+if ($NoLoadCorrection) { $profileArgs += '--no-load-correction' }
 & $python (Join-Path $toolDir 'analysis_profile.py') @profileArgs
 if ($LASTEXITCODE -ne 0) { throw "analysis_profile.py could not write $profileJson" }
 
-Invoke-Headless -HeadlessArgs @($projDir, $projName, '-import', $exeItem.FullName, '-overwrite') 'importing'
+# Imported without analysis. Auto-analysis reads the program's bytes, and
+# they are not to be trusted until the load has been corrected and verified;
+# it runs in stage 5 instead, on the program stage 4 verified.
+Invoke-Headless -HeadlessArgs @($projDir, $projName, '-import', $exeItem.FullName, '-overwrite',
+                  '-noanalysis') 'importing'
+
+# Ghidra 12.1.2's MZ loader is measured to get two kinds of file wrong: a
+# full last page is dropped, and a duplicated relocation takes effect once.
+# Put those right, and nothing else; stage 4 then checks the result against
+# the file without believing anything the corrector says it did.
+$correctionsJson = Join-Path $OutDir 'load-corrections.json'
+Remove-Item -LiteralPath $correctionsJson -ErrorAction SilentlyContinue
+if (-not $NoLoadCorrection) {
+    Write-Host "`n[3/6] Correct the load" -ForegroundColor Cyan
+    $correctTimer = [Diagnostics.Stopwatch]::StartNew()
+    $expectedJson = Join-Path $OutDir 'loadimage-expected.json'
+    & $python (Join-Path $toolDir 'loadimage.py') expected $exeItem.FullName `
+        --profile $profileJson --evidence $expectedJson | Out-Null
+    Invoke-Headless -HeadlessArgs @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
+                      '-scriptPath', $scripts, '-postScript', 'CorrectMzLoad.java',
+                      $expectedJson, $OutDir) 'correcting what the loader is known to get wrong'
+    $correctTimer.Stop()
+    Write-Host ("    corrected in {0:N1} s; the record is {1}" -f $correctTimer.Elapsed.TotalSeconds, $correctionsJson) -ForegroundColor DarkGray
+} else {
+    Write-Host "`n[3/6] Load correction skipped (-NoLoadCorrection): verifying Ghidra's own load" -ForegroundColor DarkYellow
+}
 
 # Everything after this trusts that the program is the file: the same bytes,
 # at the addresses the header implies, every relocation applied once per
 # entry. Check it before anything is built on it. Read-only: the dump changes
 # nothing in the project.
-Write-Host "`n[3/5] Verify the load image" -ForegroundColor Cyan
+Write-Host "`n[4/6] Verify the load image" -ForegroundColor Cyan
 $loadTimer = [Diagnostics.Stopwatch]::StartNew()
 Invoke-Headless -HeadlessArgs @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
                   '-readOnly', '-scriptPath', $scripts, '-postScript', 'DumpLoadImage.java',
                   $OutDir) 'dumping what Ghidra loaded'
 $loadJson = Join-Path $OutDir 'loadimage.json'
+$verifyArgs = @('verify', $exeItem.FullName, (Join-Path $OutDir 'loadimage-observed'),
+                '--profile', $profileJson, '--evidence', $loadJson)
+if (-not $NoLoadCorrection) { $verifyArgs += @('--corrections', $correctionsJson) }
 $previous = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
-    $verify = & $python (Join-Path $toolDir 'loadimage.py') verify $exeItem.FullName `
-        (Join-Path $OutDir 'loadimage-observed') --profile $profileJson --evidence $loadJson 2>&1 |
+    $verify = & $python (Join-Path $toolDir 'loadimage.py') @verifyArgs 2>&1 |
         ForEach-Object { "$_" }
     $verifyCode = $LASTEXITCODE
 } finally {
@@ -180,15 +220,22 @@ if ($verifyCode -ne 0) {
     Write-Host '    ************************************************************' -ForegroundColor Yellow
 }
 
+# Auto-analysis, now that the bytes are known to be the file's, in a run of
+# its own; then recovery in a run without analysis, as before. Running
+# recovery in the same, analysing, run was measured to change the export of a
+# clean 51,904-byte game -- one function more, eleven records different --
+# because Ghidra then analyses what the script creates. Kept apart, the export
+# of a clean file is what it was before the corrector existed.
+Write-Host "`n[5/6] Analyse and recover missed functions" -ForegroundColor Cyan
+Invoke-Headless -HeadlessArgs @($projDir, $projName, '-process', $exeItem.Name) 'analysing'
 if (-not $SkipRecovery) {
-    Write-Host "`n[4/5] Recover missed functions" -ForegroundColor Cyan
     Invoke-Headless -HeadlessArgs @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
                       '-scriptPath', $scripts, '-postScript', 'RecoverFunctions.java') 'recovering'
 } else {
-    Write-Host "`n[4/5] Recovery skipped" -ForegroundColor DarkYellow
+    Write-Host '  recovery skipped' -ForegroundColor DarkYellow
 }
 
-Write-Host "`n[5/5] Decompile and fingerprint" -ForegroundColor Cyan
+Write-Host "`n[6/6] Decompile and fingerprint" -ForegroundColor Cyan
 $exportArgs = @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
                 '-scriptPath', $scripts, '-postScript', 'ExportDecompiledC.java', $OutDir,
                 "load_image:$loadStatus")

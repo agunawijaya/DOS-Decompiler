@@ -39,6 +39,12 @@ taken against the file with the fixups applied, never against the file as
 stored, and the relocation checks hold each patched word to its value after
 the fixup.
 
+The two loads Ghidra 12.1.2 gets wrong are corrected before this runs, by
+CorrectMzLoad.java, from `expected`'s output. `verify --corrections` records
+what it corrected, so a clean load can be told from a corrected one, and
+checks which script wrote the record -- but it does not believe the record:
+the corrected program is compared with the file like any other.
+
 What it does not do: run anything, or say what an uninitialised block will
 hold at run time -- those are reported, not verified. It covers MZ only; a
 .COM has no header for it to check and goes through comrec.py instead.
@@ -46,7 +52,8 @@ hold at run time -- those are reported, not verified. It covers MZ only; a
 Usage:
     python loadimage.py expected GAME.EXE [--profile out/profile.json] [--evidence -]
     python loadimage.py verify GAME.EXE out/loadimage-observed \\
-                        [--profile out/profile.json] [--evidence out/loadimage.json]
+                        [--profile out/profile.json] [--evidence out/loadimage.json] \\
+                        [--corrections out/load-corrections.json]
     python loadimage.py map out/loadimage.json --file 0x201
     python loadimage.py map out/loadimage.json --address 1000:0001
     python loadimage.py map out/loadimage.json --linear 0x10001
@@ -70,6 +77,7 @@ import mzinfo  # noqa: E402
 DEFAULT_LOAD_SEGMENT = 0x1000      # analysis_profile.LOAD_SEGMENT, measured
 DUMP_SCRIPT = Path(__file__).resolve().parent / "ghidra_scripts" / "DumpLoadImage.java"
 HELPER_SCRIPT = Path(__file__).resolve().parent / "ghidra_scripts" / "LoadImageMap.java"
+CORRECT_SCRIPT = Path(__file__).resolve().parent / "ghidra_scripts" / "CorrectMzLoad.java"
 
 LIMITATIONS = [
     "The expected load is DOS's reading of the header, from documentation: a "
@@ -130,6 +138,7 @@ class Expected:
         h = mz["header"]
         self.header_size = h["header_size"]
         pages, last = h["pages_512"], h["bytes_on_last_page"]
+        self.pages, self.bytes_on_last_page = pages, last
 
         if self.header_size < 0x1C:
             raise Unsupported(f"the header is {self.header_size} bytes, smaller "
@@ -223,7 +232,9 @@ class Expected:
             "file_size": len(self.data),
             "load_segment": f"0x{self.load_segment:04x}",
             "header": {"size": self.header_size,
-                       "sha256": sha256(self.data[:self.header_size])},
+                       "sha256": sha256(self.data[:self.header_size]),
+                       "pages": self.pages,
+                       "bytes_on_last_page": self.bytes_on_last_page},
             "module": {"file_start": self.header_size,
                        "file_end_inclusive": self.image_end - 1,
                        "size": len(self.module),
@@ -618,9 +629,41 @@ def mapping_record(obs):
     return {"mappings": mappings, "uninitialized": uninitialized}
 
 
-def verify(exe, observed_folder, profile=None):
+def _corrector_checks(c, exp, corrections_path, profile):
+    """Where load-corrections.json came from -- never what it says was done.
+
+    The record is checked for provenance only: the CorrectMzLoad.java and
+    helper in this checkout wrote it, about this file. Whether the corrected
+    program is right is settled by every other check, against the file, as
+    though no corrector existed."""
+    try:
+        record = json.loads(Path(corrections_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        c.add("corrector.record", False, "a readable load-corrections.json", str(e))
+        return None
+    want = (profile or {}).get("load_correction") or {}
+    want_script = want.get("script_sha256") or evidence.source_sha256(CORRECT_SCRIPT)
+    want_helper = want.get("helper_sha256") or evidence.source_sha256(HELPER_SCRIPT)
+    c.add("corrector.script_sha256", record.get("script_sha256") == want_script,
+          want_script, record.get("script_sha256"),
+          "which CorrectMzLoad.java wrote the record")
+    c.add("corrector.helper_sha256", record.get("helper_sha256") == want_helper,
+          want_helper, record.get("helper_sha256"))
+    c.add("corrector.target", record.get("target_sha256") == sha256(exp.data),
+          sha256(exp.data), record.get("target_sha256"),
+          "the corrections were made against this file")
+    return record
+
+
+def verify(exe, observed_folder, profile=None, corrections=None):
     """The envelope for one file and one dump. Status verified, mismatch,
-    unsupported, or blocked when there is no dump to compare against."""
+    unsupported, or blocked when there is no dump to compare against.
+
+    `corrections` is CorrectMzLoad.java's load-corrections.json, when it ran.
+    Its corrections are recorded in the result -- so a reader can tell a
+    clean load from a corrected one -- and its provenance is checked, but
+    nothing in it is believed: the corrected program is compared with the
+    file exactly as an uncorrected one would be."""
     load_segment = int((profile or {}).get("load_segment", "0x1000"), 16)
     target = evidence.target_identity(exe)
     try:
@@ -642,10 +685,16 @@ def verify(exe, observed_folder, profile=None):
             limitations=LIMITATIONS)
 
     checks = compare(exp, obs, profile)
+    record = _corrector_checks(checks, exp, corrections, profile) if corrections else None
     status = "verified" if all(i["ok"] for i in checks.items) else "mismatch"
     result = exp.record()
     result.update(mapping_record(obs))
     result["observed"] = str(obs.folder)
+    # null: the corrector did not run. 0: it ran and found nothing to correct.
+    result["corrections"] = None if not corrections else \
+        (record.get("count") if record else None)
+    result["correction_record"] = str(corrections) if corrections else None
+    result["corrections_made"] = (record or {}).get("corrections", [])
     result["checks"] = len(checks.items)
     result["failed"] = [i["name"] for i in checks.items if not i["ok"]]
     result["first_failure"] = checks.first_failure()
@@ -756,13 +805,18 @@ def _number(text):
 def summary(env):
     status = env["status"]
     result = env["result"]
+    n = result.get("corrections")
+    after = ""
+    if n:
+        record = Path(result.get("correction_record") or "load-corrections.json").name
+        after = f" after {n} correction{'' if n == 1 else 's'} (see {record})"
     if status == "verified":
-        return [f"load image: verified, {result['checks']} checks agree"]
+        return [f"load image: verified{after}, {result['checks']} checks agree"]
     if status in ("unsupported", "blocked"):
         return [f"load image: {status}: {result['reason']}"]
     f = result["first_failure"]
-    lines = [f"load image: mismatch, {len(result['failed'])} of {result['checks']} "
-             f"checks failed",
+    lines = [f"load image: mismatch{after}, {len(result['failed'])} of "
+             f"{result['checks']} checks failed",
              f"first failing check: {f['name']}: expected {f['expected']}, "
              f"observed {f['observed']}"]
     if f.get("first_difference"):
@@ -791,6 +845,9 @@ def main():
     v.add_argument("observed", help="DumpLoadImage.java's folder, or its observed.json")
     v.add_argument("--profile", help="profile.json from analysis_profile.py write")
     v.add_argument("--evidence", help="write the envelope here (loadimage.json)")
+    v.add_argument("--corrections",
+                   help="CorrectMzLoad.java's load-corrections.json, when it ran: "
+                        "recorded, and its provenance checked, but not trusted")
 
     m = sub.add_parser("map", help="convert a file offset or an address")
     m.add_argument("record", help="loadimage.json from a verified run")
@@ -810,7 +867,8 @@ def main():
         return 0 if env["status"] == "ok" else 2
 
     if args.cmd == "verify":
-        env = verify(args.exe, args.observed, _read_profile(args.profile))
+        env = verify(args.exe, args.observed, _read_profile(args.profile),
+                     args.corrections)
         if args.evidence:
             evidence.write(env, args.evidence)
         for line in summary(env):

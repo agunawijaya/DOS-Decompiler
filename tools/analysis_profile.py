@@ -47,6 +47,9 @@ What is in it
                       observed_profile, and the handshake compares them
   load_image_dump     the same for DumpLoadImage.java, held to its dump by
                       tools/loadimage.py verify
+  load_correction     whether CorrectMzLoad.java ran, and which version of it;
+                      it leaves a mark in the program like recovery's, which
+                      the export reports and the handshake compares
 
 profile_id is the SHA-256 of the profile's canonical JSON (evidence.canonical),
 computed without profile_id itself and without toolkit_version. It names the
@@ -101,7 +104,7 @@ for real work.
 
 Usage:
     python analysis_profile.py write --exe GAME.EXE --ghidra $GHIDRA_HOME --out out/profile.json
-    python analysis_profile.py write ... --skip-recovery
+    python analysis_profile.py write ... --skip-recovery --no-load-correction
     python analysis_profile.py check --profile out/profile.json --functions out/functions.json \\
                             [--evidence out/handshake.json]
     python analysis_profile.py show --ghidra $GHIDRA_HOME
@@ -124,6 +127,7 @@ GHIDRA_SCRIPTS = TOOLKIT_ROOT / "tools" / "ghidra_scripts"
 RECOVERY_SCRIPT = GHIDRA_SCRIPTS / "RecoverFunctions.java"
 EXPORT_SCRIPT = GHIDRA_SCRIPTS / "ExportDecompiledC.java"
 DUMP_SCRIPT = GHIDRA_SCRIPTS / "DumpLoadImage.java"
+CORRECT_SCRIPT = GHIDRA_SCRIPTS / "CorrectMzLoad.java"
 # The plain class ExportDecompiledC.java and DumpLoadImage.java share; each
 # reports its hash beside its own.
 HELPER_SCRIPT = GHIDRA_SCRIPTS / "LoadImageMap.java"
@@ -146,7 +150,8 @@ ADDRESS_CONVENTION = "ssss:oooo"
 COMPARED = ("loader", "language", "compiler_spec", "image_base", "load_segment",
             "address_convention", "ghidra_version", "recovery.ran",
             "recovery.script_sha256", "export.script_sha256",
-            "export.helper_sha256")
+            "export.helper_sha256", "load_correction.ran",
+            "load_correction.script_sha256")
 
 LIMITATIONS = [
     "The expected values were measured once, on Ghidra 12.1.2 with one "
@@ -199,7 +204,7 @@ def analysis_code(root=TOOLKIT_ROOT):
     return {"sha256": digest, "files": files}
 
 
-def expected_profile(ghidra_home, skip_recovery=False):
+def expected_profile(ghidra_home, skip_recovery=False, no_load_correction=False):
     return {
         "loader": LOADER,
         "language": LANGUAGE,
@@ -216,6 +221,12 @@ def expected_profile(ghidra_home, skip_recovery=False):
                    "helper_sha256": evidence.source_sha256(HELPER_SCRIPT)},
         # Held to what DumpLoadImage.java reports by tools/loadimage.py
         # verify, not by the handshake: the dump is not in functions.json.
+        "load_correction": {
+            "ran": not no_load_correction,
+            "script_sha256": None if no_load_correction
+            else evidence.source_sha256(CORRECT_SCRIPT),
+            "helper_sha256": None if no_load_correction
+            else evidence.source_sha256(HELPER_SCRIPT)},
         "load_image_dump": {"script_sha256": evidence.source_sha256(DUMP_SCRIPT),
                             "helper_sha256": evidence.source_sha256(HELPER_SCRIPT)},
     }
@@ -265,7 +276,7 @@ def apply_forced_drift(profile, spec):
 
 
 def write(args):
-    profile = expected_profile(args.ghidra, args.skip_recovery)
+    profile = expected_profile(args.ghidra, args.skip_recovery, args.no_load_correction)
     forced = []
     spec = os.environ.get(DRIFT_VARIABLE)
     if spec:
@@ -282,7 +293,8 @@ def write(args):
     print(f"profile {profile['profile_id'][:16]}  ({profile['loader']}, "
           f"{profile['language']}:{profile['compiler_spec']}, load segment "
           f"{profile['load_segment']}, Ghidra {profile['ghidra_version']}, "
-          f"recovery {'on' if profile['recovery']['ran'] else 'off'}) -> {args.out}")
+          f"recovery {'on' if profile['recovery']['ran'] else 'off'}, load correction "
+          f"{'on' if profile['load_correction']['ran'] else 'off'}) -> {args.out}")
     return 0
 
 
@@ -361,7 +373,8 @@ def _record(args, expected_env, status, rows, drifted):
 
 
 def show(args):
-    profile = with_id(expected_profile(args.ghidra, args.skip_recovery))
+    profile = with_id(expected_profile(args.ghidra, args.skip_recovery,
+                                       args.no_load_correction))
     sys.stdout.write(evidence.dumps(profile))
     return 0
 
@@ -378,6 +391,8 @@ def main():
     w.add_argument("--out", required=True)
     w.add_argument("--skip-recovery", action="store_true",
                    help="the pipeline will not run RecoverFunctions.java")
+    w.add_argument("--no-load-correction", action="store_true",
+                   help="the pipeline will not run CorrectMzLoad.java")
 
     c = sub.add_parser("check", help="compare an export with the profile")
     c.add_argument("--profile", required=True)
@@ -387,6 +402,7 @@ def main():
     s = sub.add_parser("show", help="print the expected profile and its id")
     s.add_argument("--ghidra", default=os.environ.get("GHIDRA_HOME"))
     s.add_argument("--skip-recovery", action="store_true")
+    s.add_argument("--no-load-correction", action="store_true")
 
     args = ap.parse_args()
     return {"write": write, "check": check, "show": show}[args.cmd](args)
