@@ -17,6 +17,28 @@ pipeline keeps the separate invocations, which cost nothing; what it now
 checks instead is in `17-evidence.md` — whether recovery ran, by a mark the
 script leaves in the program.
 
+**Ghidra's MZ loader drops the last page when the header says it is full.**
+Bytes-on-last-page 0 means the last 512-byte page is full; FreeDOS and DOSBox
+both size the image as `pages * 512 - header`. Ghidra 12.1.2's `MzLoader`
+computes `(pages - 1) * 512 + bytes_on_last_page` and so loses the entire last
+page. Measured on a two-page fixture: `module.coverage` failed with
+`file 0x200..0x3ff not loaded`. A linker writes 0 whenever the file is an exact
+multiple of 512 bytes, so a real game can hit this. The load-image check after
+import (`17-evidence.md`) stops the pipeline on it.
+
+**Ghidra's MZ loader applies a duplicated relocation once.** DOS adds the load
+segment once per relocation entry, so a word listed twice gets it twice:
+FreeDOS `*spot += start_seg;`, DOSBox
+`mem_writew(address, mem_readw(address)+relocate);`. Ghidra writes
+`0x1000 + the file's word` for each entry instead of adding, so the second
+write changes nothing. Measured: `1006:0016: 0x1004 not 0x2004`. It keeps both
+relocation records, so only the word itself shows the difference.
+
+**`=` splits a headless script argument on Windows.** `analyzeHeadless.bat`
+passes arguments through cmd.exe, which treats `=` as a separator:
+`load_image_status=verified` reached the script as two arguments, and the
+field it was meant to set never appeared. Pass `key:value` instead.
+
 **`getImageBase()` is not the load segment.** Ghidra's MZ loader puts image
 byte 0 at `1000:0000`, and `Program.getImageBase()` returns `0000:0000` for the
 same program (measured, Ghidra 12.1.2). The `image_base` field in

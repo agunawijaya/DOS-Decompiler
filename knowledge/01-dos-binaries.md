@@ -16,6 +16,21 @@ image. Three details cause most confusion:
   values back gives you the segments the program actually constructs, without
   executing anything.
 
+Two details of how DOS reads the header, from FreeDOS's and DOSBox's loaders
+(`kernel/task.c` and `src/dos/dos_execute.cpp`, read 2026-10-19). Ghidra's MZ
+loader differs on both (`04-pitfalls.md`):
+
+- **Every relocation entry adds the load segment once, in table order.** A word
+  listed twice gets it twice; a later entry sees what an earlier one wrote.
+- **Bytes-on-last-page 0 means the last page is full.** Both loaders load
+  whole pages, `pages * 512 - header`. That also means bytes after the declared
+  end, inside the last page, reach memory. They still belong to no part of the
+  program.
+
+`tools/loadimage.py expected GAME.EXE` writes all of this down from the file
+alone: the module's file range and digest, every relocation with its word
+before and after the fixup, the entry and stack, anything appended.
+
 A `.COM` file has no header at all: it loads at offset `0x100` in a single
 segment. Tell the disassembler that base or every address is wrong by `0x100`.
 

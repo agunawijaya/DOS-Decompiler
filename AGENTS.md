@@ -351,6 +351,24 @@ run the three steps by hand, run `python tools/analysis_profile.py write`
 before and `python tools/analysis_profile.py check --evidence handshake.json`
 after.
 
+Right after import the pipeline also checks that Ghidra's program **is the
+file**: the same bytes at the addresses the header implies, each relocation
+applied once per entry (`loadimage.json`). It stops on anything but verified
+and prints the first failing check. Treat that stop the same way. Ghidra
+12.1.2 was measured getting two kinds of MZ wrong — a header whose last page
+is marked full loses that page, and a duplicated relocation is applied once —
+so a mismatch is likely a real loader problem, not a quirk of the check
+(`knowledge/04-pitfalls.md`). `-AllowLoadMismatch` exists for a person who has
+read `loadimage.json`; every later reader of that export then warns. By hand:
+`-postScript DumpLoadImage.java OUTDIR` with `-readOnly`, then
+`python tools/loadimage.py verify GAME.EXE OUTDIR/loadimage-observed --profile
+profile.json --evidence loadimage.json`.
+
+To find where a file offset is in the program, or which file byte an address
+came from, use `python tools/loadimage.py map loadimage.json --file 0x...` or
+`--address ssss:oooo`. It knows which bytes are relocated words, whose value in
+memory is not the file's.
+
 Set `PYTHON` to the interpreter that has capstone and unicorn. `pipeline.ps1`
 and `tests/run-all.ps1` use it before whatever `python` is first on PATH, which
 on some machines is a copy another application bundled, without either.
@@ -588,9 +606,10 @@ not mean nothing got worse.
   sets) and the mini-port method for turning one puzzle into teaching
   material
 - `knowledge/17-evidence.md` — the evidence envelope (`--evidence`), the
-  analysis profile and its handshake, and the refusal of a stale
-  `functions.json`; including the measured fact that Ghidra's `image_base` is
-  not the load segment
+  analysis profile and its handshake, load-image verification and `map`, and
+  the refusal of a stale `functions.json`; including the measured facts that
+  Ghidra's `image_base` is not the load segment and that its MZ loader gets two
+  kinds of file wrong
 - `tests/sopwith/CASE-STUDY.md` — the whole method worked through, including the
   hypotheses that turned out wrong
 - `tests/com/CASE-STUDY.md` — a 1982 `.COM` game rebuilt byte-for-byte, and the

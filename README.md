@@ -441,16 +441,34 @@ for this step, and no agent should be trusted to skip it.
 ```console
 $ ./tools/pipeline.ps1 -Exe games/SOPWITH.EXE -OutDir out
 
-[1/4] Structure
-[2/4] Import and analyse
+[1/5] Structure
+[2/5] Import and analyse
     Using Language/Compiler: x86:LE:16:Real Mode:default
     Import succeeded
-[3/4] Recover missed functions
+[3/5] Verify the load image
+    (not run on Sopwith: this listing predates the stage)
+[4/5] Recover missed functions
     RecoverFunctions: 243 prologues seen, +34 from code pointers,
     10 over-long functions split, 325 functions total
-[4/4] Decompile and fingerprint
+[5/5] Decompile and fingerprint
     ExportDecompiledC: 324 decompiled, 1 failed -> out
 ```
+
+The Sopwith lines come from a run made before the load-image check and the
+profile handshake existed, and Sopwith has not been through the pipeline since,
+so nothing here says how it fares under either. Stage 3 on the
+`tests/loadimage` fixture reads:
+
+```console
+[3/5] Verify the load image
+  dumping what Ghidra loaded
+    DumpLoadImage: 6 blocks, 4 relocations, 1 entry point(s) -> out\loadimage-observed
+    load image: verified, 28 checks agree
+    checked in 6.6 s; the record is out\loadimage.json
+```
+
+On six real games of 51,904 to 171,917 bytes it verified every one, with 24 to
+30 checks, in 5.2 to 6.5 s.
 
 ```console
 $ ls out
@@ -459,7 +477,12 @@ functions.json    187,852 bytes
 mzinfo.txt          2,445 bytes
 ```
 
-That listing predates two more files the pipeline now writes. `profile.json`
+That listing predates the files the pipeline now writes as well. Right after
+import it checks that Ghidra's program is the file: `loadimage-observed/` holds
+what Ghidra loaded, and `loadimage.json` compares it with what the MZ header
+implies. Anything but verified stops the run with the first failing check,
+unless `-AllowLoadMismatch` is given; Ghidra 12.1.2 was measured getting two
+kinds of file wrong (`knowledge/04-pitfalls.md`). `profile.json`
 records, before import, the loader, language, load segment and recovery the run
 expects Ghidra to use; after export the pipeline compares it with what
 `functions.json` says Ghidra actually did, writes `handshake.json`, and stops
@@ -573,9 +596,14 @@ python tools\triage.py unpacked.exe
 python tools\comrec.py path\to\GAME.COM --out src\game.asm
 nasm -f bin -o rebuilt.com src\game.asm      # then compare SHA-256 yourself
 
-# 1. Structure, decompilation, function recovery. Writes profile.json first
+# 1. Structure, decompilation, function recovery. Writes profile.json first,
+#    stops after import if Ghidra's program is not the file (loadimage.json),
 #    and stops after export if Ghidra did not do what the profile expected.
 .\tools\pipeline.ps1 -Exe path\to\GAME.EXE -OutDir .\out
+
+# 1a. Where a byte of the file is in Ghidra's program, and back.
+python tools\loadimage.py map out\loadimage.json --file 0x201
+python tools\loadimage.py map out\loadimage.json --address 1000:0001
 
 # 2. Names from evidence alone — no reference source needed.
 #    --exe refuses a functions.json that was made from a different file.
@@ -824,6 +852,9 @@ tools/
                              an export produced under anything else
   evidence.py                the evidence envelope every --evidence writes, and
                              the check that refuses a stale functions.json
+  loadimage.py               what a correct load of an MZ looks like, from the
+                             file alone; checks Ghidra's against it; maps
+                             file offsets to addresses and back
   mzinfo.py                  MZ structure, segments, packer and overlay detection
   anchors.py                 identify functions from evidence, with no source
   libscan.py                 find the C runtime using the compiler's own .LIB,
@@ -840,6 +871,9 @@ tools/
   ghidra_scripts/
     RecoverFunctions.java    find the functions Ghidra's analysis misses
     ExportDecompiledC.java   export decompiled C + per-function fingerprints
+    DumpLoadImage.java       write down what Ghidra loaded, for loadimage.py
+    LoadImageMap.java        not a script: the block walk and self-hash the two
+                             above share
     ApplyNames.java          write recovered names back, with confidence marks
 knowledge/
   00-scope.md                what this handles and what it does not
@@ -867,6 +901,7 @@ tests/com/                   .COM fixtures, rebuilt byte-identically on every ru
 tests/libscan/               entry-point recovery, checked against the MZ header
 tests/evidence/              envelopes, the handshake's logic, stale-result refusal
 tests/handshake/             the profile handshake run through Ghidra itself
+tests/loadimage/             load-image verification: correct, tampered, malformed
 AGENTS.md                    the method, for any agent or human
 SKILL.md                     Claude Code wrapper
 env.example.ps1              copy to env.ps1, point at your own tool copies

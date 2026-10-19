@@ -12,14 +12,17 @@ record of which file, or which analysis settings, produced it. A
 executable and every tool would carry on.
 
 The fix, borrowed as an idea from [rea](05-prior-art.md#rea--an-mcp-server-in-front-of-ghidra-for-the-same-binaries)
-and built here from nothing, has three parts:
+and built here from nothing, has four parts:
 
 1. An **evidence envelope**: a result's own shape, carrying each observation
    behind it, what the method cannot see, and what it raised but could not
    settle — tied to the target's size and SHA-256.
 2. An **analysis profile**: the Ghidra settings the pipeline expects, written
    down before import and checked against what the export observed.
-3. **Stale-result protection**: every tool that reads `functions.json` beside
+3. **Load-image verification**: right after import, a check that Ghidra's
+   program is the file — the same bytes, at the addresses the header implies,
+   every relocation applied once per entry (prompt 02).
+4. **Stale-result protection**: every tool that reads `functions.json` beside
    an executable checks that the export was made from that executable.
 
 ## The envelope
@@ -27,11 +30,12 @@ and built here from nothing, has three parts:
 `tools/evidence.py` builds it; `triage.py`, `survey.py` and `mzinfo.py` emit
 it with `--evidence FILE`, or `--evidence -` for the envelope alone on stdout.
 `tools/analysis_profile.py` writes two more: `profile.json` and `handshake.json`.
+`tools/loadimage.py` writes `loadimage.json`.
 
 | field | what it holds |
 |---|---|
 | `schema` | `dos-decompiler/evidence/1`. A consumer refuses a schema it does not know. |
-| `tool` | which tool wrote it: `triage`, `survey`, `mzinfo`, `analysis_profile` (profile.json), `analysis_profile check` (handshake.json) |
+| `tool` | which tool wrote it: `triage`, `survey`, `mzinfo`, `analysis_profile` (profile.json), `analysis_profile check` (handshake.json), `loadimage` (loadimage.json) |
 | `tool_version` | the toolkit's git short hash, with `-dirty` if `tools/` has uncommitted or untracked changes, or `unknown` outside a checkout |
 | `target` | `path` (absolute), `size`, `sha256` of the file examined. For a folder: `kind: "directory"`, `files`, total `size`, and one `sha256` over a manifest of every file's relative path, size and hash. `size` and `sha256` are `null` only in an `error` envelope for a file that could not be read |
 | `profile` | the analysis profile the result was produced under, with its `profile_id`; `null` for a tool that runs no analysis |
@@ -57,11 +61,11 @@ An **evidence item**:
 
 | status | means | used by |
 |---|---|---|
-| `ok` | ran to completion; the result describes the target. Nothing was compared against an oracle, so nothing is proved | triage, survey, mzinfo, `analysis_profile.py write` |
-| `verified` | compared with an independent oracle, and they agree | `analysis_profile.py check` |
-| `mismatch` | compared, and they disagree; the evidence says where | `analysis_profile.py check` |
-| `unsupported` | the target is a kind of input the tool does not handle, and it says so instead of producing something | mzinfo on a file that is not MZ |
-| `blocked` | something outside the target is missing, or a precondition refused the run | `analysis_profile.py check` when there is no export to check |
+| `ok` | ran to completion; the result describes the target. Nothing was compared against an oracle, so nothing is proved | triage, survey, mzinfo, `analysis_profile.py write`, `loadimage.py expected` |
+| `verified` | compared with an independent oracle, and they agree | `analysis_profile.py check`, `loadimage.py verify` |
+| `mismatch` | compared, and they disagree; the evidence says where | `analysis_profile.py check`, `loadimage.py verify` |
+| `unsupported` | the target is a kind of input the tool does not handle, and it says so instead of producing something | mzinfo on a file that is not MZ; `loadimage.py` on a header that fails its bounds |
+| `blocked` | something outside the target is missing, or a precondition refused the run | `analysis_profile.py check` when there is no export to check; `loadimage.py verify` when there is no dump |
 | `error` | the tool failed; nothing in the result is to be trusted | all, for a file that cannot be read |
 
 A tool may use only the statuses it can honestly reach. A tool that compares
@@ -274,6 +278,13 @@ envelope whose `profile` is:
 | `toolkit_version` | git short hash | not observed, so not compared; a record only |
 | `analysis_code` | per-file hashes of the code the export depends on | not observed, so not compared |
 | `recovery` | `{ran, script_sha256}` | a mark `RecoverFunctions.java` leaves in Program Information |
+| `export` | `{script_sha256, helper_sha256}` of `ExportDecompiledC.java` and `LoadImageMap.java` | each hashes its own source into `observed_profile` |
+| `load_image_dump` | the same for `DumpLoadImage.java` and `LoadImageMap.java` | each hashes its own source into the dump; held to it by `loadimage.py verify`, not the handshake |
+
+`LoadImageMap.java` is a plain class, not a script: the walk over where the
+file's bytes landed, and the self-hash, shared by the exporter and the dumper
+so each is written once. Ghidra compiles a script directory as one bundle, so a
+script can call a class beside it — measured on 12.1.2 before relying on it.
 
 ### What `profile_id` covers
 
@@ -369,27 +380,31 @@ Two of those are worth knowing on their own:
 
 ### The handshake
 
-After export, `analysis_profile.py check` compares eleven fields — the nine the export
-observes, and the target's SHA-256 and size from `profile.json` against
-`functions.json` — and writes `handshake.json`, status `verified` or
-`mismatch`, one `profile-field` evidence item per field. On any difference the
-pipeline stops:
+After export, `analysis_profile.py check` compares thirteen fields — the eleven
+the export observes, the exporter's and its helper's own hashes among them, and
+the target's SHA-256 and size from `profile.json` against `functions.json` —
+and writes `handshake.json`, status `verified` or `mismatch`, one
+`profile-field` evidence item per field. On any difference the pipeline stops:
 
 ```
   checking the export against the profile
-    profile drift: load_segment: expected 0x2000, observed 0x1000
-    drift\functions.json was not produced under profile 02732c50a9b14d08. Do not use it until the difference is understood; the record is in drift\handshake.json.
-Exception: E:\Projects\DOS-Decompiler\tools\pipeline.ps1:164
-     | profile handshake failed, results in drift are not to be used: profile drift: load_segment: expected 0x2000,
-     | observed 0x1000
+    profile drift: compiler_spec: expected borland, observed default
+    drift\functions.json was not produced under profile e1d1bc5c34f7298b. Do not use it until the difference is understood; the record is in drift\handshake.json.
+Exception: E:\Projects\DOS-Decompiler\tools\pipeline.ps1:221
+     | profile handshake failed, results in drift are not to be used: profile drift: compiler_spec: expected borland,
+     | observed default
 ```
 
-That run was forced: `DOS_DECOMPILER_FORCE_DRIFT=load_segment=0x2000` makes
+That run was forced: `DOS_DECOMPILER_FORCE_DRIFT=compiler_spec=borland` makes
 `analysis_profile.py write` expect a wrong value, and announces itself on stderr when it
 does. It exists so a test can prove the check fails; never set it for real
-work. `tests/evidence/` drifts each of the eleven fields in turn against
+work. `tests/evidence/` drifts each of the thirteen fields in turn against
 hand-written exports and requires each to be refused by name;
 `tests/handshake/` forces the drift above through Ghidra itself.
+
+A forced `load_segment` drift no longer gets this far. Since prompt 02 the load
+image is verified right after import, against the profile's load segment, and
+that stops the run first (below).
 
 The run stops; it does not delete anything. `functions.json` is still on disk
 after a failed handshake, and `handshake.json` beside it says why — which is
@@ -411,6 +426,154 @@ functions and the mark: separate invocations, both scripts chained on
 `-import`, and both chained on `-process -noanalysis`. There was nothing there
 for the mark to catch. The pipeline keeps its separate invocations, which cost
 nothing.
+
+## The load image
+
+The profile says which settings Ghidra used. It does not say that Ghidra's
+program *is the file*: the same bytes, at the addresses the MZ header implies,
+every relocation applied once per entry. A loader that drops part of the image
+or applies a fixup the wrong number of times produces decompiled C that looks
+perfectly normal. So stage 3 of the pipeline checks it, right after import and
+before anything is built on the program.
+
+| side | what | where |
+|---|---|---|
+| expected | from the file alone: the load module's file range (end **inclusive**, `file_end_inclusive`) and digest; every relocation with its target, the word before and after the fixup, and how many entries patch that word; entry `CS:IP` and `SS:SP` as `segment:offset` and linear; anything after the declared image, with its digest, as outside the module | `tools/loadimage.py expected` |
+| observed | every block, the file range behind each part of it, its bytes, Ghidra's copy of the file before and after fixups, the relocation table with status and original bytes, the entry points, `SS`/`SP` at the entry | `tools/ghidra_scripts/DumpLoadImage.java`, writing `loadimage-observed/` |
+| comparison | one check per property, each with its expected and observed value | `tools/loadimage.py verify`, writing `loadimage.json` |
+
+The expected side parses the header with `mzinfo.py` — one parser for the
+format in the toolkit, and it needs nothing but the file — and adds the bounds
+mzinfo does not check: header size, page counts, relocation table bounds,
+relocation targets inside the module, entry inside the module. A file that
+fails one is `unsupported`, with the reason, and never a traceback.
+
+### What "a correct load" means: DOS, not Ghidra
+
+The expected load is what DOS does, and that was read from two independent DOS
+loaders rather than remembered (read 2026-10-19):
+
+- **Each relocation entry adds the load segment to the word it names, in table
+  order.** FreeDOS, `kernel/task.c`: `*spot += start_seg;` once per entry.
+  DOSBox Staging, `src/dos/dos_execute.cpp`:
+  `mem_writew(address, mem_readw(address)+relocate);` once per entry. So an
+  entry listed twice adds it twice, and a later entry sees what an earlier one
+  wrote.
+- **A last page with bytes-on-last-page 0 is a full page.** Both loaders size
+  the image as `pages * 512 - header`, so a 0 there loads the whole page.
+
+Ghidra 12.1.2's `MzLoader` differs on both — measured, with fixtures:
+
+```
+$ python tools/loadimage.py verify DUPLICATED.EXE DUPLICATED\loadimage-observed
+load image: mismatch, 4 of 28 checks failed
+first failing check: relocations.words: expected each patched word holds its value after every fixup to it, observed ['1006:0016: 0x1004 not 0x2004']
+first differing byte: file 0xb7, 1006:0017 (linear 0x10077): expected 0x20, observed 0x10
+
+$ python tools/loadimage.py verify FULL_LAST_PAGE.EXE FULL_LAST_PAGE\loadimage-observed
+load image: mismatch, 2 of 28 checks failed
+first failing check: module.coverage: expected file 0x40..0x3ff, once, observed ['file 0x200..0x3ff not loaded']
+```
+
+Its source says why. It collects the fixups in a set and *writes*
+`0x1000 + the word read from the file` for each, rather than adding to what
+memory holds: two entries for one word give the same value twice. Ghidra keeps
+both relocation records, so the multiplicity check passes and only the word is
+wrong. And it computes the image end as `(pages - 1) * 512 + bytes_on_last_page`,
+which for a 0 drops the entire last page. A linker writes 0 there whenever the
+file size is a multiple of 512.
+
+Both loaders also load whole pages, so bytes after the declared end of the
+image but inside its last page do reach memory under DOS. This check keeps the
+prompt's definition: the module is the header-declared image, and anything
+after it is reported as appended, its digest kept, outside the module.
+
+### The checks, in the order a failure is reported
+
+| check | holds that |
+|---|---|
+| `dumper.script_sha256`, `dumper.helper_sha256` | the dump was written by the `DumpLoadImage.java` and `LoadImageMap.java` in this checkout (the profile's `load_image_dump`) |
+| `loader`, `load-segment` | Ghidra used the MZ loader, and image byte 0 landed at the profile's load segment |
+| `file.size`, `file.original`, `executable.sha256` | Ghidra's copy of the file, and the hash it recorded at import, are the file |
+| `header.mapping` | the header, wherever Ghidra keeps it, is outside the analysis address space and unchanged |
+| `module.coverage` | every byte of the module is mapped exactly once, and nothing outside it is |
+| `module.as-stored` | Ghidra's copy of the module bytes, before fixups, is the file's |
+| `relocations.set`, `.multiplicity`, `.status`, `.original` | the same targets, the same number of entries for each, all `APPLIED`, each record's original bytes the file's word |
+| `relocations.words` | each patched word holds its value after every fixup to it |
+| `mapping <block> <address>.address`, `.digest` | for each range of each block: it sits at load segment × 16 + image offset, and its bytes are the file's with fixups applied |
+| `module.loaded`, `file.modified` | the module in memory, and Ghidra's own patched copy of the file, are the file with fixups applied |
+| `overlay.excluded` | nothing past the declared image was loaded |
+| `entry`, `stack` | `CS:IP` and `SS:SP` as the header gives them |
+
+**A relocated word differs from the file word by design.** Every memory digest
+is taken against the file *with the fixups applied*, never the file as stored,
+and the relocation checks hold each patched word to its value after the fixup.
+`tests/loadimage/` proves both directions. A dump whose memory holds the file's
+word at one relocation fails `relocations.words`, and so does a dump of the
+file exactly as stored.
+
+On a digest mismatch the first differing byte is located: file offset,
+`segment:offset`, linear address, expected and observed value. A tampered dump
+gave `byte at file 0x52 (1001:0002): 0x22 -> 0x78`, the byte that was changed.
+
+### `map`
+
+`loadimage.py map loadimage.json --file 0x... | --address ssss:oooo | --linear
+0x...` converts through the verified mapping, and refuses a record that did not
+verify. `map_address(record, ...)` is importable, for prompt 06's server.
+
+```
+$ python tools/loadimage.py map loadimage.json --address 1005:0026
+file 0xb6  =  1006:0016  =  linear 0x10076  (CODE_3)
+  1005:0026 names the same byte as 1006:0016, the address Ghidra uses
+  other segment:offset pairs name this byte too -- any ssss:oooo with ssss*16+oooo equal to the linear address
+  inside the relocated word at 1006:0016: memory holds 0x1004, the file 0x0004
+$ python tools/loadimage.py map loadimage.json --file 0x10
+loadimage: file offset 0x10 is in the MZ header (0x0..0x3f), which is not loaded into the program's address space
+```
+
+The canonical address is the one Ghidra uses: the segment of the block the byte
+is in. Header bytes, appended bytes, uninitialised memory and unmapped
+addresses are refused with what they are. The tests round-trip every
+initialised byte, file offset to address to file offset.
+
+### In the pipeline
+
+```
+[3/5] Verify the load image
+  dumping what Ghidra loaded
+    INFO  DumpLoadImage.java> DumpLoadImage: 4 blocks, 2 relocations, 1 entry point(s) -> segdrift\loadimage-observed (GhidraScript)
+    load image: mismatch, 10 of 24 checks failed
+    first failing check: load-segment: expected 0x2000, observed 0x1000
+    checked in 6.0 s; the record is segdrift\loadimage.json
+Exception: E:\Projects\DOS-Decompiler\tools\pipeline.ps1:172
+     | load image mismatch, stopping before anything is built on it: load image: mismatch, 10 of 24 checks failed;
+     | first failing check: load-segment: expected 0x2000, observed 0x1000. Read segdrift\loadimage.json; pass
+     | -AllowLoadMismatch to continue anyway.
+```
+
+(That one is the forced `load_segment` drift the handshake used to catch.)
+
+Anything but `verified` — `mismatch`, `unsupported`, or `blocked` when there is
+no dump to compare — stops the run. `-AllowLoadMismatch` goes on with a banner
+saying so. The verdict reaches `ExportDecompiledC.java` as a script argument
+(`load_image:mismatch`, `load_image:allowed`; not `a=b`, because cmd.exe splits
+an argument at `=` and that form never arrived), and lands in
+`functions.json`:
+
+```json
+"load_image": {"status": "mismatch", "mismatch_allowed": true, "record": "loadimage.json"}
+```
+
+Every reader of such a `functions.json` then warns, once, with the first
+failing check from the `loadimage.json` beside it. It does not refuse: going on
+was someone's explicit decision.
+
+Measured cost: the stage took 5.0 to 5.2 s in three runs each on the two
+largest fixtures, of a 22 s pipeline. On six real MZ files of 51,904 to
+171,917 bytes it took 5.2 to 6.5 s. The Python comparison is 0.17 s of that on the largest; the
+rest is starting Ghidra headless once more. All six verified (24 to 30 checks),
+one with 340 bytes appended past its image, kept out of the module.
 
 ## Stale results
 
@@ -460,11 +623,11 @@ Real output, on what a forced-drift pipeline run left in `drift\`:
 
 ```console
 $ python tools/anchors.py drift\functions.json --exe SMALLC.EXE
-anchors.py: drift\functions.json did not pass its profile handshake: the handshake found load_segment: expected 0x2000, observed 0x1000.
-The record is drift\handshake.json. Find out why Ghidra did not do what the profile expected, fix it and re-run tools/pipeline.ps1. If you have understood the drift and want these results anyway, pass --accept-profile-drift.
+anchors.py: drift\functions.json did not pass its profile handshake: the handshake found compiler_spec: expected borland, observed default.
+The record is drift\handshake.json. Find out why Ghidra did not do what the profile expected, fix it and re-run tools/pipeline.ps1. If you have understood why and want these results anyway, pass --accept-profile-drift.
 
 $ python tools/anchors.py drift\functions.json --exe SMALLC.EXE --accept-profile-drift
-anchors.py: --accept-profile-drift: reading drift\functions.json although the handshake found load_segment: expected 0x2000, observed 0x1000. Everything below rests on settings the rest of the toolkit does not assume.
+anchors.py: --accept-profile-drift: reading drift\functions.json although the handshake found compiler_spec: expected borland, observed default. Everything below rests on settings the rest of the toolkit does not assume.
 4 of 5 functions carry identifying evidence
 ...
 ```
@@ -486,15 +649,20 @@ before once `handshake.json` is removed.
   `verified` handshake proves Ghidra used the expected settings; it says
   nothing about whether the decompiled C is right.
 - **Only the first-step tools emit envelopes so far** — triage, survey, mzinfo
-  — plus the profile and handshake records. Everything else still prints prose.
+  — plus the profile, handshake and load-image records. Everything else still
+  prints prose.
 - **The profile is measured on one Ghidra version and one fixture.** A drift
   after an upgrade is a measurement to make, not an error to suppress.
 - **`toolkit_version` is recorded but not compared**, and not part of
   `profile_id`: the export cannot observe it.
-- **`analysis_code` is not observed by the export.** Only the recovery
-  script's hash is held to what actually ran in Ghidra. That the
-  `ExportDecompiledC.java` and `pipeline.ps1` hashed are the ones that ran rests
-  on the pipeline running the copies beside `analysis_profile.py`.
+- **`analysis_code` as a whole is not observed.** The recovery script, the
+  exporter, the dumper and the helper they share each report their own hash
+  and are held to it. That the `pipeline.ps1` hashed is the one that ran rests
+  on the pipeline running the copy beside `analysis_profile.py`.
+- **The load-image check verifies what DumpLoadImage.java writes**: blocks,
+  mappings, bytes, relocations, entry and stack. Anything else Ghidra keeps —
+  data types, references, comments — is not checked, and uninitialised blocks
+  are reported without their contents being verified.
 - **The module is `analysis_profile.py`, not `profile.py`.** It was
   `profile.py` for one prompt, which shadowed the standard library's
   `profile` module — and so `cProfile`, which imports it — for every script
