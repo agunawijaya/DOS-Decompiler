@@ -26,7 +26,7 @@ and built here from nothing, has three parts:
 
 `tools/evidence.py` builds it; `triage.py`, `survey.py` and `mzinfo.py` emit
 it with `--evidence FILE`, or `--evidence -` for the envelope alone on stdout.
-`tools/profile.py` writes two more: `profile.json` and `handshake.json`.
+`tools/analysis_profile.py` writes two more: `profile.json` and `handshake.json`.
 
 | field | what it holds |
 |---|---|
@@ -259,7 +259,7 @@ nothing fails the suite.
 
 ## The analysis profile
 
-`tools/profile.py write` runs before import and writes `profile.json`, an
+`tools/analysis_profile.py write` runs before import and writes `profile.json`, an
 envelope whose `profile` is:
 
 | field | measured value | how it is observed after export |
@@ -271,12 +271,56 @@ envelope whose `profile` is:
 | `load_segment` | `0x1000` | where image byte 0 landed, from the blocks' file offsets |
 | `address_convention` | `ssss:oooo` | every function entry matches `[0-9a-f]{4}:[0-9a-f]{4}` |
 | `ghidra_version` | read from `Ghidra/application.properties` | `Application.getApplicationVersion()` |
-| `toolkit_version` | git short hash | not observed, so not compared |
+| `toolkit_version` | git short hash | not observed, so not compared; a record only |
+| `analysis_code` | per-file hashes of the code the export depends on | not observed, so not compared |
 | `recovery` | `{ran, script_sha256}` | a mark `RecoverFunctions.java` leaves in Program Information |
 
-`profile_id` is the SHA-256 of the profile's canonical JSON without the
-`profile_id` key. It names the *settings*, not the file: two executables
-analysed the same way share it (tested).
+### What `profile_id` covers
+
+`profile_id` is the SHA-256 of the profile's canonical JSON **without
+`profile_id` and without `toolkit_version`**. It names the *settings*, not the
+file: two executables analysed the same way share it (tested).
+
+`toolkit_version` stays in the profile as a record of which commit wrote it,
+but it moves on every commit — one that only edits this document included —
+and prompt 06 caches Ghidra's results by target hash plus `profile_id`. An id
+that moved with the git hash would throw that cache away on every
+documentation change. What stands in for it is `analysis_code`: a hash over the
+code that can change what an export contains, and nothing else.
+
+| hashed in `analysis_code` | why |
+|---|---|
+| `tools/ghidra_scripts/`, every file | Ghidra runs these and they write the export. `ApplyNames.java` is included although the pipeline does not run it, because the names it writes into a project are read back by the next export |
+| `tools/pipeline.ps1` | it chooses the import, the stages, their order and their arguments |
+
+| not hashed | why |
+|---|---|
+| `tools/analysis_profile.py` | its expected values are already fields of the profile, so changing one changes the id anyway; the rest of it only compares |
+| `tools/mzinfo.py` | it decides whether the pipeline runs at all, not what an export contains |
+| `tools/evidence.py` and the rest of `tools/` | nothing an export depends on |
+| `knowledge/`, `README.md`, `AGENTS.md`, `tests/` | documents and tests |
+
+It is computed from file contents, not from git, so it means the same thing in
+a copy that is not a checkout, and an uncommitted edit moves it with no `-dirty`
+logic needed. Tested on a copy of the toolkit in a git repository of its own: a
+commit to `knowledge/17-evidence.md` moved `toolkit_version` (`4b21af0` →
+`433afa4`) and left `profile_id` alone; an edit to `tools/evidence.py` made
+`toolkit_version` dirty and left it alone; an edit to any one of the four hashed
+files moved it, and `analysis_code.files` named that file and no other.
+
+### Line endings
+
+**Source is hashed with CRLF read as LF** (`evidence.source_sha256`), the
+recovery script's hash included, on both sides: `analysis_profile.py` folds the
+bytes before hashing, and `RecoverFunctions.java` folds its own source the same
+way before writing its mark. Only the two-byte pair is folded, as git folds it;
+a lone CR is kept. A checkout with `core.autocrlf=true` — this machine's, where
+the Ghidra scripts are CRLF on disk — and an LF checkout of the same commit
+therefore have one `profile_id`. Tested: every hashed file in a copy flipped to
+the other ending, same `profile_id`; and through Ghidra on this CRLF checkout,
+the hash the Java side wrote equals the one Python computed.
+
+**Targets are hashed raw.** In an executable `0D 0A` is data.
 
 **The profile is an expectation, not an instruction.** `pipeline.ps1` still
 lets Ghidra choose the loader and language, exactly as before, and checks
@@ -333,9 +377,10 @@ pipeline stops:
 ```
   checking the export against the profile
     profile drift: load_segment: expected 0x2000, observed 0x1000
-    ...\functions.json was not produced under profile 2302818a53163525. Do not use it until the difference is understood; the record is in ...\handshake.json.
-Exception: ...\tools\pipeline.ps1:151
-     | profile handshake failed, results in ... are not to be used: profile drift: load_segment: expected 0x2000, observed 0x1000
+    drift\functions.json was not produced under profile 02732c50a9b14d08. Do not use it until the difference is understood; the record is in drift\handshake.json.
+Exception: E:\Projects\DOS-Decompiler\tools\pipeline.ps1:164
+     | profile handshake failed, results in drift are not to be used: profile drift: load_segment: expected 0x2000,
+     | observed 0x1000
 ```
 
 That run was forced: `DOS_DECOMPILER_FORCE_DRIFT=load_segment=0x2000` makes
@@ -346,7 +391,8 @@ hand-written exports and requires each to be refused by name;
 `tests/handshake/` forces the drift above through Ghidra itself.
 
 The run stops; it does not delete anything. `functions.json` is still on disk
-after a failed handshake, and `handshake.json` beside it says why.
+after a failed handshake, and `handshake.json` beside it says why — which is
+also what stops every reader of it (below).
 
 ### What the recovery mark catches, measured
 
@@ -395,6 +441,43 @@ Regenerate out\functions.json from spread.exe with tools/pipeline.ps1, or pass t
 
 (Paths shortened; the sizes and hashes are the fixtures' own.)
 
+### A failed handshake stops the readers too
+
+The same readers look for a `handshake.json` beside the `functions.json` they
+were given, through `evidence.load_functions`:
+
+| `handshake.json` | behaviour |
+|---|---|
+| absent | as before: a work folder from before the handshake opens |
+| `verified` | silent |
+| `mismatch` | refuses, exit 1, with each drifted field and what to do |
+| `blocked` | refuses: the handshake could not run, there was no export to check |
+| about an earlier export | one warning, and reads. The record carries `functions_sha256`, the hash of the export it checked; if `functions.json` has been rewritten since, the record says nothing about it |
+| unreadable | one warning, and reads |
+
+Real output, on what a forced-drift pipeline run left in `drift\`:
+
+```console
+$ python tools/anchors.py drift\functions.json --exe SMALLC.EXE
+anchors.py: drift\functions.json did not pass its profile handshake: the handshake found load_segment: expected 0x2000, observed 0x1000.
+The record is drift\handshake.json. Find out why Ghidra did not do what the profile expected, fix it and re-run tools/pipeline.ps1. If you have understood the drift and want these results anyway, pass --accept-profile-drift.
+
+$ python tools/anchors.py drift\functions.json --exe SMALLC.EXE --accept-profile-drift
+anchors.py: --accept-profile-drift: reading drift\functions.json although the handshake found load_segment: expected 0x2000, observed 0x1000. Everything below rests on settings the rest of the toolkit does not assume.
+4 of 5 functions carry identifying evidence
+...
+```
+
+The first exits 1, the second 0.
+
+`--accept-profile-drift`, on all five readers, reads a drifted export for
+someone who has understood why. It says so on stderr every time it takes
+effect, naming the drift, so a result produced that way cannot be mistaken for
+an ordinary one. `tests/handshake/` runs all five on what a forced drift through
+Ghidra left behind: each refuses, each reads with the override and says so,
+each reads the verified export silently, and each reads the drifted one as
+before once `handshake.json` is removed.
+
 ## What this does not do
 
 - **It does not make an observation truer.** An envelope records what a tool
@@ -405,12 +488,12 @@ Regenerate out\functions.json from spread.exe with tools/pipeline.ps1, or pass t
   — plus the profile and handshake records. Everything else still prints prose.
 - **The profile is measured on one Ghidra version and one fixture.** A drift
   after an upgrade is a measurement to make, not an error to suppress.
-- **`toolkit_version` is recorded but not compared**: the export cannot observe
-  it.
-- **Line endings change the recovery hash.** It is taken over the script's
-  bytes as checked out, so a checkout with CRLF and one with LF have different
-  `profile_id`s. Expected and observed always agree on one machine, because
-  both read the same file.
+- **`toolkit_version` is recorded but not compared**, and not part of
+  `profile_id`: the export cannot observe it.
+- **`analysis_code` is not observed by the export.** Only the recovery
+  script's hash is held to what actually ran in Ghidra. That the
+  `ExportDecompiledC.java` and `pipeline.ps1` hashed are the ones that ran rests
+  on the pipeline running the copies beside `analysis_profile.py`.
 - **The module is `analysis_profile.py`, not `profile.py`.** It was
   `profile.py` for one prompt, which shadowed the standard library's
   `profile` module — and so `cProfile`, which imports it — for every script

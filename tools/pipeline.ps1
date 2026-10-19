@@ -7,8 +7,9 @@
     recovered functions, decompiled C, and a per-function fingerprint file.
 
     The three Ghidra stages are deliberately separate invocations. Chaining
-    -postScript flags in one headless run silently discards the first script's
-    changes.
+    -postScript flags in one headless run was once recorded as discarding the
+    first script's changes; on Ghidra 12.1.2 (2026-10-19) that did not
+    reproduce, but separate runs are known to work and cost little.
 
     Before import it writes profile.json: the loader, language, compiler spec,
     load segment and recovery this run expects. After export it compares that

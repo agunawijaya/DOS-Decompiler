@@ -358,7 +358,7 @@ Copy-Item env.example.ps1 env.ps1     # then edit the paths
 |---|---|---|---|
 | [Ghidra](https://ghidra-sre.org/) 12.x | the decompiler; the only free one handling `x86:LE:16:Real Mode` | `GHIDRA_HOME` | yes |
 | JDK 21+ | Ghidra needs it | `JAVA_HOME` | yes |
-| Python 3 + `capstone`, `unicorn` | everything in `tools/` | on `PATH` | yes |
+| Python 3 + `capstone`, `unicorn` | everything in `tools/` | `PYTHON`, else `python` on `PATH` | yes |
 | [Open Watcom V2](https://github.com/open-watcom/open-watcom-v2) | rebuilding source; `wasm` for assembly | `WATCOM` | for ground truth |
 | Microsoft C 5.0 | period-correct ground truth | `MSC_HOME` | optional |
 | [DOSBox-X](https://dosbox-x.com/) | running period toolchains and the games | `DOSBOX` | optional |
@@ -367,6 +367,11 @@ Copy-Item env.example.ps1 env.ps1     # then edit the paths
 ```bash
 pip install capstone unicorn
 ```
+
+Set `PYTHON` in `env.ps1` to the interpreter you installed them into.
+`pipeline.ps1` and `tests/run-all.ps1` use it before whatever `python` is first
+on `PATH` — which, on the machine this was measured on, was a copy Inkscape
+bundles, with neither package.
 
 Two install notes worth knowing:
 
@@ -460,7 +465,9 @@ expects Ghidra to use; after export the pipeline compares it with what
 `functions.json` says Ghidra actually did, writes `handshake.json`, and stops
 with the field, the expected value and the observed one if they differ.
 `functions.json` also records the SHA-256 of the file it describes, and every
-tool that reads it beside an executable refuses one made from a different file.
+tool that reads it beside an executable refuses one made from a different file —
+or one whose `handshake.json` says it drifted, unless told
+`--accept-profile-drift`, which then says so on every use.
 See [`knowledge/17-evidence.md`](knowledge/17-evidence.md).
 
 ### 4. The wall

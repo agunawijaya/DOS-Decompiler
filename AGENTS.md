@@ -330,18 +330,30 @@ analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
 
 Or just `tools/pipeline.ps1 -Exe GAME.EXE -OutDir out`, which does all three.
 
-**Run these as three separate invocations.** Chaining two `-postScript` flags in
-one command silently lost the first script's changes on an earlier Ghidra; on
-12.1.2 it did not reproduce, but the separate runs cost nothing.
+**Run these as three separate invocations.** Chaining two `-postScript` flags
+in one command was recorded, on an earlier setup whose Ghidra version was not
+written down, as silently losing the first script's changes. On 2026-10-19 it
+did not reproduce on Ghidra 12.1.2: chained on `-import` and on `-process`, the
+export saw every function recovery added (`knowledge/04-pitfalls.md`). Keep the
+separate invocations anyway; they are known to work and cost little.
 
 `pipeline.ps1` writes `profile.json` before import — the loader, language,
 load segment and recovery it expects — and after export compares it with what
 `functions.json` says Ghidra actually did. On any difference it stops with the
-field, the expected value and the observed value. **Do not work around that
-stop.** It means every address and fingerprint in the export was produced under
-settings the rest of the toolkit does not assume; find out why first. If you
-run the three steps by hand, run `python tools/analysis_profile.py write` before and
-`python tools/analysis_profile.py check` after.
+field, the expected value and the observed value, and writes `handshake.json`
+saying so. **Do not work around that stop.** It means every address and
+fingerprint in the export was produced under settings the rest of the toolkit
+does not assume; find out why first. The readers in Step 3 refuse a
+`functions.json` whose `handshake.json` says `mismatch`, and
+`--accept-profile-drift` — which announces itself on every use — is for a
+person who has understood the drift, not for getting past the refusal. If you
+run the three steps by hand, run `python tools/analysis_profile.py write`
+before and `python tools/analysis_profile.py check --evidence handshake.json`
+after.
+
+Set `PYTHON` to the interpreter that has capstone and unicorn. `pipeline.ps1`
+and `tests/run-all.ps1` use it before whatever `python` is first on PATH, which
+on some machines is a copy another application bundled, without either.
 
 `RecoverFunctions.java` exists because Ghidra's auto-analysis is not enough here.
 Games dispatch through function-pointer tables and install interrupt handlers by
@@ -366,7 +378,8 @@ python tools/anchors.py OUTDIR/functions.json --exe GAME.EXE \
 `libsig.py`, `match.py`, `modcluster.py` and `emuverify.py` do the same; a
 `functions.json` from before the toolkit recorded its target opens with one
 warning. If a tool refuses, regenerate the export — do not pass a different
-executable to make it agree.
+executable to make it agree. They also refuse an export whose `handshake.json`
+says `mismatch` or `blocked`; see Step 2.
 
 It reports every function carrying identifying evidence — interrupts, I/O ports,
 string references, video constants — and writes names that claim only what was

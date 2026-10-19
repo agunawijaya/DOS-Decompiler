@@ -24,6 +24,14 @@ same program (measured, Ghidra 12.1.2). The `image_base` field in
 every address is `0x10000` out. `observed_profile.load_segment` is the real
 one, worked out from where the file's bytes landed.
 
+**The first `python` on PATH may not be the one you installed into.** On the
+machine the evidence work was done on, `python` in one shell resolved to the
+copy Inkscape bundles (3.12.12), which has neither capstone nor unicorn, while
+the interpreter that had both (3.11.9) sat further down PATH. Every suite that
+needs either died with an `ImportError`, which reads like a bug in the tool.
+Set `PYTHON`: `pipeline.ps1` and `tests/run-all.ps1` use it first, and
+`run-all.ps1` names the interpreter it used on its first line.
+
 **Ghidra's MZ loader marks every segment executable, including data.** Any
 scan that trusts `block.isExecute()` will happily create functions inside
 sprite bitmaps. Filter to blocks that contain the entry point or already
