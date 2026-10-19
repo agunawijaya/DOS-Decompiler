@@ -197,18 +197,26 @@ def _():
 # ------------------------------------------------------------ identity
 
 def independent_sha256(path):
-    """The hash from a program that is not Python's hashlib."""
+    """The hash from a program that is not Python's hashlib.
+
+    The Unix tools read the file on stdin. Given a Windows path, GNU
+    sha256sum escapes the backslashes and marks the line with a leading
+    backslash -- `\\3499b82b...` -- which reads as a different hash; measured
+    under Git for Windows, where it is the first of these on PATH.
+    """
     attempts = [
-        (["sha256sum", str(path)], lambda o: o.split()[0]),
-        (["shasum", "-a", "256", str(path)], lambda o: o.split()[0]),
-        (["certutil", "-hashfile", str(path), "SHA256"],
+        (["sha256sum"], True, lambda o: o.split()[0]),
+        (["shasum", "-a", "256"], True, lambda o: o.split()[0]),
+        (["certutil", "-hashfile", str(path), "SHA256"], False,
          lambda o: o.splitlines()[1].replace(" ", "")),
-        (["openssl", "dgst", "-sha256", str(path)], lambda o: o.split()[-1]),
+        (["openssl", "dgst", "-sha256"], True, lambda o: o.split()[-1]),
     ]
-    for cmd, parse in attempts:
+    for cmd, on_stdin, parse in attempts:
         if not shutil.which(cmd[0]):
             continue
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        with open(path, "rb") as f:
+            r = subprocess.run(cmd, stdin=f if on_stdin else subprocess.DEVNULL,
+                               capture_output=True, text=True)
         if r.returncode == 0:
             return parse(r.stdout).lower(), cmd[0]
     raise Skip("no sha256sum, shasum, certutil or openssl on PATH -- skipped")
