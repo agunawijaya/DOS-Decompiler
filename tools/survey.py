@@ -28,9 +28,14 @@ What it looks for
   * the interpreted-engine pattern, judged across the whole tree rather than
     one directory
 
+With --evidence the same survey is also written as an evidence envelope
+(knowledge/17-evidence.md), tied to one hash over every file in the folder, so
+a later reading can tell whether the folder has changed since.
+
 Usage:
     python survey.py path/to/game/folder
     python survey.py path/to/game/folder --json survey.json
+    python survey.py path/to/game/folder --evidence -     # the envelope alone
 """
 
 import argparse
@@ -42,7 +47,8 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import triage  # noqa: E402  -- same directory, deliberate
+import evidence  # noqa: E402  -- same directory, deliberate
+import triage  # noqa: E402
 
 OVERLAY_SUFFIXES = {".ovl", ".ovr", ".ov1", ".ov2", ".dat"}
 DOC_SUFFIXES = {".txt", ".doc", ".me", ".1st", ".nfo", ".diz", ".hlp"}
@@ -343,6 +349,26 @@ def survey(root):
     }
 
 
+# The fixed paragraphs of the report, kept here so the prose and the envelope
+# say the same thing in the same words.
+OVERLAY_NOTE = ("These are loaded on demand into a shared region. Nothing in this "
+                "toolkit handles overlaid programs; see knowledge/00-scope.md.")
+INDEX_NOTE = ("A game too large to keep its artwork inside the executable "
+              "puts it in a heap beside an index. The offsets ascend and land "
+              "inside the other file, which is what was tested here -- but "
+              "what a record contains is a separate question, and one no tool "
+              "here answers yet.")
+ENGINE_NOTE = ("That ratio is what an engine looks like -- "
+               "the executable is a virtual machine and the game lives in the "
+               "resources -- but plain graphics or sound data produces it too. "
+               "The discriminator is cheap: look for the game's own text. If "
+               "menu and dialogue strings are in the executable it is a normal "
+               "program; if they are only in the data files, decompiling the "
+               "executable will succeed and tell you nothing you wanted.")
+SEVERAL_NOTE = ("More than one executable is present. Setup and install programs "
+                "decompile just as willingly as the game and are not the game.")
+
+
 def report(s):
     out = []
     A = out.append
@@ -375,8 +401,8 @@ def report(s):
         A("-- Overlay modules ------------------------------------------------")
         for e in s["overlay_modules"]:
             A(f"  {e['path']:<28} {e['size']:>9,}  overlay #{e['overlay_number']}")
-        A("  These are loaded on demand into a shared region. Nothing in this")
-        A("  toolkit handles overlaid programs; see knowledge/00-scope.md.")
+        for line in triage._wrap(OVERLAY_NOTE, 66):
+            A("  " + line)
         A("")
 
     if s["batch_files"]:
@@ -413,26 +439,14 @@ def report(s):
             A(f"  {'':14} {note}")
         if len(s["index_pairs"]) > 14:
             A(f"  ... {len(s['index_pairs']) - 14} more pairs of the same shape")
-        for line in triage._wrap(
-                "A game too large to keep its artwork inside the executable "
-                "puts it in a heap beside an index. The offsets ascend and land "
-                "inside the other file, which is what was tested here -- but "
-                "what a record contains is a separate question, and one no tool "
-                "here answers yet.", 66):
+        for line in triage._wrap(INDEX_NOTE, 66):
             A("  " + line)
         A("")
 
     A("-- Read this before starting --------------------------------------")
     if s["engine_hint"]:
         A("  Worth checking: could this executable be an interpreter?")
-        for line in triage._wrap(
-                s["engine_hint"] + ". That ratio is what an engine looks like -- "
-                "the executable is a virtual machine and the game lives in the "
-                "resources -- but plain graphics or sound data produces it too. "
-                "The discriminator is cheap: look for the game's own text. If "
-                "menu and dialogue strings are in the executable it is a normal "
-                "program; if they are only in the data files, decompiling the "
-                "executable will succeed and tell you nothing you wanted.", 66):
+        for line in triage._wrap(s["engine_hint"] + ". " + ENGINE_NOTE, 66):
             A(f"    {line}")
     elif s["main"] and s["main"].get("verdict") == "out of scope":
         A("  The main executable is out of scope. See its blockers above.")
@@ -444,9 +458,128 @@ def report(s):
         A("  then tools/pipeline.ps1 on the same file.")
     if len(s["executables"]) > 1:
         A("")
-        A("  More than one executable is present. Setup and install programs")
-        A("  decompile just as willingly as the game and are not the game.")
+        for line in triage._wrap(SEVERAL_NOTE, 66):
+            A("  " + line)
     return "\n".join(out)
+
+
+# True of every survey, whatever the folder holds.
+LIMITATIONS = [
+    "The game is chosen by three signals in order of trust -- a batch file "
+    "naming it, a name matching the folder, then size -- and size alone is "
+    "weak: an installer can be larger than the game.",
+    "Each executable gets triage.py's verdict and nothing more; that "
+    "verdict's own limitations apply to every one of them.",
+    "Data files are classified by extension and by the magic bytes of a few "
+    "container formats; nothing else about their contents is read.",
+]
+
+
+def envelope(folder):
+    """The evidence envelope for a survey: every line of the report, as
+    structured items, tied to a hash over every file in the folder."""
+    try:
+        s = survey(folder)
+    except (SystemExit, OSError) as e:
+        return evidence.envelope(
+            "survey", {"path": str(Path(folder).resolve()), "kind": "directory",
+                       "size": None, "sha256": None},
+            status="error", result={"given": str(folder), "error": str(e)},
+            limitations=["The folder could not be read, so nothing about it "
+                         "was established."])
+    root = Path(s["root"])
+    target = evidence.directory_identity(root)
+
+    def at(rel):
+        return {"path": Path(rel).as_posix()}
+
+    items = [{"kind": "file-count",
+              "claim": f"{s['total_files']} files in "
+                       f"{len(s['subdirectories']) + 1} directories",
+              "value": {"files": s["total_files"],
+                        "directories": len(s["subdirectories"]) + 1,
+                        "subdirectories": [Path(d).as_posix()
+                                           for d in s["subdirectories"]]}}]
+    for e in sorted(s["executables"] + s["com_files"], key=lambda x: -x["size"]):
+        items.append({
+            "kind": "executable" if e["kind"] == "executable" else "com",
+            "claim": f"{Path(e['path']).as_posix()}: {e.get('verdict', '?')}",
+            "location": at(e["path"]),
+            "value": {"size": e["size"],
+                      "sha256": evidence.sha256_file(root / e["path"]),
+                      "verdict": e.get("verdict"),
+                      "confidence": e.get("confidence"),
+                      "model": e.get("model"),
+                      "prologue_density": e.get("prologue_density")}})
+        for b in e.get("blockers") or []:
+            items.append({"kind": "blocker", "level": "blocker", "claim": b,
+                          "location": at(e["path"])})
+    if s["main"]:
+        items.append({"kind": "main-executable",
+                      "claim": f"{Path(s['main']['path']).as_posix()} is likely "
+                               f"the game: {s['main_reason']}",
+                      "location": at(s["main"]["path"]),
+                      "value": {"reason": s["main_reason"]}})
+    for e in s["overlay_modules"]:
+        items.append({"kind": "overlay-module",
+                      "claim": f"{Path(e['path']).as_posix()} is overlay "
+                               f"module #{e['overlay_number']}",
+                      "location": at(e["path"]),
+                      "value": {"size": e["size"],
+                                "overlay_number": e["overlay_number"]}})
+    for b in s["batch_files"]:
+        items.append({"kind": "batch-file",
+                      "claim": f"{Path(b['path']).as_posix()} is a batch file",
+                      "location": at(b["path"])})
+    if s["batch_named"]:
+        items.append({"kind": "batch-targets",
+                      "claim": "batch files invoke " + ", ".join(s["batch_named"]),
+                      "value": s["batch_named"]})
+    for f in s["notable_data"]:
+        items.append({"kind": "notable-data",
+                      "claim": f"{Path(f['path']).as_posix()} is "
+                               f"{f['size']:,} bytes of data",
+                      "location": at(f["path"]), "value": f["size"]})
+    for ext, n, total in s["data_groups"]:
+        items.append({"kind": "data-group",
+                      "claim": f"{n} {ext} files, {total:,} bytes",
+                      "value": {"extension": ext, "files": n, "bytes": total}})
+    for path, size, what in s["containers"]:
+        items.append({"kind": "container-format",
+                      "claim": f"{Path(path).as_posix()} is {what}",
+                      "location": at(path),
+                      "value": {"size": size, "format": what}})
+    for ind, dat, n, stride, note in s["index_pairs"]:
+        items.append({"kind": "index-pair",
+                      "claim": f"{ind} indexes {dat}",
+                      "location": {"index": ind, "data": dat},
+                      "value": {"entries": n, "stride": stride, "note": note}})
+
+    limitations = list(LIMITATIONS)
+    unknowns = []
+    result = dict(s)
+    if s["overlay_modules"]:
+        limitations.append(OVERLAY_NOTE)
+    if s["index_pairs"]:
+        limitations.append(INDEX_NOTE)
+    if s["engine_hint"]:
+        items.append({"kind": "data-ratio", "claim": s["engine_hint"],
+                      "value": s["engine_hint"]})
+        unknowns.append("Worth checking: could this executable be an "
+                        "interpreter? " + s["engine_hint"] + ". " + ENGINE_NOTE)
+    elif s["main"] and s["main"].get("verdict") == "out of scope":
+        result["next_step"] = ("The main executable is out of scope. See its "
+                               "blockers above.")
+    elif s["main"]:
+        usable = str(Path(s["given"]) / s["main"]["path"])
+        result["next_step"] = (f"Start with: python tools/triage.py \"{usable}\" "
+                               f"then tools/pipeline.ps1 on the same file.")
+    if len(s["executables"]) > 1:
+        limitations.append(SEVERAL_NOTE)
+
+    return evidence.envelope("survey", target, status="ok", result=result,
+                             evidence=items, limitations=limitations,
+                             unknowns=unknowns)
 
 
 def main():
@@ -454,13 +587,28 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("folder")
     ap.add_argument("--json", help="write the full survey here")
+    ap.add_argument("--evidence", metavar="FILE",
+                    help="write the evidence envelope here (knowledge/"
+                         "17-evidence.md); '-' prints it instead of the report")
     args = ap.parse_args()
+
+    # With '-' the envelope is the whole of stdout; --json is still written.
+    if args.evidence == "-":
+        env = envelope(args.folder)
+        if args.json and env["status"] != "error":
+            Path(args.json).write_text(json.dumps(survey(args.folder), indent=2),
+                                       encoding="utf-8")
+        evidence.write(env, "-")
+        return 2 if env["status"] == "error" else 0
 
     s = survey(args.folder)
     print(report(s))
     if args.json:
         Path(args.json).write_text(json.dumps(s, indent=2), encoding="utf-8")
         print(f"\nwrote {args.json}")
+    if args.evidence:
+        evidence.write(envelope(args.folder), args.evidence)
+        print(f"\nwrote {args.evidence}")
     return 0
 
 

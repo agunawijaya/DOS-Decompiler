@@ -12,9 +12,15 @@ or a game engine's interpreter, and produce something correct and useless.
 This reads the binary and reports what it is, what that implies, and which
 parts of the toolkit are worth running.
 
+With --evidence it also writes the same findings as an evidence envelope
+(knowledge/17-evidence.md): every finding with the file offset it rests on,
+the verdict, what the checks cannot see and what they raised but could not
+settle. The prose report and --json are unchanged by it.
+
 Usage:
     python triage.py GAME.EXE
     python triage.py GAME.EXE --json triage.json
+    python triage.py GAME.EXE --evidence -          # the envelope alone, on stdout
 """
 
 import argparse
@@ -24,6 +30,8 @@ import struct
 import sys
 from collections import Counter
 from pathlib import Path
+
+import evidence
 
 # Engines whose executable is an interpreter and whose game lives in the data
 # files. Decompiling these gets you a virtual machine, not a game.
@@ -136,10 +144,29 @@ def looks_like_engine(path, data):
     return sorted(set(hits)), siblings[:5]
 
 
-def analyse(path):
+def _at(offset):
+    return {"file_offset": f"0x{offset:x}"}
+
+
+def analyse(path, observations=None):
+    """Triage one file. Returns the dict that --json writes.
+
+    Pass a list as `observations` and it receives, for every finding and in
+    the same order, what the finding rests on: a kind, where in the file it
+    was seen, and the value measured. The evidence envelope is built from
+    that. The returned dict is unchanged by it, so --json and the prose
+    report stay exactly what they were.
+    """
     mz, data = read_mz(path)
     findings = []
     verdict = {"in_scope": True, "confidence": "high"}
+
+    def found(level, title, detail, kind, location=None, value=None):
+        findings.append((level, title, detail))
+        if observations is not None:
+            observations.append({"level": level, "kind": kind, "claim": title,
+                                 "detail": detail, "location": location,
+                                 "value": value})
 
     if mz is None:
         suffix = Path(path).suffix.lower()
@@ -148,21 +175,24 @@ def analyse(path):
             # image, loaded at 0x100. That makes it the easiest thing here to
             # reconstruct exactly, so it gets its own route rather than a
             # refusal -- comrec.py rebuilds it to a byte-identical .asm.
-            findings.append(("route", "raw .COM image",
-                             "No MZ header, and none needed. The file loads at "
-                             "offset 0x100 as a single segment. Use comrec.py, "
-                             "which reassembles to a byte-for-byte copy and "
-                             "proves it, rather than the MZ pipeline."))
-            findings.append(("note", "next step",
-                             f"python tools/comrec.py \"{path}\" "
-                             f"--out src/{Path(path).stem.lower()}.asm"))
+            found("route", "raw .COM image",
+                  "No MZ header, and none needed. The file loads at "
+                  "offset 0x100 as a single segment. Use comrec.py, "
+                  "which reassembles to a byte-for-byte copy and "
+                  "proves it, rather than the MZ pipeline.",
+                  "format", _at(0), "COM")
+            found("note", "next step",
+                  f"python tools/comrec.py \"{path}\" "
+                  f"--out src/{Path(path).stem.lower()}.asm",
+                  "next-step")
             return {"file": str(path), "format": "COM",
                     "verdict": {"in_scope": True, "confidence": "high",
                                 "route": "comrec"},
                     "findings": findings}
-        findings.append(("blocker", "not an MZ executable",
-                         "No MZ signature. Not a DOS executable, or a container "
-                         "of some other kind."))
+        found("blocker", "not an MZ executable",
+              "No MZ signature. Not a DOS executable, or a container "
+              "of some other kind.",
+              "format", _at(0), data[:2].hex())
         return {"file": str(path), "format": "not-MZ",
                 "verdict": {"in_scope": False, "confidence": "high"},
                 "findings": findings}
@@ -186,14 +216,15 @@ def analyse(path):
     # immediately before the entry point. Two letters are far too common to
     # search for on their own; at exactly entry-2 they are conclusive.
     if data[max(0, mz["entry"] - 2):mz["entry"]] == b"RB":
-        findings.append(("blocker", "packed with Microsoft EXEPACK",
-                         "The signature 'RB' sits exactly two bytes before the "
-                         "entry point, which is where EXEPACK's packed header "
-                         "ends. The entry point is its decompressor. "
-                         "`tools/unpack.py` handles this format with the "
-                         "original entry point read from the packer's own "
-                         "header, and recovers the image to 99.7% of a "
-                         "known-good unpacked build."))
+        found("blocker", "packed with Microsoft EXEPACK",
+              "The signature 'RB' sits exactly two bytes before the "
+              "entry point, which is where EXEPACK's packed header "
+              "ends. The entry point is its decompressor. "
+              "`tools/unpack.py` handles this format with the "
+              "original entry point read from the packer's own "
+              "header, and recovers the image to 99.7% of a "
+              "known-good unpacked build.",
+              "packer-marker", _at(mz["entry"] - 2), "RB")
         verdict["in_scope"] = False
 
     for sig, name in PACKERS.items():
@@ -202,96 +233,123 @@ def analyse(path):
             continue
         near = abs(pos - mz["entry"]) < 0x400
         stripped = mz["relocations"] <= 2 or packer_density < 0.2
+        measured = {"packer": name, "signature": sig.decode("latin-1"),
+                    "near_entry": near, "relocations": mz["relocations"],
+                    "prologues_per_kb": round(packer_density, 2)}
         if near or stripped:
             why = ("adjacent to the entry point" if near else
                    f"{mz['relocations']} relocations and "
                    f"{packer_density:.1f} prologues/KB -- the visible code is a "
                    f"decompressor, not the program")
-            findings.append(("blocker", f"packed with {name}",
-                             f"Signature at 0x{pos:X}, {why}. Unpack before "
-                             f"doing anything else, or you will decompile the "
-                             f"decompressor: correct, and useless. Try "
-                             f"`python tools/unpack.py {Path(path).name} -o "
-                             f"unpacked.exe`, which runs the decompressor under "
-                             f"emulation and dumps the result."))
+            found("blocker", f"packed with {name}",
+                  f"Signature at 0x{pos:X}, {why}. Unpack before "
+                  f"doing anything else, or you will decompile the "
+                  f"decompressor: correct, and useless. Try "
+                  f"`python tools/unpack.py {Path(path).name} -o "
+                  f"unpacked.exe`, which runs the decompressor under "
+                  f"emulation and dumps the result.",
+                  "packer-signature", _at(pos), measured)
             verdict["in_scope"] = False
         else:
-            findings.append(("warn", f"{name} signature present",
-                             f"Found at 0x{pos:X}, but the file has "
-                             f"{mz['relocations']} relocations and normal frame "
-                             f"density, so it does not look packed. Possibly "
-                             f"incidental; confirm before acting on it."))
+            found("warn", f"{name} signature present",
+                  f"Found at 0x{pos:X}, but the file has "
+                  f"{mz['relocations']} relocations and normal frame "
+                  f"density, so it does not look packed. Possibly "
+                  f"incidental; confirm before acting on it.",
+                  "packer-signature", _at(pos), measured)
 
     # Overlays.
-    if data.find(b"FBOV") != -1 or mz["overlay_number"] != 0:
-        findings.append(("blocker", "overlaid program",
-                         "Overlaid code is swapped into a shared region, so "
-                         "several functions occupy the same addresses at "
-                         "different times. Nothing here handles that; each "
-                         "overlay needs its own address space."))
+    fbov = data.find(b"FBOV")
+    if fbov != -1 or mz["overlay_number"] != 0:
+        found("blocker", "overlaid program",
+              "Overlaid code is swapped into a shared region, so "
+              "several functions occupy the same addresses at "
+              "different times. Nothing here handles that; each "
+              "overlay needs its own address space.",
+              "overlay", _at(fbov if fbov != -1 else 0x1A),
+              {"overlay_number": mz["overlay_number"],
+               "fbov_marker": fbov != -1})
         verdict["in_scope"] = False
     elif mz["trailing"] > 1024:
-        findings.append(("warn", f"{mz['trailing']} bytes past the load image",
-                         "Could be appended data, could be overlays. The "
-                         "disassembler will not see it unless told to."))
+        found("warn", f"{mz['trailing']} bytes past the load image",
+              "Could be appended data, could be overlays. The "
+              "disassembler will not see it unless told to.",
+              "trailing-data", _at(mz["image_end"]), mz["trailing"])
 
     # Memory model.
     model, why = guess_memory_model(mz, image_len)
     level = "info" if model == "small" else "warn"
-    findings.append((level, f"memory model looks {model}", why))
+    found(level, f"memory model looks {model}", why, "memory-model",
+          {"relocation_targets": [f"0x{p:x}" for p in mz["reloc_positions"]]},
+          {"model": model, "relocations": mz["relocations"],
+           "image_bytes": image_len})
     if model.startswith(("compact", "small or medium")) and model != "small":
-        findings.append(("warn", "emuverify.py assumes small model",
-                         "It sets SS = DS and maps one 64 KB data group. On a "
-                         "far-pointer program it will run functions with the "
-                         "wrong stack segment and produce nonsense without "
-                         "saying so. modcluster.py and match.py's data "
-                         "fingerprints make the same assumption."))
+        found("warn", "emuverify.py assumes small model",
+              "It sets SS = DS and maps one 64 KB data group. On a "
+              "far-pointer program it will run functions with the "
+              "wrong stack segment and produce nonsense without "
+              "saying so. modcluster.py and match.py's data "
+              "fingerprints make the same assumption.",
+              "model-assumption", None, model)
         verdict["confidence"] = "low"
 
     # Compiled C versus hand-written assembly.
     count, density = prologue_density(data, mz["image_start"], mz["image_end"])
+    span = {"file_offset": f"0x{mz['image_start']:x}",
+            "file_end": f"0x{mz['image_end']:x}"}
+    frames = {"prologues": count, "per_kb": round(density, 2),
+              "pattern": PROLOGUE.hex(" ")}
     if density >= 2.0:
-        findings.append(("info", f"compiled C likely ({count} stack prologues, "
-                                 f"{density:.1f}/KB)",
-                         "Dense frame setup is what a period C compiler emits. "
-                         "Function recovery and library signatures both work "
-                         "well here."))
+        found("info", f"compiled C likely ({count} stack prologues, "
+                      f"{density:.1f}/KB)",
+              "Dense frame setup is what a period C compiler emits. "
+              "Function recovery and library signatures both work "
+              "well here.",
+              "prologue-density", span, frames)
     elif density >= 0.5:
-        findings.append(("warn", f"mixed or frame-pointer-free ({count} prologues, "
-                                 f"{density:.1f}/KB)",
-                         "Either a lot of hand-written assembly, or a compiler "
-                         "omitting frame pointers under optimisation. Function "
-                         "boundary recovery will miss more than usual."))
+        found("warn", f"mixed or frame-pointer-free ({count} prologues, "
+                      f"{density:.1f}/KB)",
+              "Either a lot of hand-written assembly, or a compiler "
+              "omitting frame pointers under optimisation. Function "
+              "boundary recovery will miss more than usual.",
+              "prologue-density", span, frames)
     else:
-        findings.append(("warn", f"few stack frames ({count} prologues, "
-                                 f"{density:.1f}/KB)",
-                         "Two very different programs look like this: "
-                         "hand-written assembly, and C built by a compiler that "
-                         "omits frame pointers under optimisation (Open Watcom "
-                         "does, Microsoft C 5.x does not). Tell them apart by "
-                         "running libsig.py with each shipped database -- a "
-                         "compiled program will match a C runtime, assembly will "
-                         "not. Either way, expect function boundary recovery to "
-                         "miss more than the measured figures suggest."))
+        found("warn", f"few stack frames ({count} prologues, "
+                      f"{density:.1f}/KB)",
+              "Two very different programs look like this: "
+              "hand-written assembly, and C built by a compiler that "
+              "omits frame pointers under optimisation (Open Watcom "
+              "does, Microsoft C 5.x does not). Tell them apart by "
+              "running libsig.py with each shipped database -- a "
+              "compiled program will match a C runtime, assembly will "
+              "not. Either way, expect function boundary recovery to "
+              "miss more than the measured figures suggest.",
+              "prologue-density", span, frames)
         verdict["confidence"] = "low"
 
     # Interpreter engines -- the expensive mistake.
     engines, siblings = looks_like_engine(path, data)
     if engines:
-        findings.append(("blocker", "interpreted engine: " + ", ".join(engines),
-                         "The executable is an interpreter; the game is bytecode "
-                         "and assets in the data files. Decompiling it yields a "
-                         "virtual machine, not the game. Look for an "
-                         "engine-specific tool instead."))
+        markers = {m.decode("latin-1"): f"0x{data.find(m):x}"
+                   for m, name in ENGINE_MARKERS.items() if name in engines
+                   and data.find(m) != -1}
+        found("blocker", "interpreted engine: " + ", ".join(engines),
+              "The executable is an interpreter; the game is bytecode "
+              "and assets in the data files. Decompiling it yields a "
+              "virtual machine, not the game. Look for an "
+              "engine-specific tool instead.",
+              "engine-marker", {"markers": markers}, engines)
         verdict["in_scope"] = False
     elif siblings and siblings[0][1] > 4 * max(1, image_len):
-        findings.append(("warn", "large opaque data files alongside",
-                         "Biggest: " + ", ".join(f"{n} ({s:,} bytes)"
-                                                 for n, s in siblings[:3])
-                         + ". A small executable next to much larger data often "
-                           "means an interpreter with the content elsewhere. "
-                           "Check whether the game's text lives in the binary or "
-                           "in those files before committing."))
+        found("warn", "large opaque data files alongside",
+              "Biggest: " + ", ".join(f"{n} ({s:,} bytes)"
+                                      for n, s in siblings[:3])
+              + ". A small executable next to much larger data often "
+                "means an interpreter with the content elsewhere. "
+                "Check whether the game's text lives in the binary or "
+                "in those files before committing.",
+              "data-siblings", {"beside": Path(path).name},
+              [{"name": n, "size": s} for n, s in siblings])
 
     return {
         "file": str(path), "format": "MZ",
@@ -326,20 +384,141 @@ def report(r):
             out.append(f"           {line}")
         out.append("")
 
-    v = r["verdict"]
-    if v.get("route") == "comrec":
-        out.append("VERDICT: in scope, by the .COM route. Run comrec.py as "
-                   "shown above; it either produces a byte-identical rebuild "
-                   "or says why not.")
-    elif v["in_scope"] and v["confidence"] == "high":
-        out.append("VERDICT: in scope. Run tools/pipeline.ps1.")
-    elif v["in_scope"]:
-        out.append("VERDICT: probably workable, with caveats above. Expect the "
-                   "measured accuracy figures not to hold.")
-    else:
-        out.append("VERDICT: out of scope. See the blockers above and "
-                   "knowledge/00-scope.md.")
+    out.append(verdict_line(r["verdict"]))
     return "\n".join(out)
+
+
+def verdict_line(v):
+    if v.get("route") == "comrec":
+        return ("VERDICT: in scope, by the .COM route. Run comrec.py as "
+                "shown above; it either produces a byte-identical rebuild "
+                "or says why not.")
+    if v["in_scope"] and v["confidence"] == "high":
+        return "VERDICT: in scope. Run tools/pipeline.ps1."
+    if v["in_scope"]:
+        return ("VERDICT: probably workable, with caveats above. Expect the "
+                "measured accuracy figures not to hold.")
+    return ("VERDICT: out of scope. See the blockers above and "
+            "knowledge/00-scope.md.")
+
+
+# What triage cannot see, said once per kind of file. These are true of every
+# run, which is what makes them limitations rather than unknowns: they bound
+# how far the verdict can be trusted, whatever the file.
+LIMITATIONS = {
+    "MZ": [
+        "The memory model is inferred from how many relocations there are and "
+        "where they sit, not read from the file; a program that builds its "
+        "segment values at run time looks smaller than it is.",
+        "Packers are recognised by signature, and EXEPACK by its 'RB' marker. "
+        "A packer with no signature in triage.py's table is not detected; "
+        "few relocations with few stack frames is the only other hint.",
+        "Stack frames are counted as the bytes 55 8B EC anywhere in the load "
+        "image, without disassembling. The other encoding of mov bp,sp "
+        "(89 E5) and ENTER are not counted, and the same bytes inside data "
+        "are.",
+        "Interpreted engines are recognised by engine names in the binary and "
+        "by the size of the files beside it. An engine that names nothing and "
+        "keeps its data elsewhere passes as an ordinary program.",
+    ],
+    "COM": [
+        "Nothing in a .COM is disassembled here: triage only notices that "
+        "there is no header. Whether the file is code, and what kind, is "
+        "comrec.py's to establish.",
+    ],
+    "not-MZ": [
+        "Only MZ executables and .COM files are recognised; NE, PE and LE "
+        "executables, archives and data files are all reported as not MZ.",
+    ],
+}
+
+
+def _unknown_for(o):
+    """The question a finding raises, when it raises one."""
+    kind, value = o["kind"], o["value"]
+    if kind == "packer-signature" and o["level"] == "warn":
+        return (f"whether the {value['packer']} signature at "
+                f"{o['location']['file_offset']} is incidental, or a packer "
+                f"triage did not otherwise recognise")
+    if kind == "trailing-data":
+        return (f"what the {value} bytes past the load image are: appended "
+                f"data, overlays, or a packer's payload")
+    if kind == "memory-model" and value["model"] != "small":
+        return {
+            "tiny or packed": "whether the program is a single segment or "
+                              "packed; no relocations fits both",
+            "small or medium": "whether the memory model is small or medium; "
+                               "the relocations fit both",
+        }.get(value["model"], "which far-pointer model this is, and how many "
+                              "code and data segments it has")
+    if kind == "prologue-density" and o["level"] == "warn":
+        return ("whether this is hand-written assembly or C compiled without "
+                "frame pointers; libsig.py with each shipped database tells "
+                "them apart")
+    if kind == "data-siblings":
+        return ("whether the game's text lives in the executable or in the "
+                "data files beside it")
+    return None
+
+
+def envelope(path):
+    """The evidence envelope for one file: everything the report says,
+    structured, with where each observation was made."""
+    observations = []
+    try:
+        r = analyse(path, observations)
+        target = evidence.target_identity(path)
+    except OSError as e:
+        return evidence.envelope(
+            "triage", {"path": str(Path(path).resolve()), "size": None,
+                       "sha256": None},
+            status="error", result={"file": str(path), "error": str(e)},
+            limitations=["The file could not be read, so nothing about it was "
+                         "established."])
+
+    items = []
+    if r["format"] == "MZ":
+        mz, _ = read_mz(path)
+        items += [
+            {"kind": "format", "claim": "MZ executable", "location": _at(0),
+             "value": "MZ"},
+            {"kind": "load-image",
+             "claim": f"load image of {r['image_bytes']:,} bytes",
+             "location": {"file_offset": f"0x{mz['image_start']:x}",
+                          "file_end": f"0x{mz['image_end']:x}"},
+             "value": r["image_bytes"]},
+            {"kind": "relocation-count",
+             "claim": f"{r['relocations']} relocation"
+                      + ("" if r["relocations"] == 1 else "s"),
+             "location": _at(6), "value": r["relocations"]},
+            {"kind": "entry-point",
+             "claim": f"entry point {r['entry']}, file offset "
+                      f"0x{mz['entry']:X}",
+             "location": _at(mz["entry"]), "value": r["entry"]},
+        ]
+
+    limitations = list(LIMITATIONS[r["format"]])
+    unknowns = []
+    result = {k: v for k, v in r.items() if k != "findings"}
+    result["verdict_text"] = verdict_line(r["verdict"])
+    for o in observations:
+        if o["level"] == "note":
+            result["next_step"] = o["detail"]
+            continue
+        if o["kind"] == "model-assumption":
+            # Not a fact about the file: a fact about the tools downstream,
+            # triggered by what this file looks like.
+            limitations.append(f"{o['claim']}: {o['detail']}")
+            continue
+        item = {k: v for k, v in o.items() if v is not None}
+        items.append(item)
+        question = _unknown_for(o)
+        if question:
+            unknowns.append(question)
+
+    return evidence.envelope("triage", target, status="ok", result=result,
+                             evidence=items, limitations=limitations,
+                             unknowns=unknowns)
 
 
 def _wrap(text, width):
@@ -360,13 +539,31 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("exe")
     ap.add_argument("--json", help="write the findings here")
+    ap.add_argument("--evidence", metavar="FILE",
+                    help="write the evidence envelope here (knowledge/"
+                         "17-evidence.md); '-' prints it instead of the report")
     args = ap.parse_args()
+
+    # With '-' the envelope is the whole of stdout, so a program reading it
+    # gets JSON and nothing else; --json is still written, silently.
+    if args.evidence == "-":
+        env = envelope(args.exe)
+        if args.json and env["status"] != "error":
+            Path(args.json).write_text(json.dumps(analyse(args.exe), indent=2),
+                                       encoding="utf-8")
+        evidence.write(env, "-")
+        if env["status"] == "error":
+            return 2
+        return 0 if env["result"]["verdict"]["in_scope"] else 1
 
     r = analyse(args.exe)
     print(report(r))
     if args.json:
         Path(args.json).write_text(json.dumps(r, indent=2), encoding="utf-8")
         print(f"\nwrote {args.json}")
+    if args.evidence:
+        evidence.write(envelope(args.exe), args.evidence)
+        print(f"\nwrote {args.evidence}")
     return 0 if r["verdict"]["in_scope"] else 1
 
 
