@@ -214,9 +214,10 @@ def match_at(code, table):
     return best
 
 
-def apply(exe, functions_json, db):
+def apply(exe, functions_json, db, accept_drift=False):
     hdr, data = header_size(exe)
-    funcs = evidence.load_functions(functions_json, exe, "libsig.py")["functions"]
+    funcs = evidence.load_functions(functions_json, exe, "libsig.py",
+                                    accept_drift)["functions"]
     table = compile_db(db)
 
     hits = []
@@ -285,6 +286,9 @@ def main():
     a.add_argument("--seg-bias", default="0x1000")
     a.add_argument("--json", help="write detections here")
     a.add_argument("--exclude", help="write a match.py --exclude list here")
+    a.add_argument("--accept-profile-drift", action="store_true",
+                   help="read functions.json although the handshake.json beside it "
+                        "says it drifted; announced on stderr")
 
     args = ap.parse_args()
 
@@ -296,7 +300,7 @@ def main():
         return 0
 
     db = json.loads(Path(args.db).read_text(encoding="utf-8"))
-    hits = apply(args.exe, args.functions_json, db)
+    hits = apply(args.exe, args.functions_json, db, args.accept_profile_drift)
     print(f"signatures in database : {db['count']}")
     print(f"library functions found: {len(hits)}")
     for h in hits[:20]:

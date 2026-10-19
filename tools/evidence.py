@@ -25,6 +25,8 @@ What it provides
   write(env, dest)           canonical JSON to a file, or '-' for stdout
   canonical(obj)             the compact form that ids and profile ids hash
   check_functions_target()   refuse a functions.json made from another file
+  check_handshake()          refuse one whose handshake.json says it drifted
+  load_functions()           both checks, then the parsed functions.json
 
 Statuses
 --------
@@ -321,8 +323,75 @@ def check_functions_target(data, functions_path, exe=None, tool="this tool"):
             f"tools/pipeline.ps1. Pass --exe to make this an error."))
 
 
-def load_functions(functions_path, exe=None, tool="this tool"):
-    """Read a functions.json and check it against `exe` before returning it."""
+# A handshake in one of these states means the export beside it was not
+# produced under the profile the pipeline expected, or was never checked.
+HANDSHAKE_REFUSED = ("mismatch", "blocked")
+ACCEPT_DRIFT_FLAG = "--accept-profile-drift"
+
+
+def check_handshake(functions_path, tool="this tool", accept_drift=False):
+    """Refuse a functions.json whose handshake.json says it drifted.
+
+    pipeline.ps1 stops when the handshake fails, but it leaves functions.json
+    on disk, and before this every reader would open it. Now:
+
+      * handshake.json beside it says mismatch or blocked: SystemExit, with
+        the fields that drifted and what to do -- unless accept_drift, which
+        says on stderr that it is reading a drifted export, every time.
+      * it says verified, or there is none (a work folder from before the
+        handshake): silence, as before.
+      * it is about a different export -- functions.json was rewritten after
+        the check -- or cannot be read: one warning, and carry on, because
+        the record then says nothing about this file.
+    """
+    record = Path(functions_path).parent / "handshake.json"
+    if not record.is_file():
+        return
+    key = "handshake:" + str(record.resolve())
+    try:
+        env = json.loads(record.read_text(encoding="utf-8"))
+        status = env["status"]
+        result = env.get("result") or {}
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        _warn_once(key, f"{tool}: warning: could not read {record} ({e}); "
+                        f"nothing confirms {functions_path} passed its handshake.")
+        return
+
+    checked = result.get("functions_sha256")
+    if checked and checked != sha256_file(functions_path):
+        _warn_once(key, (
+            f"{tool}: warning: {record} describes an earlier export, not the "
+            f"{functions_path} beside it now. Run tools/analysis_profile.py "
+            f"check to bring it up to date."))
+        return
+    if status not in HANDSHAKE_REFUSED:
+        return
+
+    if status == "blocked":
+        what = ("the handshake could not run when this folder was made -- there "
+                "was no export to check")
+    else:
+        drifted = [i["claim"] for i in env.get("evidence", [])
+                   if i.get("level") == "mismatch"]
+        what = ("the handshake found " + "; ".join(drifted)) if drifted else \
+            "the handshake failed"
+    if accept_drift:
+        print(f"{tool}: {ACCEPT_DRIFT_FLAG}: reading {functions_path} although "
+              f"{what}. Everything below rests on settings the rest of the "
+              f"toolkit does not assume.", file=sys.stderr)
+        return
+    raise SystemExit(
+        f"{tool}: {functions_path} did not pass its profile handshake: {what}.\n"
+        f"The record is {record}. Find out why Ghidra did not do what the "
+        f"profile expected, fix it and re-run tools/pipeline.ps1. If you have "
+        f"understood the drift and want these results anyway, pass "
+        f"{ACCEPT_DRIFT_FLAG}.")
+
+
+def load_functions(functions_path, exe=None, tool="this tool", accept_drift=False):
+    """Read a functions.json, and check it against `exe` and against the
+    handshake.json beside it, before returning it."""
     data = json.loads(Path(functions_path).read_text(encoding="utf-8"))
     check_functions_target(data, functions_path, exe, tool)
+    check_handshake(functions_path, tool, accept_drift)
     return data

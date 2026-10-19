@@ -177,7 +177,7 @@ def dgroup_from_relocations(exe_path):
     return min(values)
 
 
-def entries_from_functions_json(path, exe=None):
+def entries_from_functions_json(path, exe=None, accept_drift=False):
     """Function offsets from the pipeline's export, for a binary with no map.
 
     Names are the Ghidra placeholders, so a match here transfers a name *to*
@@ -185,7 +185,7 @@ def entries_from_functions_json(path, exe=None):
     export is refused if it was made from a different file: offsets from one
     build run against another are profiles of the wrong code.
     """
-    data = evidence.load_functions(path, exe, "emuverify.py")
+    data = evidence.load_functions(path, exe, "emuverify.py", accept_drift)
     out = {}
     for f in data["functions"]:
         if f.get("thunk"):
@@ -196,10 +196,11 @@ def entries_from_functions_json(path, exe=None):
 
 
 class Emulator:
-    def __init__(self, exe, symbols_source, dgroup=None):
+    def __init__(self, exe, symbols_source, dgroup=None, accept_drift=False):
         self.image = load_image(exe)
         if str(symbols_source).lower().endswith(".json"):
-            self.symbols = entries_from_functions_json(symbols_source, exe)
+            self.symbols = entries_from_functions_json(symbols_source, exe,
+                                                       accept_drift)
             self.dgroup = dgroup if dgroup is not None \
                 else dgroup_from_relocations(exe)
         else:
@@ -421,12 +422,17 @@ def main():
     ap.add_argument("--limit", type=int, help="only the first N functions of each")
     ap.add_argument("--json", help="write results here")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--accept-profile-drift", action="store_true",
+                    help="read functions.json although the handshake.json beside it "
+                         "says it drifted; announced on stderr")
     args = ap.parse_args()
 
     a = Emulator(args.exe_a, args.map_a,
-                 int(args.dgroup_a, 0) if args.dgroup_a else None)
+                 int(args.dgroup_a, 0) if args.dgroup_a else None,
+                 args.accept_profile_drift)
     b = Emulator(args.exe_b, args.map_b,
-                 int(args.dgroup_b, 0) if args.dgroup_b else None)
+                 int(args.dgroup_b, 0) if args.dgroup_b else None,
+                 args.accept_profile_drift)
 
     a_offsets = dict(list(a.symbols.items())[:args.limit] if args.limit
                      else a.symbols.items())

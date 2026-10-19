@@ -598,6 +598,9 @@ def main():
     ap.add_argument("binary_json", help="functions.json from ExportDecompiledC")
     ap.add_argument("--exe", help="the executable functions.json was made from; it is refused "
                          "if its SHA-256 differs from the one recorded")
+    ap.add_argument("--accept-profile-drift", action="store_true",
+                    help="read functions.json although the handshake.json beside it "
+                         "says it drifted; announced on stderr")
     ap.add_argument("--exclude-file", action="append", default=[],
                     help="source file not linked into the binary (repeatable)")
     ap.add_argument("--exclude-library", metavar="FILE",
@@ -624,7 +627,8 @@ def main():
     args = ap.parse_args()
 
     src = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
-    binr = evidence.load_functions(args.binary_json, args.exe, "match.py")
+    binr = evidence.load_functions(args.binary_json, args.exe, "match.py",
+                                   args.accept_profile_drift)
 
     seed = json.loads(Path(args.seed).read_text(encoding="utf-8")) if args.seed else None
 

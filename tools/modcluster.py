@@ -283,6 +283,9 @@ def main():
     ap.add_argument("functions_json")
     ap.add_argument("--exe", help="the executable functions.json was made from; it is refused "
                          "if its SHA-256 differs from the one recorded")
+    ap.add_argument("--accept-profile-drift", action="store_true",
+                    help="read functions.json although the handshake.json beside it "
+                         "says it drifted; announced on stderr")
     ap.add_argument("--window", type=int, default=3,
                     help="functions each side of a gap to compare (3 measured best)")
     ap.add_argument("--min-segment", type=int, default=2)
@@ -292,7 +295,8 @@ def main():
     ap.add_argument("--json", help="write segments here")
     args = ap.parse_args()
 
-    data = evidence.load_functions(args.functions_json, args.exe, "modcluster.py")
+    data = evidence.load_functions(args.functions_json, args.exe, "modcluster.py",
+                                   args.accept_profile_drift)
     funcs = [f for f in data["functions"] if not f.get("thunk")]
 
     seg = ModuleSegmenter(funcs, window=args.window, min_segment=args.min_segment)

@@ -327,10 +327,16 @@ def _record(args, expected_env, status, rows, drifted):
                                f"{_show(got)}",
                       "location": {"field": field},
                       "value": {"expected": want, "observed": got}})
+    # Which export this record is about, by content: a reader finding it
+    # beside a functions.json that has since been rewritten can tell that it
+    # no longer describes the file (evidence.check_handshake).
+    functions = Path(args.functions)
     env = evidence.envelope(
         "analysis_profile check", expected_env.get("target"), status=status,
         result={"compared": len(rows), "drift": drifted,
-                "functions": str(Path(args.functions).resolve())},
+                "functions": str(functions.resolve()),
+                "functions_sha256": evidence.sha256_file(functions)
+                if functions.is_file() else None},
         evidence=items, limitations=LIMITATIONS,
         profile=expected_env.get("profile"))
     evidence.write(env, args.evidence)

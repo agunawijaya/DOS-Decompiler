@@ -97,8 +97,8 @@ CONSTANTS = {
 }
 
 
-def load(path, exe=None):
-    d = evidence.load_functions(path, exe, "anchors.py")
+def load(path, exe=None, accept_drift=False):
+    d = evidence.load_functions(path, exe, "anchors.py", accept_drift)
     return d["functions"], d
 
 
@@ -403,6 +403,9 @@ def main():
     ap.add_argument("functions_json")
     ap.add_argument("--exe", help="the executable functions.json was made from; it is refused "
                          "if its SHA-256 differs from the one recorded")
+    ap.add_argument("--accept-profile-drift", action="store_true",
+                    help="read functions.json although the handshake.json beside it "
+                         "says it drifted; announced on stderr")
     ap.add_argument("--entry", help="entry point address, e.g. 1000:8b46")
     ap.add_argument("--json", help="write findings here")
     ap.add_argument("--report", help="write the readable report here")
@@ -410,7 +413,7 @@ def main():
                     help="write evidence-based names in ApplyNames.java format")
     args = ap.parse_args()
 
-    functions, _ = load(args.functions_json, args.exe)
+    functions, _ = load(args.functions_json, args.exe, args.accept_profile_drift)
     findings = analyze(functions, args.entry)
     text = summarize(findings, functions)
 
