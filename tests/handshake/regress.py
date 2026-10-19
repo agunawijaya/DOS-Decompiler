@@ -183,6 +183,18 @@ def check_plain(out, exe):
         want = hashlib.sha256(raw.replace(CRLF, LF)).hexdigest()
         expect((o.get("export") or {}).get(key) == want,
                f"observed export.{key}: the {name} in this checkout")
+    # The corrector's mark: it ran, it is the copy in this checkout, and on
+    # a file Ghidra loads right it corrected nothing.
+    raw = (TOOLS / "ghidra_scripts" / "CorrectMzLoad.java").read_bytes()
+    want = hashlib.sha256(raw.replace(CRLF, LF)).hexdigest()
+    lc = o.get("load_correction") or {}
+    expect(lc.get("ran") is True and lc.get("script_sha256") == want
+           and lc.get("corrections") == 0
+           and p.get("load_correction", {}).get("script_sha256") == want,
+           f"observed load_correction: ran, the CorrectMzLoad.java in this checkout, "
+           f"{lc.get('corrections')} corrections")
+    expect(fj.get("load_image", {}).get("corrections") == 0,
+           "functions.json load_image.corrections is 0 for a clean file")
     off = [f["entry"] for f in fj["functions"] if not f["entry"].startswith("1000:")]
     expect(not off, "every entry is in segment 1000" + (f" (not {off})" if off else ""))
 

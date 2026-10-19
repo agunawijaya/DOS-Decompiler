@@ -26,12 +26,21 @@
 ;                         pages, 1024 bytes, which makes bytes-on-last-page 0
 ;                         -- "the last page is full" in DOS's reading of the
 ;                         header
+;   TAIL_RELOCATION       FULL_LAST_PAGE with a far pointer inside the second
+;                         page, so a relocation patches a word in the page
+;                         Ghidra's loader drops
 ;   RELOC_TABLE_OUTSIDE   malformed: the relocation table starts past the file
 ;   RELOC_TARGET_PAST     malformed: a relocation patches a word past the image
 ;   ENTRY_OUTSIDE         malformed: CS:IP points past the image
+;
+; DUPLICATED and FULL_LAST_PAGE may be given together, for a file with both.
 
 BITS 16
 ORG 0
+
+%ifdef TAIL_RELOCATION
+  %define FULL_LAST_PAGE
+%endif
 
 ; `mov bp, sp` has two encodings; 8B EC is the one compilers emit and the
 ; tools count.
@@ -49,10 +58,16 @@ FAR_SEG     equ (far_start - image_start) / 16
 DATA_SEG    equ (data_start - image_start) / 16
 
 %ifdef DUPLICATED
-  RELOCATIONS equ 5
+  %assign DUP_ENTRIES 1
 %else
-  RELOCATIONS equ 4
+  %assign DUP_ENTRIES 0
 %endif
+%ifdef TAIL_RELOCATION
+  %assign TAIL_ENTRIES 1
+%else
+  %assign TAIL_ENTRIES 0
+%endif
+RELOCATIONS equ 4 + DUP_ENTRIES + TAIL_ENTRIES
 
 ; ---------------------------------------------------------------- MZ header
     db 'MZ'
@@ -88,6 +103,9 @@ relocations:
 %endif
 %ifdef DUPLICATED
     dw fix_table - data_start, DATA_SEG ; the same word again
+%endif
+%ifdef TAIL_RELOCATION
+    dw fix_tail - data_start, DATA_SEG  ; a word in the second page
 %endif
     times HDR_PARAS * 16 - ($ - $$) db 0
 
@@ -145,6 +163,15 @@ table:
 fix_table equ $ - 2
     dw 0xAAAA, 0x5555                   ; more of the table, not relocated
 %ifdef FULL_LAST_PAGE
+%ifdef TAIL_RELOCATION
+    ; Filler to just past file offset 0x200, then a far pointer: a relocation
+    ; inside the page Ghidra's loader drops.
+    times 0x210 - (HDR_PARAS * 16 + ($ - image_start)) db 0xEE
+tail_table:
+    dw farproc - far_start
+    dw FAR_SEG
+fix_tail equ $ - 2
+%endif
     ; Two whole pages: everything above, then filler to byte 1024 of the file.
     times 1024 - (HDR_PARAS * 16 + ($ - image_start)) db 0xEE
 %endif

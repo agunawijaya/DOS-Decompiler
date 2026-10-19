@@ -1166,6 +1166,7 @@ OBSERVED_FIELDS = ("loader", "language", "compiler_spec", "image_base",
                    "load_segment", "address_convention", "ghidra_version",
                    "recovery.ran", "recovery.script_sha256",
                    "export.script_sha256", "export.helper_sha256",
+                   "load_correction.ran", "load_correction.script_sha256",
                    "target.sha256", "target.size")
 
 

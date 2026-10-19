@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
 regress.py -- Check that tools/loadimage.py tells a correct load from a wrong
-one, and that the pipeline stops on a wrong one.
+one, that CorrectMzLoad.java puts right the two loads Ghidra gets wrong and
+nothing else, and that the pipeline stops on a load that is still wrong.
 
 The fixture is tests/loadimage/fixtures/segments.asm, assembled at test time in
-seven variants: the good file, the same with bytes appended past the declared
-image, a duplicated relocation entry, a header whose last page is full, and
-three malformed headers. See the fixture for what each one exercises.
+nine variants: the good file, the same with bytes appended past the declared
+image, a duplicated relocation entry, a header whose last page is full, both
+of those at once, a full last page with a relocation inside it, and three
+malformed headers. See the fixture for what each one exercises.
 
 Without Ghidra
 --------------
@@ -25,18 +27,28 @@ Without Ghidra
 * `map` round-trips every initialised byte, file offset to address to file
   offset, and refuses the header, appended data and uninitialised memory.
 
+* A corrections record is checked for where it came from and never believed:
+  a wrong byte stays a mismatch however the record describes it.
+
 With Ghidra (skipped, and saying so, without it)
 ------------------------------------------------
-* The pipeline on the two good variants must verify.
-* On the duplicated relocation and the full last page it must stop, naming
-  the first failing check; with -AllowLoadMismatch it must continue, say so,
-  and record it in functions.json. On a malformed header it must stop with
-  unsupported.
-* The tamper cases again, on a dump Ghidra itself wrote.
-* `map` round-trips every initialised byte of the real verified record.
+* The pipeline on the two good variants must verify with 0 corrections, and
+  their dumps must be the same, block for block, as Ghidra's own load.
+* The duplicated relocation and the full last page must verify after one
+  correction each, with the exact values recorded; the variant with both
+  gets both. A full last page with a relocation in it gets the page and the
+  fixup back, and stays a mismatch on the relocation record Ghidra marked
+  FAILURE -- something the corrector does not fix.
+* With -NoLoadCorrection the two must stop exactly as they did in prompt 02;
+  with -AllowLoadMismatch as well they must continue, say so, and record it.
+* A dump tampered after correction is still a mismatch.
+* The forced load-segment drift and a malformed header stop the pipeline.
+* The tamper cases again on a dump Ghidra wrote, and `map` round-tripping
+  every initialised byte of a verified Ghidra load.
 
 Usage:
     python tests/loadimage/regress.py
+    python tests/loadimage/regress.py --only "after correction"   # cases matching
 """
 
 import hashlib
@@ -57,8 +69,14 @@ sys.path.insert(0, str(TOOLS))
 import evidence                                          # noqa: E402
 import loadimage                                         # noqa: E402
 
-VARIANTS = ("plain", "APPENDED", "DUPLICATED", "FULL_LAST_PAGE",
-            "RELOC_TABLE_OUTSIDE", "RELOC_TARGET_PAST", "ENTRY_OUTSIDE")
+# name -> the -d flags it is assembled with
+VARIANTS = {"plain": [], "APPENDED": ["APPENDED"], "DUPLICATED": ["DUPLICATED"],
+            "FULL_LAST_PAGE": ["FULL_LAST_PAGE"],
+            "BOTH": ["DUPLICATED", "FULL_LAST_PAGE"],
+            "TAIL_RELOCATION": ["TAIL_RELOCATION"],
+            "RELOC_TABLE_OUTSIDE": ["RELOC_TABLE_OUTSIDE"],
+            "RELOC_TARGET_PAST": ["RELOC_TARGET_PAST"],
+            "ENTRY_OUTSIDE": ["ENTRY_OUTSIDE"]}
 LOAD = 0x1000
 
 CASES = []
@@ -480,6 +498,41 @@ def _():
     return f"{n} bytes both ways; {alias} is {r['address']}, inside a relocated word"
 
 
+@case("a corrections record is checked for where it came from, and never believed")
+def _():
+    exp = loadimage.Expected(EXE["plain"])
+    r = exp.relocations[3]
+    memory = bytearray(exp.relocated)
+    memory[r["image_offset"]] ^= 0x01                   # a word left wrong
+    folder = synthetic_dump(exp, WORK / "corrector-claims", memory)
+    record = {"schema": "dos-decompiler/load-corrections/1",
+              "script_sha256": evidence.source_sha256(loadimage.CORRECT_SCRIPT),
+              "helper_sha256": evidence.source_sha256(loadimage.HELPER_SCRIPT),
+              "target_sha256": loadimage.sha256(exp.data), "count": 1, "notes": [],
+              "corrections": [{"kind": "duplicated-relocation", "address": r["address"],
+                               "before": "0x0000", "after": f"0x{r['relocated_word']:04x}"}]}
+    claims = WORK / "corrector-claims.json"
+    claims.write_text(json.dumps(record), encoding="utf-8")
+    env = loadimage.verify(EXE["plain"], folder, corrections=claims)
+    if env["status"] != "mismatch" or env["result"]["first_failure"]["name"] != \
+            "relocations.words" or env["result"]["corrections"] != 1:
+        raise AssertionError(f"a record claiming the word was fixed: {env['result']['failed']}")
+    good = synthetic_dump(exp, WORK / "corrector-good")
+    for field, value, check in (("script_sha256", "0" * 64, "corrector.script_sha256"),
+                                ("target_sha256", "1" * 64, "corrector.target")):
+        bad = dict(record, **{field: value})
+        claims.write_text(json.dumps(bad), encoding="utf-8")
+        env = loadimage.verify(EXE["plain"], good, corrections=claims)
+        if env["status"] != "mismatch" or env["result"]["failed"] != [check]:
+            raise AssertionError(f"{field}: {env['result']['failed']}")
+    claims.write_text(json.dumps(dict(record, count=0, corrections=[])), encoding="utf-8")
+    env = loadimage.verify(EXE["plain"], good, corrections=claims)
+    if env["status"] != "verified" or env["result"]["corrections"] != 0:
+        raise AssertionError(f"a clean record on a clean dump: {env['result']['failed']}")
+    return ("a wrong word stays wrong whatever the record says; a record from "
+            "another corrector or file is refused")
+
+
 # ---------------------------------------------------------------- Ghidra
 
 def ghidra_ready():
@@ -526,7 +579,48 @@ def record_of(out):
     return json.loads((out / "loadimage.json").read_text(encoding="utf-8"))
 
 
-@case("the pipeline verifies both good fixtures", ghidra=True)
+def functions_of(out):
+    return json.loads((out / "functions.json").read_text(encoding="utf-8"))
+
+
+def raw_dump(variant):
+    """Ghidra's own load of a variant, dumped: import without analysis, no
+    corrector, then DumpLoadImage.java -- what the pipeline saw before this
+    prompt added the corrector."""
+    ghidra, java, pwsh = GHIDRA
+    folder = WORK / "raw" / variant
+    (folder / "proj").mkdir(parents=True, exist_ok=True)
+    exe = folder / "SEGMENTS.EXE"
+    shutil.copy(EXE[variant], exe)
+    script = "analyzeHeadless.bat" if os.name == "nt" else "analyzeHeadless"
+    headless = str(Path(ghidra) / "support" / script)
+    env = dict(os.environ, JAVA_HOME=java)
+    for args in (["-import", str(exe), "-overwrite", "-noanalysis"],
+                 ["-process", exe.name, "-noanalysis", "-readOnly", "-scriptPath",
+                  str(TOOLS / "ghidra_scripts"), "-postScript", "DumpLoadImage.java",
+                  str(folder)]):
+        subprocess.run([headless, str(folder / "proj"), "t"] + args,
+                       capture_output=True, text=True, env=env)
+    return folder / "loadimage-observed"
+
+
+def dump_shape(folder):
+    """Everything in a dump that describes the load -- not the scripts'
+    own hashes, which differ by design between dumper and corrector runs."""
+    obs = json.loads((folder / "observed.json").read_text(encoding="utf-8"))
+    fbs = [{k: f[k] for k in ("size", "original_sha256", "modified_sha256")}
+           for f in obs["file_bytes"]]
+    return {"blocks": obs["blocks"], "relocations": obs["relocations"],
+            "file_bytes": fbs, "entry_points": obs["entry_points"],
+            "stack": obs["stack"], "load_segment": obs["load_segment"]}
+
+
+def corrections_of(out):
+    return json.loads((out / "load-corrections.json").read_text(encoding="utf-8"))
+
+
+@case("the good fixtures verify with 0 corrections, and the same dump as Ghidra's",
+      ghidra=True)
 def _():
     found = []
     for variant in ("plain", "APPENDED"):
@@ -534,48 +628,167 @@ def _():
         if code != 0:
             raise AssertionError(f"{variant}: exit {code}\n{log[-1500:]}")
         env = record_of(out)
-        fj = json.loads((out / "functions.json").read_text(encoding="utf-8"))
-        if env["status"] != "verified" or "load image: verified" not in log:
-            raise AssertionError(f"{variant}: {env['status']}, {env['result'].get('first_failure')}")
-        if fj.get("load_image") != {"status": "verified", "mismatch_allowed": False,
-                                    "record": "loadimage.json"}:
+        fj = functions_of(out)
+        if env["status"] != "verified" or env["result"]["corrections"] != 0 \
+                or "load image: verified, " not in log:
+            raise AssertionError(f"{variant}: {env['status']}, corrections "
+                                 f"{env['result'].get('corrections')}")
+        if fj.get("load_image") != {"status": "verified", "corrections": 0,
+                                    "mismatch_allowed": False, "record": "loadimage.json"}:
             raise AssertionError(f"{variant}: functions.json load_image {fj.get('load_image')}")
-        found.append(f"{variant} {env['result']['checks']} checks")
-    return ", ".join(found)
+        if corrections_of(out)["corrections"]:
+            raise AssertionError(f"{variant}: the record lists corrections")
+        raw = dump_shape(raw_dump(variant))
+        if dump_shape(out / "loadimage-observed") != raw:
+            raise AssertionError(f"{variant}: the corrector changed a clean load")
+        found.append(f"{variant}: {env['result']['checks']} checks, "
+                     f"{len(raw['blocks'])} blocks as Ghidra loaded them")
+    return "; ".join(found)
 
 
-@case("the pipeline stops on a load that differs, naming the first failing check",
+# What the corrector must record, exactly, measured on Ghidra 12.1.2.
+PAGE_CORRECTION = {
+    "kind": "missing-last-page", "file_start": 0x200, "file_end_inclusive": 0x3FF,
+    "linear_start": 0x101C0, "linear_end_inclusive": 0x103BF, "address": "1006:0160",
+    "before": "not loaded",
+    "after": "file 0x200..0x3ff mapped at 1006:0160, joined to CODE_3",
+    "uninitialized_moved": "DATA 1006:0160 size 256 -> DATA 1006:0360 size 256",
+    "fixups": []}
+DUPLICATE_CORRECTION = {
+    "kind": "duplicated-relocation", "address": "1006:0016", "linear": 0x10076,
+    "file_offset": 0xB6, "entries": 2, "relocation_records": 2,
+    "before": "0x1004", "after": "0x2004"}
+
+
+@case("the two loads Ghidra gets wrong verify after correction, exactly recorded",
       ghidra=True)
 def _():
-    wants = {"DUPLICATED": ("relocations.words", "1006:0016: 0x1004 not 0x2004"),
-             "FULL_LAST_PAGE": ("module.coverage", "file 0x200..0x3ff not loaded")}
-    found = []
-    for variant, (check, words) in wants.items():
+    wants = {"FULL_LAST_PAGE": [PAGE_CORRECTION],
+             "DUPLICATED": [DUPLICATE_CORRECTION]}
+    for variant, want in wants.items():
         code, log, exe, out = pipeline(variant)
-        if code == 0 or f"first failing check: {check}" not in log or words not in log:
+        line = "load image: verified after 1 correction (see load-corrections.json)"
+        if code != 0 or line not in log:
             raise AssertionError(f"{variant}: exit {code}\n{log[-1500:]}")
-        if "stopping before anything is built on it" not in log:
-            raise AssertionError(f"{variant}: no stop message")
-        if (out / "functions.json").exists():
-            raise AssertionError(f"{variant}: the pipeline went on to export")
-        found.append(f"{variant}: {check} ({words})")
-    return "; ".join(found)
+        env = record_of(out)
+        if env["status"] != "verified" or env["result"]["corrections"] != 1 \
+                or env["result"]["corrections_made"] != want:
+            raise AssertionError(f"{variant}: {env['status']}, "
+                                 f"{env['result'].get('corrections_made')}")
+        if corrections_of(out)["corrections"] != want:
+            raise AssertionError(f"{variant}: load-corrections.json {corrections_of(out)}")
+        load = functions_of(out).get("load_image")
+        if load != {"status": "verified", "corrections": 1, "mismatch_allowed": False,
+                    "record": "loadimage.json"}:
+            raise AssertionError(f"{variant}: functions.json load_image {load}")
+    return ("page: file 0x200..0x3ff mapped at 1006:0160, joined to CODE_3; "
+            "duplicate: 1006:0016 0x1004 -> 0x2004")
+
+
+@case("a file with both divergences gets both corrections", ghidra=True)
+def _():
+    code, log, exe, out = pipeline("BOTH")
+    env = record_of(out)
+    made = env["result"]["corrections_made"]
+    if code != 0 or env["status"] != "verified" or made != [PAGE_CORRECTION,
+                                                            DUPLICATE_CORRECTION]:
+        raise AssertionError(f"exit {code}, {env['status']}, {made}\n{log[-1000:]}")
+    if "load image: verified after 2 corrections (see load-corrections.json)" not in log:
+        raise AssertionError("prose does not say 2 corrections")
+    return "2 corrections, the page and the duplicate, and verified"
+
+
+@case("what the corrector cannot fix stays a mismatch", ghidra=True)
+def _():
+    # A relocation inside the dropped page: the corrector restores the page
+    # and the fixup in memory, but the record Ghidra wrote for it says
+    # FAILURE, and nothing in the program API rewrites a relocation record.
+    code, log, exe, out = pipeline("TAIL_RELOCATION")
+    env = record_of(out)
+    failed = env["result"]["failed"]
+    fixups = env["result"]["corrections_made"][0]["fixups"]
+    if code == 0 or env["status"] != "mismatch":
+        raise AssertionError(f"exit {code}, {env['status']}")
+    if failed != ["relocations.status", "relocations.original"]:
+        raise AssertionError(f"failed {failed}")
+    if fixups != [{"address": "1006:0172", "file_offset": 0x212, "entries": 1,
+                   "before": "0x0004", "after": "0x1004"}]:
+        raise AssertionError(f"fixups {fixups}")
+    return ("page and fixup restored (1006:0172 0x0004 -> 0x1004); "
+            "Ghidra's FAILURE record still fails relocations.status")
+
+
+@case("with -NoLoadCorrection the two stop exactly as they did in prompt 02",
+      ghidra=True)
+def _():
+    # The lines prompt 02 printed, copied from its report.
+    wants = {"DUPLICATED": [
+                 "load image: mismatch, 4 of 28 checks failed",
+                 "first failing check: relocations.words: expected each patched word "
+                 "holds its value after every fixup to it, observed "
+                 "['1006:0016: 0x1004 not 0x2004']",
+                 "first differing byte: file 0xb7, 1006:0017 (linear 0x10077): "
+                 "expected 0x20, observed 0x10"],
+             "FULL_LAST_PAGE": [
+                 "load image: mismatch, 2 of 28 checks failed",
+                 "first failing check: module.coverage: expected file 0x40..0x3ff, "
+                 "once, observed ['file 0x200..0x3ff not loaded']"]}
+    for variant, lines in wants.items():
+        code, log, exe, out = pipeline(variant, "-NoLoadCorrection")
+        missing = [l for l in lines if l not in log]
+        if code == 0 or missing or "stopping before anything is built on it" not in log:
+            raise AssertionError(f"{variant}: exit {code}, missing {missing}\n{log[-1500:]}")
+        if (out / "functions.json").exists() or (out / "load-corrections.json").exists():
+            raise AssertionError(f"{variant}: exported, or corrected")
+        if "Load correction skipped (-NoLoadCorrection)" not in log:
+            raise AssertionError(f"{variant}: the skip is not announced")
+    return "both mismatches, line for line"
 
 
 @case("-AllowLoadMismatch goes on, says so, and records it in functions.json",
       ghidra=True)
 def _():
-    code, log, exe, out = pipeline("FULL_LAST_PAGE", "-AllowLoadMismatch")
+    code, log, exe, out = pipeline("FULL_LAST_PAGE", "-NoLoadCorrection",
+                                   "-AllowLoadMismatch")
     if code != 0 or "LOAD IMAGE NOT VERIFIED (mismatch)" not in log:
         raise AssertionError(f"exit {code}\n{log[-1500:]}")
-    fj = json.loads((out / "functions.json").read_text(encoding="utf-8"))
-    if fj.get("load_image") != {"status": "mismatch", "mismatch_allowed": True,
-                                "record": "loadimage.json"}:
+    fj = functions_of(out)
+    if fj.get("load_image") != {"status": "mismatch", "corrections": None,
+                                "mismatch_allowed": True, "record": "loadimage.json"}:
         raise AssertionError(f"functions.json load_image {fj.get('load_image')}")
+    if fj["observed_profile"]["load_correction"]["ran"] is not False:
+        raise AssertionError("observed_profile says the corrector ran")
     rc, _, err = run(TOOLS / "anchors.py", out / "functions.json", "--exe", exe)
     if rc != 0 or "did not verify (mismatch)" not in err or "module.coverage" not in err:
         raise AssertionError(f"anchors.py: exit {rc}, {err!r}")
-    return "continued, functions.json says mismatch_allowed, and anchors.py warns"
+    return "continued, corrections null, mismatch_allowed, and anchors.py warns"
+
+
+@case("a dump tampered after correction is still a mismatch", ghidra=True)
+def _():
+    code, log, exe, out = pipeline("FULL_LAST_PAGE")
+    folder = WORK / "tamper-after-correction"
+    shutil.copytree(out / "loadimage-observed", folder)
+    obs = json.loads((folder / "observed.json").read_text(encoding="utf-8"))
+    block = next(b for b in obs["blocks"] if b["name"] == "CODE_3")
+    m = block["mappings"][0]
+    at = 0x300 - m["file_offset"]                      # inside the restored page
+    data = bytearray((folder / block["dump"]).read_bytes())
+    before = data[m["offset_in_block"] + at]
+    data[m["offset_in_block"] + at] ^= 0x33
+    (folder / block["dump"]).write_bytes(data)
+    env = loadimage.verify(exe, folder, corrections=out / "load-corrections.json")
+    first = env["result"]["first_failure"]
+    d = first.get("first_difference") or {}
+    if env["status"] != "mismatch" or not first["name"].endswith(".digest") \
+            or d.get("file_offset") != "0x300" \
+            or d.get("expected") != f"0x{before:02x}" \
+            or d.get("observed") != f"0x{before ^ 0x33:02x}":
+        raise AssertionError(f"{env['status']}: {first}")
+    if env["result"]["corrections"] != 1:
+        raise AssertionError("the corrections record was not read")
+    return (f"file 0x300 {d['expected']} -> {d['observed']} at {d['address']}, "
+            f"despite the record of 1 correction")
 
 
 @case("a profile expecting another load segment stops at the load-image check",
@@ -583,9 +796,9 @@ def _():
 def _():
     code, log, exe, out = pipeline("plain", drift="load_segment=0x2000")
     want = "first failing check: load-segment: expected 0x2000, observed 0x1000"
-    if code == 0 or want not in log or "[4/5]" in log:
+    if code == 0 or want not in log or "[5/6]" in log:
         raise AssertionError(f"exit {code}\n{log[-1500:]}")
-    return "load-segment: expected 0x2000, observed 0x1000, before recovery ran"
+    return "load-segment: expected 0x2000, observed 0x1000, before analysis ran"
 
 
 @case("the pipeline stops on a malformed header as unsupported", ghidra=True)
@@ -628,16 +841,19 @@ def main():
     WORK = Path(tempfile.mkdtemp(prefix="loadimage-regress-"))
     failures = skipped = 0
     try:
-        for v in VARIANTS:
+        for v, defines in VARIANTS.items():
             out = WORK / f"{v}.exe"
-            flags = [] if v == "plain" else [f"-d{v}"]
+            flags = [f"-d{d}" for d in defines]
             r = subprocess.run([nasm, "-f", "bin"] + flags + ["-o", str(out), str(FIXTURE)],
                                capture_output=True, text=True)
             if r.returncode != 0:
                 print(f"FAIL  nasm could not build {v}:\n{r.stderr}")
                 return 1
             EXE[v] = out
+        only = sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else None
         for name, fn, needs_ghidra in CASES:
+            if only and only not in name:
+                continue
             if needs_ghidra and GHIDRA is None:
                 print(f"  SKIP  {name:<74} skipped: {why}")
                 skipped += 1
@@ -654,6 +870,9 @@ def main():
         shutil.rmtree(WORK, ignore_errors=True)
 
     print()
+    if only:
+        print(f"--only {only!r}: {failures} failed")
+        return 1 if failures else 0
     if failures:
         print(f"{failures} of {len(CASES)} load-image checks failed.")
         return 1
