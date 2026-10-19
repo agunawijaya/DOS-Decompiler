@@ -49,7 +49,7 @@ did, and nothing in it is a finding.
 | field | what it holds |
 |---|---|
 | `schema` | `dos-decompiler/evidence/1`. A consumer refuses a schema it does not know. |
-| `tool` | which tool wrote it: `triage`, `survey`, `mzinfo`, `analysis_profile` (profile.json), `analysis_profile check` (handshake.json), `loadimage` (loadimage.json) |
+| `tool` | which tool wrote it: `triage`, `survey`, `mzinfo`, `analysis_profile` (profile.json), `analysis_profile check` (handshake.json), `loadimage` (loadimage.json), `bodies` (bodies.json), `applynames` (applynames-result.json) |
 | `tool_version` | the toolkit's git short hash, with `-dirty` if `tools/` has uncommitted or untracked changes, or `unknown` outside a checkout |
 | `target` | `path` (absolute), `size`, `sha256` of the file examined. For a folder: `kind: "directory"`, `files`, total `size`, and one `sha256` over a manifest of every file's relative path, size and hash. `size` and `sha256` are `null` only in an `error` envelope for a file that could not be read |
 | `profile` | the analysis profile the result was produced under, with its `profile_id`; `null` for a tool that runs no analysis |
@@ -75,11 +75,11 @@ An **evidence item**:
 
 | status | means | used by |
 |---|---|---|
-| `ok` | ran to completion; the result describes the target. Nothing was compared against an oracle, so nothing is proved | triage, survey, mzinfo, `analysis_profile.py write`, `loadimage.py expected` |
+| `ok` | ran to completion; the result describes the target. Nothing was compared against an oracle, so nothing is proved | triage, survey, mzinfo, `analysis_profile.py write`, `loadimage.py expected`, `bodies.py`, `applynames.py` when the batch was applied |
 | `verified` | compared with an independent oracle, and they agree | `analysis_profile.py check`, `loadimage.py verify` |
 | `mismatch` | compared, and they disagree; the evidence says where | `analysis_profile.py check`, `loadimage.py verify` |
 | `unsupported` | the target is a kind of input the tool does not handle, and it says so instead of producing something | mzinfo on a file that is not MZ; `loadimage.py` on a header that fails its bounds |
-| `blocked` | something outside the target is missing, or a precondition refused the run | `analysis_profile.py check` when there is no export to check; `loadimage.py verify` when there is no dump |
+| `blocked` | something outside the target is missing, or a precondition refused the run | `analysis_profile.py check` when there is no export to check; `loadimage.py verify` when there is no dump; `applynames.py` when validation refused the batch, or a readback rolled it back (the exit code tells them apart) |
 | `error` | the tool failed; nothing in the result is to be trusted | all, for a file that cannot be read |
 
 A tool may use only the statuses it can honestly reach. A tool that compares
