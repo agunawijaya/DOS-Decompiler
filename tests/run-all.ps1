@@ -76,6 +76,8 @@ $Prerequisites = @{
     'com'        = @('nasm', 'capstone')
     'comrun'     = @('unicorn')
     'evidence'   = @('nasm')
+    # Its Ghidra half skips by itself, as loadimage's does.
+    'farcall'    = @('nasm', 'capstone', 'unicorn')
     'handshake'  = @('nasm', 'ghidra', 'java')
     'libscan'    = @('watcom')
     # Its Ghidra half skips by itself, saying so, and this reports that as
