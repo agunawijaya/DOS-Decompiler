@@ -93,6 +93,17 @@ LIMITATIONS = [
 ]
 
 
+# Added when relocations.status_after_correction was used.
+AFTER_CORRECTION_LIMITATION = (
+    "A relocation inside the page CorrectMzLoad.java restored keeps the FAILURE "
+    "record Ghidra wrote for it, because nothing in Ghidra's API rewrites a "
+    "relocation record. That record was accepted, under "
+    "relocations.status_after_correction, only because the word in memory is the "
+    "value computed here from the file, it lies in a range the corrections record "
+    "says was restored, and that record passed its provenance checks. The "
+    "relocation table Ghidra keeps still says FAILURE for it.")
+
+
 class Unsupported(Exception):
     """The file is not one this can say anything about, and why."""
 
@@ -382,8 +393,23 @@ def expected_script_hashes(profile):
             dump.get("helper_sha256") or evidence.source_sha256(HELPER_SCRIPT))
 
 
-def compare(exp, obs, profile=None):
-    """Every check, in the order a reader should see them fail."""
+def restored_ranges(record):
+    """The linear ranges a corrections record says CorrectMzLoad.java mapped
+    back in, ends inclusive. Taken from the record -- the one thing the
+    verifier takes from it -- and used only to say which of Ghidra's FAILURE
+    relocation records may be judged by relocations.status_after_correction."""
+    return [(c["linear_start"], c["linear_end_inclusive"])
+            for c in (record or {}).get("corrections", [])
+            if c.get("kind") == "missing-last-page"
+            and isinstance(c.get("linear_start"), int)
+            and isinstance(c.get("linear_end_inclusive"), int)]
+
+
+def compare(exp, obs, profile=None, restored=(), trusted=False):
+    """Every check, in the order a reader should see them fail.
+
+    `restored` and `trusted` come from the corrections record: the ranges it
+    says were mapped back in, and whether its provenance checks passed."""
     c = Checks()
     want_script, want_helper = expected_script_hashes(profile)
     c.add("dumper.script_sha256", obs.get("script_sha256") == want_script,
@@ -453,7 +479,7 @@ def compare(exp, obs, profile=None):
           sha256(original[hdr:exp.image_end]) if original is not None else None,
           "the module bytes in Ghidra's copy of the file, before fixups")
 
-    _relocation_checks(c, exp, obs)
+    _relocation_checks(c, exp, obs, restored, trusted)
 
     loaded = bytearray(len(exp.module))
     filled = bytearray(len(exp.module))
@@ -530,11 +556,57 @@ def _segment_for(segmented, file_offset, load_segment):
     return load_segment
 
 
-def _relocation_checks(c, exp, obs):
+def _after_correction(c, exp, obs, blocks, restored, trusted):
+    """FAILURE records CorrectMzLoad.java's restored page excuses, if any.
+
+    Ghidra cannot apply a relocation whose word lies in the page its loader
+    dropped, records it as FAILURE with no original bytes, and nothing in its
+    API rewrites a relocation record. The corrector restores the page and the
+    word, so the record is the only thing still wrong. Such a record is
+    accepted only when all three hold: the word in memory is the value this
+    verifier computes from the file, the address is inside a range the
+    corrections record says it restored, and that record passed its
+    provenance checks. Nothing else is taken from the record.
+
+    Returns the excused records' linear addresses. The check is added only
+    when there is a record for it to judge."""
+    observed = obs.get("relocations") or []
+    by_linear = {r["linear"]: r for r in exp.relocations}
+    inside = [r for r in observed if r["status"] == "FAILURE"
+              and any(lo <= r["offset"] and r["offset"] + 1 <= hi for lo, hi in restored)]
+    if not inside:
+        return set()
+    problems, judged = [], []
+    if not trusted:
+        problems.append("the corrections record failed its provenance checks")
+    for r in inside:
+        e = by_linear.get(r["offset"])
+        if e is None:
+            problems.append(f"0x{r['offset']:x}: not a relocation the file declares")
+            continue
+        word = _memory_word(obs, blocks, r["offset"])
+        if word != e["relocated_word"]:
+            problems.append(f"{e['address']}: memory holds "
+                            + (f"0x{word:04x}" if word is not None else "nothing")
+                            + f", not 0x{e['relocated_word']:04x}")
+        else:
+            judged.append(f"{e['address']}: FAILURE, memory 0x{word:04x} as the file "
+                          f"makes it, inside the restored page")
+    c.add("relocations.status_after_correction", not problems,
+          "each FAILURE record inside a page CorrectMzLoad.java restored holds the "
+          "word the file makes, under a corrections record from this checkout",
+          problems or judged,
+          "Ghidra marks a relocation in the page its loader dropped FAILURE, and the "
+          "record cannot be rewritten; the word is held to the file instead")
+    return set() if problems else {r["offset"] for r in inside}
+
+
+def _relocation_checks(c, exp, obs, restored=(), trusted=False):
     observed = obs.get("relocations") or []
     want = Counter(r["linear"] for r in exp.relocations)
     got = Counter(r["offset"] for r in observed)
     by_linear = {r["linear"]: r for r in exp.relocations}
+    blocks = [(b, m) for b, m in obs.file_mappings() if b["segmented"]]
 
     def name(lin):
         r = by_linear.get(lin)
@@ -553,13 +625,20 @@ def _relocation_checks(c, exp, obs):
     c.add("relocations.multiplicity", not differ,
           {name(x): n for x, n in sorted(want.items()) if n > 1} or "one entry each",
           differ or "as expected", "entries per patched word")
-    bad = [f"{r['address']} {r['status']}" for r in observed if r["status"] != "APPLIED"]
-    c.add("relocations.status", not bad, "every one APPLIED", bad or "as expected")
+    # Judged first, reported after the status check it qualifies.
+    held = Checks()
+    excused = _after_correction(held, exp, obs, blocks, restored, trusted)
+    bad = [f"{r['address']} {r['status']}" for r in observed
+           if r["status"] != "APPLIED" and r["offset"] not in excused]
+    c.add("relocations.status", not bad,
+          "every one APPLIED" + (", or excused below" if excused else ""),
+          bad or "as expected")
+    c.items.extend(held.items)
 
     wrong_original = []
     for r in observed:
         e = by_linear.get(r["offset"])
-        if e is None:
+        if e is None or r["offset"] in excused:
             continue
         want_bytes = struct.pack("<H", e["original_word"]).hex()
         if (r.get("bytes") or "").lower() != want_bytes:
@@ -570,7 +649,6 @@ def _relocation_checks(c, exp, obs):
 
     # The word in memory, against its value after the fixup -- not the file's
     # word, which it differs from by design.
-    blocks = [(b, m) for b, m in obs.file_mappings() if b["segmented"]]
     wrong_word = []
     first = None
     seen = set()
@@ -684,8 +762,13 @@ def verify(exe, observed_folder, profile=None, corrections=None):
             result={"file": str(exe), "reason": f"no observed dump to compare: {e}"},
             limitations=LIMITATIONS)
 
-    checks = compare(exp, obs, profile)
-    record = _corrector_checks(checks, exp, corrections, profile) if corrections else None
+    # Where the record came from is settled first, because one check below
+    # leans on it; its own checks are still reported last.
+    provenance = Checks()
+    record = _corrector_checks(provenance, exp, corrections, profile) if corrections else None
+    trusted = record is not None and all(i["ok"] for i in provenance.items)
+    checks = compare(exp, obs, profile, restored_ranges(record), trusted)
+    checks.items.extend(provenance.items)
     status = "verified" if all(i["ok"] for i in checks.items) else "mismatch"
     result = exp.record()
     result.update(mapping_record(obs))
@@ -714,9 +797,12 @@ def verify(exe, observed_folder, profile=None, corrections=None):
         unknowns.append("why the relocation table lists "
                         + ", ".join(result["duplicated_relocations"])
                         + " more than once")
+    limitations = list(LIMITATIONS)
+    if any(i["name"] == "relocations.status_after_correction" for i in checks.items):
+        limitations.append(AFTER_CORRECTION_LIMITATION)
     return evidence.envelope("loadimage", target, status=status, result=result,
                              evidence=items, profile=profile,
-                             limitations=LIMITATIONS, unknowns=unknowns)
+                             limitations=limitations, unknowns=unknowns)
 
 
 # ---------------------------------------------------------------- map

@@ -29,6 +29,10 @@ Without Ghidra
 
 * A corrections record is checked for where it came from and never believed:
   a wrong byte stays a mismatch however the record describes it.
+* A FAILURE relocation record inside a restored page is excused only when
+  the record's provenance holds, the address is in the range it restored,
+  and the word in memory is the file's after the fixup -- each condition
+  failed in turn must fail the run.
 
 With Ghidra (skipped, and saying so, without it)
 ------------------------------------------------
@@ -37,8 +41,9 @@ With Ghidra (skipped, and saying so, without it)
 * The duplicated relocation and the full last page must verify after one
   correction each, with the exact values recorded; the variant with both
   gets both. A full last page with a relocation in it gets the page and the
-  fixup back, and stays a mismatch on the relocation record Ghidra marked
-  FAILURE -- something the corrector does not fix.
+  fixup back, and verifies although Ghidra's record for that relocation
+  still says FAILURE: relocations.status_after_correction holds the word to
+  the file instead, and a word changed in memory fails it.
 * With -NoLoadCorrection the two must stop exactly as they did in prompt 02;
   with -AllowLoadMismatch as well they must continue, say so, and record it.
 * A dump tampered after correction is still a mismatch.
@@ -533,6 +538,82 @@ def _():
             "another corrector or file is refused")
 
 
+@case("a FAILURE record in the restored page passes only on all three conditions")
+def _():
+    # TAIL_RELOCATION: a relocation at file 0x212, inside the second page, the
+    # page Ghidra's loader drops. A dump of a correct load, except that the
+    # record Ghidra writes for that relocation says FAILURE with no bytes,
+    # as Ghidra 12.1.2 was measured to write it.
+    exp = loadimage.Expected(EXE["TAIL_RELOCATION"])
+    data = EXE["TAIL_RELOCATION"].read_bytes()
+    hdr = struct.unpack_from("<H", data, 8)[0] * 16
+    tail_linear = LOAD * 16 + 0x212 - hdr
+    word = struct.unpack_from("<H", data, 0x212)[0] + LOAD      # what DOS makes it
+    page = (LOAD * 16 + 0x200 - hdr, LOAD * 16 + 0x3FF - hdr)  # the second page
+
+    def dump(name, memory=None, failures=(tail_linear,)):
+        folder = synthetic_dump(exp, WORK / name, memory)
+        obs = json.loads((folder / "observed.json").read_text(encoding="utf-8"))
+        for r in obs["relocations"]:
+            if r["offset"] in failures:
+                r.update(status="FAILURE", length=0, bytes=None)
+        (folder / "observed.json").write_text(json.dumps(obs), encoding="utf-8")
+        return folder
+
+    def record(name, **changes):
+        rec = {"schema": "dos-decompiler/load-corrections/1",
+               "script_sha256": evidence.source_sha256(loadimage.CORRECT_SCRIPT),
+               "helper_sha256": evidence.source_sha256(loadimage.HELPER_SCRIPT),
+               "target_sha256": loadimage.sha256(data), "count": 1, "notes": [],
+               "corrections": [{"kind": "missing-last-page", "linear_start": page[0],
+                                "linear_end_inclusive": page[1]}]}
+        rec.update(changes)
+        path = WORK / f"{name}.json"
+        path.write_text(json.dumps(rec), encoding="utf-8")
+        return path
+
+    def check(env, name):
+        return next((i for i in env["evidence"] if i["claim"] == name), None)
+
+    good = dump("after-good")
+    env = loadimage.verify(EXE["TAIL_RELOCATION"], good, corrections=record("rec-good"))
+    held = check(env, "relocations.status_after_correction")
+    if env["status"] != "verified" or not held or not held["value"]["ok"] \
+            or f"memory 0x{word:04x}" not in str(held["value"]["observed"]) \
+            or not any("FAILURE record" in t for t in env["limitations"]):
+        raise AssertionError(f"all three hold: {env['status']}, {env['result']['failed']}, {held}")
+    # Without a corrections record nothing is excused, and there is no check.
+    env = loadimage.verify(EXE["TAIL_RELOCATION"], good)
+    if env["result"]["failed"] != ["relocations.status", "relocations.original"] \
+            or check(env, "relocations.status_after_correction"):
+        raise AssertionError(f"no record: {env['result']['failed']}")
+    # A record from another corrector: provenance fails, so nothing is excused.
+    env = loadimage.verify(EXE["TAIL_RELOCATION"], good,
+                           corrections=record("rec-other", script_sha256="0" * 64))
+    if env["result"]["failed"] != ["relocations.status", "relocations.status_after_correction",
+                                   "relocations.original", "corrector.script_sha256"]:
+        raise AssertionError(f"another corrector: {env['result']['failed']}")
+    # A FAILURE outside the restored range stays a failure, whatever the record.
+    first = exp.relocations[0]["linear"]
+    env = loadimage.verify(EXE["TAIL_RELOCATION"],
+                           dump("after-outside", failures=(tail_linear, first)),
+                           corrections=record("rec-good2"))
+    if env["result"]["failed"] != ["relocations.status", "relocations.original"] \
+            or not check(env, "relocations.status_after_correction")["value"]["ok"]:
+        raise AssertionError(f"FAILURE outside: {env['result']['failed']}")
+    # The word in memory wrong: the check fails, and names both values.
+    memory = bytearray(exp.relocated)
+    memory[tail_linear - LOAD * 16] ^= 0x01
+    env = loadimage.verify(EXE["TAIL_RELOCATION"], dump("after-word", memory),
+                           corrections=record("rec-good3"))
+    held = check(env, "relocations.status_after_correction")
+    want = f"memory holds 0x{word ^ 0x01:04x}, not 0x{word:04x}"
+    if env["status"] != "mismatch" or held["value"]["ok"] or want not in str(held["value"]["observed"]):
+        raise AssertionError(f"wrong word: {env['result']['failed']}, {held}")
+    return (f"0x{word:04x} at {exp.relocations[-1]['address']} excused; not without a "
+            f"record, from another corrector, outside the page, or with the word wrong")
+
+
 # ---------------------------------------------------------------- Ghidra
 
 def ghidra_ready():
@@ -698,24 +779,55 @@ def _():
     return "2 corrections, the page and the duplicate, and verified"
 
 
-@case("what the corrector cannot fix stays a mismatch", ghidra=True)
+@case("a relocation inside the restored page verifies, through "
+      "relocations.status_after_correction", ghidra=True)
 def _():
     # A relocation inside the dropped page: the corrector restores the page
     # and the fixup in memory, but the record Ghidra wrote for it says
     # FAILURE, and nothing in the program API rewrites a relocation record.
+    # The verifier accepts that record only on its own terms, and says so.
     code, log, exe, out = pipeline("TAIL_RELOCATION")
     env = record_of(out)
-    failed = env["result"]["failed"]
     fixups = env["result"]["corrections_made"][0]["fixups"]
-    if code == 0 or env["status"] != "mismatch":
-        raise AssertionError(f"exit {code}, {env['status']}")
-    if failed != ["relocations.status", "relocations.original"]:
-        raise AssertionError(f"failed {failed}")
+    if code != 0 or env["status"] != "verified" or env["result"]["corrections"] != 1:
+        raise AssertionError(f"exit {code}, {env['status']}, {env['result']['failed']}")
     if fixups != [{"address": "1006:0172", "file_offset": 0x212, "entries": 1,
                    "before": "0x0004", "after": "0x1004"}]:
         raise AssertionError(f"fixups {fixups}")
-    return ("page and fixup restored (1006:0172 0x0004 -> 0x1004); "
-            "Ghidra's FAILURE record still fails relocations.status")
+    held = next((i for i in env["evidence"]
+                 if i["claim"] == "relocations.status_after_correction"), None)
+    if not held or held["value"]["observed"] != [
+            "1006:0172: FAILURE, memory 0x1004 as the file makes it, inside the restored page"]:
+        raise AssertionError(f"the check: {held}")
+    if not any("FAILURE record" in t for t in env["limitations"]):
+        raise AssertionError("the limitation is not in the envelope")
+    obs = json.loads((out / "loadimage-observed" / "observed.json").read_text(encoding="utf-8"))
+    if [r["status"] for r in obs["relocations"] if r["address"] == "1006:0172"] != ["FAILURE"]:
+        raise AssertionError("Ghidra's record no longer says FAILURE; the check is moot")
+    if "load image: verified after 1 correction" not in log:
+        raise AssertionError("prose")
+    return ("Ghidra's record still FAILURE; 1006:0172 holds 0x1004 as the file makes it; "
+            f"{env['result']['checks']} checks agree")
+
+
+@case("a word changed in memory inside the restored page fails that check", ghidra=True)
+def _():
+    code, log, exe, out = pipeline("TAIL_RELOCATION")
+    folder = WORK / "tamper-tail-word"
+    shutil.copytree(out / "loadimage-observed", folder)
+    obs = json.loads((folder / "observed.json").read_text(encoding="utf-8"))
+    block = next(b for b in obs["blocks"] if b["name"] == "CODE_3")
+    m = block["mappings"][0]
+    at = m["offset_in_block"] + 0x212 - m["file_offset"]       # 1006:0172, file 0x212
+    data = bytearray((folder / block["dump"]).read_bytes())
+    data[at] ^= 0x01
+    (folder / block["dump"]).write_bytes(data)
+    env = loadimage.verify(exe, folder, corrections=out / "load-corrections.json")
+    held = next(i for i in env["evidence"] if i["claim"] == "relocations.status_after_correction")
+    if env["status"] != "mismatch" or held["value"]["ok"] \
+            or held["value"]["observed"] != ["1006:0172: memory holds 0x1005, not 0x1004"]:
+        raise AssertionError(f"{env['status']}: {held}")
+    return f"{held['value']['observed'][0]}; failed {env['result']['failed'][:3]}"
 
 
 @case("with -NoLoadCorrection the two stop exactly as they did in prompt 02",
