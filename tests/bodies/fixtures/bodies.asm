@@ -14,6 +14,8 @@
 ;                     pointers main fills with immediates
 ;   faller            falls through into `fallen`, a prologue nothing calls
 ;   lonely            a prologue nothing calls, straight after a string
+;   tailer            ends by jumping to `middle`, which main also calls: a
+;                     tail call, which is not a claim on middle's code
 ;   orphan            bytes that read as code and that nothing reaches
 ;
 ; What Ghidra 12.1.2 makes of each was measured before tests/bodies expected
@@ -85,6 +87,7 @@ main:
     mov bx, 1
     call switcher
     call faller
+    call tailer
     mov word [D(handlers)], C(pointed_a)
     mov word [D(handlers) + 2], C(pointed_b)
     mov bx, 2
@@ -189,6 +192,13 @@ lonely:
     mov ax, 0x0707
     pop bp
     ret
+
+; ---- a tail call into a function main calls ---------------------------------
+tailer:
+    frame
+    mov ax, 0x0808
+    pop bp
+    jmp near middle
 
 ; ---- code nothing reaches, between two runs of padding ---------------------
     db 0x90, 0x90

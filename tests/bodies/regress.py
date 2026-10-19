@@ -6,7 +6,8 @@ what tools/bodies.py says about the bytes no function claims.
 The fixture is tests/bodies/fixtures/bodies.asm: a shared epilogue, a jump into
 the middle of a neighbour, a chunk past another function, a jump table in the
 middle of a function, routines reached only through a pointer table, a
-fall-through RecoverFunctions splits, a prologue after a string, and code
+fall-through RecoverFunctions splits, a prologue after a string, a tail call
+into a function something else calls, and code
 nothing reaches. Every expected value is worked out from the fixture's own
 labels, read from NASM's listing -- never from what the tools wrote.
 
@@ -35,6 +36,8 @@ With Ghidra (skipped, and saying so, without it)
   gives, and the origins agree with RecoverFunctions' own counts.
 * `body_overlaps` lists the shared epilogue, the jump into the neighbour and
   the fall-through the split left, with the instruction each claim leaves by.
+* A jump into the entry of a function something calls is a tail call: it is
+  in `tail_calls`, and none of that function's code is claimed.
 * bodies.py on that export finds the never-reached code and classifies the
   jump table.
 
@@ -131,7 +134,9 @@ def expected_bodies():
         # RecoverFunctions splits the fall-through at fallen's prologue.
         "faller": [(L("faller"), L("fallen") - 1)],
         "fallen": [(L("fallen"), L("banner") - 1)],
-        "lonely": [(L("lonely"), L("orphan") - 3)],          # then the 90 90
+        "lonely": [(L("lonely"), L("tailer") - 1)],
+        # Ends at its jump to middle, a function main calls.
+        "tailer": [(L("tailer"), L("orphan") - 3)],          # then the 90 90
     }
 
 
@@ -451,6 +456,25 @@ def _():
             raise AssertionError(f"bytes {o}")
     return (f"{len(got)} ranges; the epilogue {a(L('shared_tail'))}..{a(L('jumper') - 1)} "
             f"claimed by left, right and its own body")
+
+
+@case("a jump into a function something calls is a tail call, not a claim", ghidra=True)
+def _():
+    # tailer ends `jmp near middle` -- frame (3), mov ax (3), pop bp (1), so
+    # the jump is at tailer + 7 -- and main calls middle. Followed as a claim,
+    # middle's whole body would be tailer's; it is listed in tail_calls instead.
+    data = exported()
+    want = [{"caller": a(L("tailer")), "caller_name": f"FUN_{LOAD:04x}_{L('tailer'):04x}",
+             "target": a(L("middle")), "target_name": f"FUN_{LOAD:04x}_{L('middle'):04x}",
+             "via": a(L("tailer") + 7), "how": "jump"}]
+    if data.get("tail_calls") != want:
+        raise AssertionError(f"tail_calls {data.get('tail_calls')}")
+    lo, hi = LOAD * 16 + L("middle"), LOAD * 16 + L("chunky_rest") - 1
+    touching = [o for o in data["body_overlaps"]
+                if int(o["start_linear"], 16) <= hi and int(o["end_linear"], 16) >= lo]
+    if touching:
+        raise AssertionError(f"middle's body is claimed: {touching}")
+    return f"{want[0]['caller']} -> {want[0]['target']} via {want[0]['via']}; nothing of middle claimed"
 
 
 @case("bodies.py on the pipeline's export finds the code nothing reaches, and the table",

@@ -14,7 +14,8 @@
  *                   (`load_image`). Each function carries its `body` as
  *                   address ranges with inclusive ends and its `origin`;
  *                   `body_overlaps` lists the bytes more than one function
- *                   claims
+ *                   claims, and `tail_calls` the jumps into a called
+ *                   function that end a claim
  *   failures.txt    functions the decompiler refused, with the reason
  *
  * Written in Java rather than Python on purpose: a .java GhidraScript is
@@ -160,6 +161,14 @@ public class ExportDecompiledC extends GhidraScript {
         j.println("  \"body_overlaps\": [");
         for (int i = 0; i < overlaps.size(); i++) {
             j.println("    " + overlaps.get(i) + (i + 1 < overlaps.size() ? "," : ""));
+        }
+        j.println("  ],");
+        // Filled by bodyOverlaps' walks: jumps into the entry of a function
+        // something calls, which end a walk instead of extending a claim.
+        List<String> tails = new ArrayList<>(tailCalls.values());
+        j.println("  \"tail_calls\": [");
+        for (int i = 0; i < tails.size(); i++) {
+            j.println("    " + tails.get(i) + (i + 1 < tails.size() ? "," : ""));
         }
         j.println("  ]");
         j.println("}");
@@ -387,8 +396,10 @@ public class ExportDecompiledC extends GhidraScript {
      * So a function claims its body ("body"), and also the code it reaches
      * from each exit of its body ("jump", "fallthrough"): followed through
      * jumps and fall-throughs, stepping over calls, until it returns, comes
-     * back into the function's own body, or leaves every function's body. A
-     * byte two or more functions claim is listed. Body against body is
+     * back into the function's own body, leaves every function's body, or
+     * reaches the entry of a function something calls -- a tail call, listed
+     * in `tail_calls` and not claimed (see walk). A byte two or more
+     * functions claim is listed. Body against body is
      * checked as well, so a Ghidra that allows overlapping bodies would show
      * it here rather than be assumed not to. */
     private List<String> bodyOverlaps(List<Function> functions) {
@@ -555,7 +566,7 @@ public class ExportDecompiledC extends GhidraScript {
                     continue;
                 }
                 boolean[] limited = {false};
-                AddressSet reached = walk(d, own, limited);
+                AddressSet reached = walk(d, ins.getAddress(), hows.get(i), own, limited);
                 for (AddressRange r : reached.getAddressRanges()) {
                     out.add(new Claim(LoadImageMap.linear(r.getMinAddress()),
                             LoadImageMap.linear(r.getMaxAddress()), f, hows.get(i),
@@ -584,18 +595,35 @@ public class ExportDecompiledC extends GhidraScript {
     /* Every instruction reachable from `start` by jumps and fall-throughs,
      * staying inside function bodies and out of `own`. A call or interrupt is
      * stepped over only when it returns into the body it was made from, by
-     * the same reasoning as in exitClaims. */
-    private AddressSet walk(Address start, AddressSetView own, boolean[] limited) {
+     * the same reasoning as in exitClaims.
+     *
+     * Reaching the entry of a function something calls is a tail call, not a
+     * claim: that function is a real one, and following it would claim all
+     * the code it reaches (measured, prompt 03: one range of adventur's
+     * claimed by 32 functions, 26,100 bytes claimed by two or more). The walk
+     * stops there and the jump is recorded in `tail_calls`. An entry nothing
+     * calls -- an epilogue Ghidra split off, a fall-through RecoverFunctions
+     * cut at a prologue -- is a fragment of whoever runs into it, and is
+     * claimed and walked as before. `via` and `how` are the instruction that
+     * led to `start` and the way it did. */
+    private AddressSet walk(Address start, Address via, String how, AddressSetView own,
+            boolean[] limited) {
         AddressSet seen = new AddressSet();
-        java.util.ArrayDeque<Address> todo = new java.util.ArrayDeque<>();
-        todo.push(start);
+        java.util.ArrayDeque<Object[]> todo = new java.util.ArrayDeque<>();
+        todo.push(new Object[] {start, via, how});
         int steps = 0;
         while (!todo.isEmpty()) {
-            Address a = todo.pop();
+            Object[] step = todo.pop();
+            Address a = (Address) step[0];
             if (own.contains(a) || seen.contains(a)) {
                 continue;
             }
-            if (currentProgram.getFunctionManager().getFunctionContaining(a) == null) {
+            Function g = currentProgram.getFunctionManager().getFunctionContaining(a);
+            if (g == null) {
+                continue;
+            }
+            if (g.getEntryPoint().equals(a) && isCalled(g)) {
+                recordTailCall((Address) step[1], g, (String) step[2]);
                 continue;
             }
             Instruction ins = currentProgram.getListing().getInstructionAt(a);
@@ -609,15 +637,55 @@ public class ExportDecompiledC extends GhidraScript {
             seen.add(ins.getMinAddress(), ins.getMaxAddress());
             if (isJump(ins)) {
                 for (Address d : ins.getFlows()) {
-                    todo.push(d);
+                    todo.push(new Object[] {d, ins.getAddress(), "jump"});
                 }
             }
             Address next = ins.getFallThrough();
             if (next != null && (!callsOut(ins) || sameBody(a, next))) {
-                todo.push(next);
+                todo.push(new Object[] {next, ins.getAddress(), "fallthrough"});
             }
         }
         return seen;
+    }
+
+    private final java.util.Map<Address, Boolean> called = new java.util.HashMap<>();
+
+    /* Does any instruction call this function? Told by the calling
+     * instruction's mnemonic, not the reference type: Ghidra overrides a
+     * jump to a function's entry into a call-return, and that jump is a tail
+     * call, not a call. A pointer to the function in data is not a call
+     * either: a routine reached only through a table counts as uncalled. */
+    private boolean isCalled(Function g) {
+        return called.computeIfAbsent(g.getEntryPoint(), entry -> {
+            for (ghidra.program.model.symbol.Reference ref
+                    : currentProgram.getReferenceManager().getReferencesTo(entry)) {
+                Instruction from = currentProgram.getListing().getInstructionAt(ref.getFromAddress());
+                if (from != null && from.getMnemonicString().toUpperCase().startsWith("CALL")) {
+                    return true;
+                }
+            }
+            return false;
+        });
+    }
+
+    private final java.util.TreeMap<String, String> tailCalls = new java.util.TreeMap<>();
+
+    /* A jump (or fall-through) from one function into the entry of a called
+     * one. The caller is the function whose body holds the instruction, so a
+     * tail call met while walking a fragment is the fragment's, said once. */
+    private void recordTailCall(Address via, Function target, String how) {
+        Function caller = currentProgram.getFunctionManager().getFunctionContaining(via);
+        if (caller == null) {
+            return;
+        }
+        String key = String.format("%010x %010x %s", LoadImageMap.linear(via),
+                LoadImageMap.linear(target.getEntryPoint()), how);
+        tailCalls.put(key, "{\"caller\": " + quote(caller.getEntryPoint().toString())
+                + ", \"caller_name\": " + quote(caller.getName())
+                + ", \"target\": " + quote(target.getEntryPoint().toString())
+                + ", \"target_name\": " + quote(target.getName())
+                + ", \"via\": " + quote(via.toString())
+                + ", \"how\": " + quote(how) + "}");
     }
 
     /* The fingerprint is what makes a function identifiable without symbols:
