@@ -28,6 +28,30 @@
  * how many functions it added so the number can be checked against a linker
  * map when one exists.
  *
+ * Where each function came from
+ * -----------------------------
+ * Every function this script creates is a hypothesis resting on weaker
+ * evidence than Ghidra's own flow analysis, and later tools should be able to
+ * tell. So it records why it made each one, in a string property map keyed by
+ * entry address, which ExportDecompiledC.java reports as `origin`:
+ *
+ *     recovered-call-target    something calls it
+ *     recovered-code-pointer   an immediate in the code points at it
+ *     recovered-split          a prologue inside another function's body
+ *     recovered-prologue       a prologue no function contained
+ *
+ * A function with no mark is Ghidra's (the MZ loader creates none: measured,
+ * an import without analysis holds no functions). The function a split
+ * shortens keeps whatever mark it had.
+ *
+ * Why a property map, and not a bookmark or a plate comment: the split
+ * removes a function and creates it again, so nothing attached to the
+ * function itself would survive it. A plate comment is printed into
+ * decompiled.c and is where ApplyNames.java writes its warnings, and a
+ * bookmark is something a person clears from the GUI. A property map is
+ * keyed by address, saved with the program, invisible in the listing and the
+ * decompiler output, and outlives the function it describes.
+ *
  * @category DOS.Decompile
  */
 
@@ -45,6 +69,7 @@ import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.RefType;
 import ghidra.program.model.symbol.Reference;
 import ghidra.program.model.symbol.SourceType;
+import ghidra.program.model.util.StringPropertyMap;
 
 public class RecoverFunctions extends GhidraScript {
 
@@ -73,6 +98,19 @@ public class RecoverFunctions extends GhidraScript {
 
     /** Program Information key ExportDecompiledC reads back. */
     static final String RECOVERY_OPTION = "DOS-Decompiler RecoverFunctions SHA-256";
+
+    /** Property map ExportDecompiledC reads `origin` from; the same name. */
+    static final String ORIGIN_MAP = "DOS-Decompiler function origin";
+
+    /* Record why this script made the function at `entry`. */
+    private void markOrigin(Address entry, String origin) throws Exception {
+        StringPropertyMap map = currentProgram.getUsrPropertyManager()
+                .getStringPropertyMap(ORIGIN_MAP);
+        if (map == null) {
+            map = currentProgram.getUsrPropertyManager().createStringPropertyMap(ORIGIN_MAP);
+        }
+        map.add(entry, origin);
+    }
 
     /* SHA-256 of this script's own source, by the rule analysis_profile.py
      * hashes it with, so the handshake can tell which recovery ran and not
@@ -125,6 +163,7 @@ public class RecoverFunctions extends GhidraScript {
                 continue;
             }
             if (createFunctionAt(a)) {
+                markOrigin(a, "recovered-call-target");
                 added++;
             }
         }
@@ -153,6 +192,7 @@ public class RecoverFunctions extends GhidraScript {
                 boolean a1 = createFunctionAt(ownerEntry);
                 boolean a2 = createFunctionAt(a);
                 if (a2) {
+                    markOrigin(a, "recovered-split");
                     split++;
                 } else if (!a1) {
                     // Recreate whatever we can rather than leaving a hole.
@@ -244,6 +284,7 @@ public class RecoverFunctions extends GhidraScript {
                 continue;
             }
             if (createFunctionAt(a)) {
+                markOrigin(a, "recovered-code-pointer");
                 added++;
             }
         }
@@ -308,6 +349,7 @@ public class RecoverFunctions extends GhidraScript {
                     continue;
                 }
                 if (createFunctionAt(a)) {
+                    markOrigin(a, "recovered-prologue");
                     added++;
                 }
             }

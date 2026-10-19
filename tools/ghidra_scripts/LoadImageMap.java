@@ -1,13 +1,15 @@
 /* LoadImageMap.java -- where the file's bytes landed in a program, and which
  * version of a script is running.
  *
- * Not a script: it has no run() and does nothing on its own. It holds the two
- * things ExportDecompiledC.java and DumpLoadImage.java both need, so each is
- * written once:
+ * Not a script: it has no run() and does nothing on its own. It holds what
+ * ExportDecompiledC.java, DumpLoadImage.java and CorrectMzLoad.java all need,
+ * so each is written once:
  *
  *   * the walk over every memory block's source mappings -- which file offset
  *     each range of addresses came from -- and the load segment worked out
  *     from it;
+ *   * linear addresses, segment * 16 + offset, and back to the address
+ *     Ghidra uses;
  *   * the hash a script reports of its own source, by the rule
  *     tools/evidence.py's source_sha256 uses (CRLF read as LF).
  *
@@ -63,9 +65,42 @@ public final class LoadImageMap {
 
         /** segment * 16 + offset; meaningful only for a segmented address. */
         public long linear() {
-            SegmentedAddress a = (SegmentedAddress) min;
+            return LoadImageMap.linear(min);
+        }
+    }
+
+    /** segment * 16 + offset for a segmented address -- the one number that
+     * names a byte however many segment:offset spellings it has. Anything
+     * else, the HEADER space for one, has no linear address: its plain offset. */
+    public static long linear(Address address) {
+        if (address instanceof SegmentedAddress) {
+            SegmentedAddress a = (SegmentedAddress) address;
             return ((long) a.getSegment() << 4) + a.getSegmentOffset();
         }
+        return address.getOffset();
+    }
+
+    /** The address Ghidra itself uses for a linear address: the segment of
+     * the block holding it. Null when no segmented block holds it. */
+    public static Address addressOf(Program program, long linear) {
+        for (MemoryBlock b : program.getMemory().getBlocks()) {
+            if (!(b.getStart() instanceof SegmentedAddress)) {
+                continue;
+            }
+            long lo = linear(b.getStart());
+            if (linear < lo || linear > lo + b.getSize() - 1) {
+                continue;
+            }
+            SegmentedAddress start = (SegmentedAddress) b.getStart();
+            int segment = start.getSegment();
+            long offset = linear - ((long) segment << 4);
+            if (offset > 0xFFFF) {
+                return null;
+            }
+            return ((ghidra.program.model.address.SegmentedAddressSpace) start.getAddressSpace())
+                    .getAddress(segment, (int) offset);
+        }
+        return null;
     }
 
     /** Every source mapping of every block, in block order. */

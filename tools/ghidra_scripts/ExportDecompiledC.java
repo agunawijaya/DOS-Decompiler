@@ -11,7 +11,10 @@
  *                   which pipeline.ps1 holds to the profile
  *                   tools/analysis_profile.py wrote before import), and the
  *                   load-image check's verdict when the pipeline passes it
- *                   (`load_image`)
+ *                   (`load_image`). Each function carries its `body` as
+ *                   address ranges with inclusive ends and its `origin`;
+ *                   `body_overlaps` lists the bytes more than one function
+ *                   claims
  *   failures.txt    functions the decompiler refused, with the reason
  *
  * Written in Java rather than Python on purpose: a .java GhidraScript is
@@ -35,6 +38,10 @@ import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.database.mem.FileBytes;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressRange;
+import ghidra.program.model.address.AddressSet;
+import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
@@ -42,6 +49,7 @@ import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.scalar.Scalar;
+import ghidra.program.model.util.StringPropertyMap;
 
 public class ExportDecompiledC extends GhidraScript {
 
@@ -84,6 +92,7 @@ public class ExportDecompiledC extends GhidraScript {
 
         List<String> failures = new ArrayList<>();
         List<String> records = new ArrayList<>();
+        List<Function> exported = new ArrayList<>();
         int ok = 0, bad = 0;
 
         PrintWriter c = new PrintWriter(new File(outDir, "decompiled.c"), StandardCharsets.UTF_8);
@@ -117,6 +126,7 @@ public class ExportDecompiledC extends GhidraScript {
 
             records.add(functionRecord(f, addr, size,
                     res != null && res.decompileCompleted()));
+            exported.add(f);
         }
         c.close();
         ifc.dispose();
@@ -144,6 +154,12 @@ public class ExportDecompiledC extends GhidraScript {
         j.println("  \"functions\": [");
         for (int i = 0; i < records.size(); i++) {
             j.println("    " + records.get(i) + (i + 1 < records.size() ? "," : ""));
+        }
+        j.println("  ],");
+        List<String> overlaps = bodyOverlaps(exported);
+        j.println("  \"body_overlaps\": [");
+        for (int i = 0; i < overlaps.size(); i++) {
+            j.println("    " + overlaps.get(i) + (i + 1 < overlaps.size() ? "," : ""));
         }
         j.println("  ]");
         j.println("}");
@@ -292,8 +308,316 @@ public class ExportDecompiledC extends GhidraScript {
         sb.append("], ");
         sb.append("\"decompiled\": ").append(okFlag).append(", ");
         appendFingerprint(sb, f);
+        sb.append(", \"origin\": ").append(quote(origin(f)));
+        sb.append(", \"body\": ").append(bodyRecord(f));
         sb.append("}");
         return sb.toString();
+    }
+
+    /** Written by RecoverFunctions.java for each function it creates; the same name. */
+    private static final String ORIGIN_MAP = "DOS-Decompiler function origin";
+
+    /* Why this function exists. RecoverFunctions.java marks every function it
+     * creates with the evidence it used; a function with no mark is Ghidra's
+     * own, because the MZ loader creates none (measured: an import without
+     * analysis holds no functions). */
+    private String origin(Function f) {
+        StringPropertyMap map = currentProgram.getUsrPropertyManager()
+                .getStringPropertyMap(ORIGIN_MAP);
+        String mark = map == null ? null : map.getString(f.getEntryPoint());
+        return mark == null ? "ghidra-analysis" : mark;
+    }
+
+    /* The function's body as Ghidra holds it: every address range, ends
+     * inclusive, and what follows from them.
+     *
+     * `size`, kept beside it as it always was, is getBody().getNumAddresses():
+     * the count of addresses in the body, the same as total_bytes here. It is
+     * not the distance from the lowest address to the highest -- that is
+     * span_bytes -- and the two differ for every non-contiguous function, a
+     * jump table in the middle of one for instance (measured). */
+    private String bodyRecord(Function f) {
+        AddressSetView body = f.getBody();
+        StringBuilder sb = new StringBuilder("{");
+        sb.append("\"available\": ").append(!body.isEmpty()).append(", ");
+        sb.append("\"provenance\": \"ghidra-function-body-address-set\", ");
+        sb.append("\"ranges\": [");
+        long lowest = Long.MAX_VALUE, highest = -1;
+        boolean first = true;
+        for (AddressRange r : body.getAddressRanges()) {
+            long lo = LoadImageMap.linear(r.getMinAddress());
+            long hi = LoadImageMap.linear(r.getMaxAddress());
+            lowest = Math.min(lowest, lo);
+            highest = Math.max(highest, hi);
+            if (!first) {
+                sb.append(", ");
+            }
+            sb.append(rangeRecord(r.getMinAddress().toString(), r.getMaxAddress().toString(), lo, hi));
+            first = false;
+        }
+        long total = body.getNumAddresses();
+        long span = highest < 0 ? 0 : highest - lowest + 1;
+        sb.append("], ");
+        sb.append("\"total_bytes\": ").append(total).append(", ");
+        sb.append("\"span_bytes\": ").append(span).append(", ");
+        sb.append("\"non_contiguous\": ").append(total != span).append(", ");
+        sb.append("\"contains_entry\": ").append(body.contains(f.getEntryPoint()));
+        return sb.append("}").toString();
+    }
+
+    private String rangeRecord(String start, String end, long lo, long hi) {
+        return "{\"start\": " + quote(start) + ", \"end\": " + quote(end)
+                + ", \"start_linear\": " + quote(String.format("0x%x", lo))
+                + ", \"end_linear\": " + quote(String.format("0x%x", hi)) + "}";
+    }
+
+    /* Bytes more than one function claims, and which functions -- reported,
+     * never resolved.
+     *
+     * Ghidra 12.1.2 does not let two function bodies overlap: setBody and
+     * createFunction both throw OverlappingFunctionException (measured). So
+     * the bodies themselves never share a byte, and code two functions both
+     * run shows up another way: one function leaves its own body, by a jump
+     * or by falling through, into a body Ghidra gave to another. Two
+     * functions jumping to one epilogue come out as three functions, the
+     * epilogue its own; a jump into the middle of a neighbour lands inside
+     * the neighbour's body. A consumer that treats a body as everything a
+     * function runs, and only what it runs, is wrong about both.
+     *
+     * So a function claims its body ("body"), and also the code it reaches
+     * from each exit of its body ("jump", "fallthrough"): followed through
+     * jumps and fall-throughs, stepping over calls, until it returns, comes
+     * back into the function's own body, or leaves every function's body. A
+     * byte two or more functions claim is listed. Body against body is
+     * checked as well, so a Ghidra that allows overlapping bodies would show
+     * it here rather than be assumed not to. */
+    private List<String> bodyOverlaps(List<Function> functions) {
+        List<Claim> claims = new ArrayList<>();
+        for (Function f : functions) {
+            for (AddressRange r : f.getBody().getAddressRanges()) {
+                claims.add(new Claim(LoadImageMap.linear(r.getMinAddress()),
+                        LoadImageMap.linear(r.getMaxAddress()), f, "body", null, false));
+            }
+            claims.addAll(exitClaims(f));
+        }
+
+        // A sweep over every claim's start and end: between two consecutive
+        // boundaries the set of claims is constant.
+        TreeSet<Long> cuts = new TreeSet<>();
+        for (Claim c : claims) {
+            cuts.add(c.lo);
+            cuts.add(c.hi + 1);
+        }
+        List<String> out = new ArrayList<>();
+        long runLo = -1, runHi = -1;
+        String runWho = null;
+        Long previous = null;
+        for (Long cut : cuts) {
+            if (previous != null) {
+                long lo = previous, hi = cut - 1;
+                String who = claimants(claims, lo, hi);
+                if (who != null && who.equals(runWho) && lo == runHi + 1) {
+                    runHi = hi;
+                } else {
+                    if (runWho != null) {
+                        out.add(overlapRecord(runLo, runHi, runWho));
+                    }
+                    runLo = lo;
+                    runHi = hi;
+                    runWho = who;
+                }
+            }
+            previous = cut;
+        }
+        if (runWho != null) {
+            out.add(overlapRecord(runLo, runHi, runWho));
+        }
+        return out;
+    }
+
+    /** One function's claim on a run of linear addresses, ends inclusive. */
+    private static final class Claim {
+        final long lo, hi;
+        final Function f;
+        final String how;
+        final Address via;
+        final boolean partial;
+
+        Claim(long lo, long hi, Function f, String how, Address via, boolean partial) {
+            this.lo = lo;
+            this.hi = hi;
+            this.f = f;
+            this.how = how;
+            this.via = via;
+            this.partial = partial;
+        }
+    }
+
+    /* The functions claiming every byte of [lo, hi], as the JSON list the
+     * record carries, or null when fewer than two functions do. */
+    private String claimants(List<Claim> claims, long lo, long hi) {
+        java.util.TreeMap<String, java.util.TreeMap<String, TreeSet<String>>> by =
+                new java.util.TreeMap<>();
+        java.util.Map<String, Function> fn = new java.util.HashMap<>();
+        Set<String> partial = new TreeSet<>();
+        for (Claim c : claims) {
+            if (c.lo > lo || c.hi < hi) {
+                continue;
+            }
+            String entry = c.f.getEntryPoint().toString();
+            fn.put(entry, c.f);
+            TreeSet<String> via = by.computeIfAbsent(entry, k -> new java.util.TreeMap<>())
+                    .computeIfAbsent(c.how, k -> new TreeSet<>());
+            if (c.via != null) {
+                via.add(c.via.toString());
+            }
+            if (c.partial) {
+                partial.add(entry + " " + c.how);
+            }
+        }
+        if (by.size() < 2) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (String entry : by.keySet()) {
+            for (java.util.Map.Entry<String, TreeSet<String>> how : by.get(entry).entrySet()) {
+                if (!first) {
+                    sb.append(", ");
+                }
+                sb.append("{\"entry\": ").append(quote(entry))
+                  .append(", \"name\": ").append(quote(fn.get(entry).getName()))
+                  .append(", \"claim\": ").append(quote(how.getKey()));
+                if (!how.getKey().equals("body")) {
+                    sb.append(", \"via\": ").append(strArray(how.getValue()));
+                    if (partial.contains(entry + " " + how.getKey())) {
+                        sb.append(", \"walk_limit_reached\": true");
+                    }
+                }
+                sb.append("}");
+                first = false;
+            }
+        }
+        return sb.append("]").toString();
+    }
+
+    private String overlapRecord(long lo, long hi, String who) {
+        Address start = LoadImageMap.addressOf(currentProgram, lo);
+        Address end = LoadImageMap.addressOf(currentProgram, hi);
+        return "{\"start\": " + quote(start == null ? null : start.toString())
+                + ", \"end\": " + quote(end == null ? null : end.toString())
+                + ", \"start_linear\": " + quote(String.format("0x%x", lo))
+                + ", \"end_linear\": " + quote(String.format("0x%x", hi))
+                + ", \"bytes\": " + (hi - lo + 1)
+                + ", \"functions\": " + who + "}";
+    }
+
+    /** Instructions one exit walk may follow before it stops and says so. */
+    private static final int WALK_LIMIT = 65536;
+
+    /* What a function reaches outside its own body without calling: from each
+     * jump whose target, and each fall-through whose next instruction, lies in
+     * another function's body. Jumps are told from calls by the mnemonic
+     * rather than the flow type, because Ghidra overrides a jump to another
+     * function's entry into a call-return, and that override is exactly the
+     * case being looked for. */
+    private List<Claim> exitClaims(Function f) {
+        List<Claim> out = new ArrayList<>();
+        AddressSetView own = f.getBody();
+        InstructionIterator ii = currentProgram.getListing().getInstructions(own, true);
+        while (ii.hasNext()) {
+            Instruction ins = ii.next();
+            List<Address> targets = new ArrayList<>();
+            List<String> hows = new ArrayList<>();
+            if (isJump(ins)) {
+                for (Address d : ins.getFlows()) {
+                    targets.add(d);
+                    hows.add("jump");
+                }
+            }
+            // Not past a call or an interrupt: Ghidra gives both a
+            // fall-through, but the one at the end of a body is often the
+            // DOS exit or a routine that never returns, and the bytes after it
+            // are the next function, not more of this one (measured: the
+            // startup's `int 0x21` exit "falling through" into main).
+            Address next = ins.getFallThrough();
+            if (next != null && !callsOut(ins)) {
+                targets.add(next);
+                hows.add("fallthrough");
+            }
+            for (int i = 0; i < targets.size(); i++) {
+                Address d = targets.get(i);
+                if (own.contains(d)) {
+                    continue;
+                }
+                Function other = currentProgram.getFunctionManager().getFunctionContaining(d);
+                if (other == null || other == f) {
+                    continue;
+                }
+                boolean[] limited = {false};
+                AddressSet reached = walk(d, own, limited);
+                for (AddressRange r : reached.getAddressRanges()) {
+                    out.add(new Claim(LoadImageMap.linear(r.getMinAddress()),
+                            LoadImageMap.linear(r.getMaxAddress()), f, hows.get(i),
+                            ins.getAddress(), limited[0]));
+                }
+            }
+        }
+        return out;
+    }
+
+    private static boolean isJump(Instruction ins) {
+        String mn = ins.getMnemonicString().toUpperCase();
+        return mn.startsWith("J") || mn.startsWith("LOOP");
+    }
+
+    private boolean sameBody(Address a, Address b) {
+        Function f = currentProgram.getFunctionManager().getFunctionContaining(a);
+        return f != null && f.getBody().contains(b);
+    }
+
+    private static boolean callsOut(Instruction ins) {
+        String mn = ins.getMnemonicString().toUpperCase();
+        return mn.startsWith("CALL") || mn.startsWith("INT");
+    }
+
+    /* Every instruction reachable from `start` by jumps and fall-throughs,
+     * staying inside function bodies and out of `own`. A call or interrupt is
+     * stepped over only when it returns into the body it was made from, by
+     * the same reasoning as in exitClaims. */
+    private AddressSet walk(Address start, AddressSetView own, boolean[] limited) {
+        AddressSet seen = new AddressSet();
+        java.util.ArrayDeque<Address> todo = new java.util.ArrayDeque<>();
+        todo.push(start);
+        int steps = 0;
+        while (!todo.isEmpty()) {
+            Address a = todo.pop();
+            if (own.contains(a) || seen.contains(a)) {
+                continue;
+            }
+            if (currentProgram.getFunctionManager().getFunctionContaining(a) == null) {
+                continue;
+            }
+            Instruction ins = currentProgram.getListing().getInstructionAt(a);
+            if (ins == null) {
+                continue;
+            }
+            if (++steps > WALK_LIMIT) {
+                limited[0] = true;
+                break;
+            }
+            seen.add(ins.getMinAddress(), ins.getMaxAddress());
+            if (isJump(ins)) {
+                for (Address d : ins.getFlows()) {
+                    todo.push(d);
+                }
+            }
+            Address next = ins.getFallThrough();
+            if (next != null && (!callsOut(ins) || sameBody(a, next))) {
+                todo.push(next);
+            }
+        }
+        return seen;
     }
 
     /* The fingerprint is what makes a function identifiable without symbols:
