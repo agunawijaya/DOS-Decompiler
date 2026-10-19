@@ -1,12 +1,17 @@
 /* ExportDecompiledC.java -- headless export of Ghidra's decompiler output.
  *
+ * Usage (headless):
+ *   -postScript ExportDecompiledC.java OUTDIR [load_image:STATUS] [load_image:allowed]
+ *
  * Writes, into the directory given as the first script argument:
  *   decompiled.c    every function Ghidra could decompile, in address order
  *   functions.json  a machine-readable inventory used by the scoring harness,
  *                   carrying the file it describes (`target`: path, size,
- *                   SHA-256) and what Ghidra did on import
- *                   (`observed_profile`), which pipeline.ps1 holds to the
- *                   profile tools/analysis_profile.py wrote before import
+ *                   SHA-256), what Ghidra did on import (`observed_profile`,
+ *                   which pipeline.ps1 holds to the profile
+ *                   tools/analysis_profile.py wrote before import), and the
+ *                   load-image check's verdict when the pipeline passes it
+ *                   (`load_image`)
  *   failures.txt    functions the decompiler refused, with the reason
  *
  * Written in Java rather than Python on purpose: a .java GhidraScript is
@@ -46,6 +51,20 @@ public class ExportDecompiledC extends GhidraScript {
     public void run() throws Exception {
         String[] args = getScriptArgs();
         File outDir = new File(args.length > 0 ? args[0] : "decompiled");
+        // pipeline.ps1 passes what the load-image check found, so a run it
+        // let through with -AllowLoadMismatch says so in functions.json and
+        // not only in a log nobody keeps. Colons, not '=': a headless argument
+        // goes through analyzeHeadless.bat on Windows, and cmd.exe splits
+        // "a=b" into two arguments (measured: the first form never arrived).
+        String loadStatus = null;
+        boolean loadAllowed = false;
+        for (int i = 1; i < args.length; i++) {
+            if (args[i].equals("load_image:allowed")) {
+                loadAllowed = true;
+            } else if (args[i].startsWith("load_image:")) {
+                loadStatus = args[i].substring("load_image:".length());
+            }
+        }
         if (!outDir.exists() && !outDir.mkdirs()) {
             printerr("cannot create output directory: " + outDir);
             return;
@@ -109,6 +128,11 @@ public class ExportDecompiledC extends GhidraScript {
         j.println("  \"image_base\": " + quote(currentProgram.getImageBase().toString()) + ",");
         j.println("  \"target\": " + targetRecord() + ",");
         j.println("  \"observed_profile\": " + observedProfile() + ",");
+        if (loadStatus != null) {
+            j.println("  \"load_image\": {\"status\": " + quote(loadStatus)
+                    + ", \"mismatch_allowed\": " + loadAllowed
+                    + ", \"record\": \"loadimage.json\"},");
+        }
         j.println("  \"decompiled_ok\": " + ok + ",");
         j.println("  \"decompiled_failed\": " + bad + ",");
         j.println("  \"functions\": [");

@@ -15,9 +15,11 @@ Two pipeline runs over tests/evidence/fixtures/smallc.asm:
    SHA-256 matches the executable, and `observed_profile`, whose every field
    matches the profile -- the load segment 0x1000, the recovery hash of the
    RecoverFunctions.java in this checkout. handshake.json says verified.
-2. With DOS_DECOMPILER_FORCE_DRIFT=load_segment=0x2000. The pipeline must
-   exit non-zero with a message naming load_segment, the expected 0x2000 and
-   the observed 0x1000.
+2. With DOS_DECOMPILER_FORCE_DRIFT=compiler_spec=borland. The pipeline must
+   exit non-zero with a message naming compiler_spec, the expected borland and
+   the observed default. (A forced load_segment drift no longer reaches the
+   handshake: the load-image check after import compares the load segment
+   with the profile and stops first. tests/loadimage covers that.)
 
 Both runs have a decoy `python` first on PATH that fails if anything runs it,
 and the real interpreter in $env:PYTHON: the pipeline has to use the one it
@@ -217,7 +219,7 @@ def check_readers(work, exe):
                            capture_output=True, text=True)
         return r.returncode, r.stderr
 
-    want = "load_segment: expected 0x2000, observed 0x1000"
+    want = "compiler_spec: expected borland, observed default"
     drifted = work / "drift" / "functions.json"
     results = []
     for name, args in readers(drifted):
@@ -281,15 +283,15 @@ def main():
             results += check_plain(work / "plain", exe)
 
         code, log = pipeline(pwsh, exe, work / "drift", ghidra, java,
-                             drift="load_segment=0x2000")
-        want = "profile drift: load_segment: expected 0x2000, observed 0x1000"
+                             drift="compiler_spec=borland")
+        want = "profile drift: compiler_spec: expected borland, observed default"
         results.append((code != 0, f"forced drift stops the pipeline (exit {code})"))
         results.append((want in log, f"and names it: {want!r}"))
         hs_path = work / "drift" / "handshake.json"
         if hs_path.exists():
             hs = json.loads(hs_path.read_text(encoding="utf-8"))
             results.append((hs["status"] == "mismatch" and
-                            hs["result"]["drift"] == ["load_segment"],
+                            hs["result"]["drift"] == ["compiler_spec"],
                             f"handshake.json: {hs['status']}, drift "
                             f"{hs['result']['drift']}"))
         else:

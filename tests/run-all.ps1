@@ -76,6 +76,9 @@ $Prerequisites = @{
     'evidence'   = @('nasm')
     'handshake'  = @('nasm', 'ghidra', 'java')
     'libscan'    = @('watcom')
+    # Its Ghidra half skips by itself, saying so, and this reports that as
+    # "partly skipped" beside the PASS.
+    'loadimage'  = @('nasm')
     'pcxlib'     = @()
     'placements' = @('nasm', 'capstone', 'unicorn')
     'sopwith'    = @('sopwith', 'capstone', 'unicorn')

@@ -26,7 +26,8 @@ What it provides
   canonical(obj)             the compact form that ids and profile ids hash
   check_functions_target()   refuse a functions.json made from another file
   check_handshake()          refuse one whose handshake.json says it drifted
-  load_functions()           both checks, then the parsed functions.json
+  check_load_image()         warn about one exported from an unverified load
+  load_functions()           all three, then the parsed functions.json
 
 Statuses
 --------
@@ -394,10 +395,39 @@ def check_handshake(functions_path, tool="this tool", accept_drift=False):
         f"these results anyway, pass {ACCEPT_DRIFT_FLAG}.")
 
 
+def check_load_image(data, functions_path, tool="this tool"):
+    """Warn about an export whose load image did not verify.
+
+    The pipeline stops on a load image that does not verify unless it was
+    given -AllowLoadMismatch, and then ExportDecompiledC.java records the
+    verdict in functions.json. Reading such an export was a decision someone
+    made, so this does not refuse; it says, once, what the export rests on,
+    with the first failing check from the loadimage.json beside it.
+    """
+    record = data.get("load_image") if isinstance(data, dict) else None
+    if not record or record.get("status") == "verified":
+        return
+    detail = ""
+    beside = Path(functions_path).parent / record.get("record", "loadimage.json")
+    try:
+        first = json.loads(beside.read_text(encoding="utf-8"))["result"].get("first_failure")
+        if first:
+            detail = f" The first failing check was {first.get('name')}."
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    _warn_once("load:" + str(Path(functions_path).resolve()), (
+        f"{tool}: warning: {functions_path} was exported from a load image that "
+        f"did not verify ({record.get('status')}); the pipeline went on only "
+        f"because it was told -AllowLoadMismatch.{detail} Addresses and bytes in "
+        f"it may not be the file's; see {beside}."))
+
+
 def load_functions(functions_path, exe=None, tool="this tool", accept_drift=False):
-    """Read a functions.json, and check it against `exe` and against the
-    handshake.json beside it, before returning it."""
+    """Read a functions.json, and check it against `exe`, against the
+    handshake.json beside it and against its load-image verdict, before
+    returning it."""
     data = json.loads(Path(functions_path).read_text(encoding="utf-8"))
     check_functions_target(data, functions_path, exe, tool)
     check_handshake(functions_path, tool, accept_drift)
+    check_load_image(data, functions_path, tool)
     return data

@@ -11,6 +11,12 @@
     first script's changes; on Ghidra 12.1.2 (2026-10-19) that did not
     reproduce, but separate runs are known to work and cost little.
 
+    Right after import it checks that Ghidra loaded what the file says:
+    DumpLoadImage.java writes down every block, mapping and relocation, and
+    tools/loadimage.py compares them with what the MZ header implies, writing
+    loadimage.json. On anything but verified it stops and prints the first
+    failing check, unless -AllowLoadMismatch is given.
+
     Before import it writes profile.json: the loader, language, compiler spec,
     load segment and recovery this run expects. After export it compares that
     with what ExportDecompiledC.java observed, writes handshake.json, and stops
@@ -36,6 +42,12 @@
     Skip RecoverFunctions.java. Use only to compare against plain
     auto-analysis; it typically loses a third of the functions.
 
+.PARAMETER AllowLoadMismatch
+    Continue past a load image that does not verify -- mismatch, unsupported,
+    or not checked -- instead of stopping. The run then says so in its output
+    and in functions.json, and every reader of that functions.json warns.
+    For a person who has read loadimage.json and understood the difference.
+
 .EXAMPLE
     .\pipeline.ps1 -Exe C:\games\GAME.EXE
 #>
@@ -45,7 +57,8 @@ param(
     [string]$OutDir,
     [string]$Ghidra   = $env:GHIDRA_HOME,
     [string]$JavaHome = $env:JAVA_HOME,
-    [switch]$SkipRecovery
+    [switch]$SkipRecovery,
+    [switch]$AllowLoadMismatch
 )
 
 $ErrorActionPreference = 'Stop'
@@ -96,11 +109,11 @@ function Invoke-Headless {
     $out | Select-String -Pattern 'ERROR|Exception' |
         Select-Object -First 5 |
         ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-    $out | Select-String -Pattern 'RecoverFunctions:|ExportDecompiledC:|Using Language/Compiler|Import succeeded' |
+    $out | Select-String -Pattern 'RecoverFunctions:|ExportDecompiledC:|DumpLoadImage:|Using Language/Compiler|Import succeeded' |
         ForEach-Object { Write-Host "    $_" -ForegroundColor DarkCyan }
 }
 
-Write-Host "`n[1/4] Structure" -ForegroundColor Cyan
+Write-Host "`n[1/5] Structure" -ForegroundColor Cyan
 $report = Join-Path $OutDir 'mzinfo.txt'
 & $python (Join-Path $toolDir 'mzinfo.py') $exeItem.FullName | Tee-Object -FilePath $report
 & $python (Join-Path $toolDir 'mzinfo.py') $exeItem.FullName --json |
@@ -114,10 +127,10 @@ if (Select-String -Path $report -Pattern '\[ERROR\] packer' -Quiet) {
     return
 }
 
-Write-Host "`n[2/4] Import and analyse" -ForegroundColor Cyan
+Write-Host "`n[2/5] Import and analyse" -ForegroundColor Cyan
 # The settings this run expects Ghidra to use, written down before import so
 # the export can be held to them afterwards. Ghidra still chooses; the
-# handshake in step 4 checks that it chose these (tools/analysis_profile.py).
+# handshake in step 5 checks that it chose these (tools/analysis_profile.py).
 $profileJson = Join-Path $OutDir 'profile.json'
 $profileArgs = @('write', '--exe', $exeItem.FullName, '--ghidra', $Ghidra, '--out', $profileJson)
 if ($SkipRecovery) { $profileArgs += '--skip-recovery' }
@@ -126,17 +139,61 @@ if ($LASTEXITCODE -ne 0) { throw "analysis_profile.py could not write $profileJs
 
 Invoke-Headless -HeadlessArgs @($projDir, $projName, '-import', $exeItem.FullName, '-overwrite') 'importing'
 
+# Everything after this trusts that the program is the file: the same bytes,
+# at the addresses the header implies, every relocation applied once per
+# entry. Check it before anything is built on it. Read-only: the dump changes
+# nothing in the project.
+Write-Host "`n[3/5] Verify the load image" -ForegroundColor Cyan
+$loadTimer = [Diagnostics.Stopwatch]::StartNew()
+Invoke-Headless -HeadlessArgs @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
+                  '-readOnly', '-scriptPath', $scripts, '-postScript', 'DumpLoadImage.java',
+                  $OutDir) 'dumping what Ghidra loaded'
+$loadJson = Join-Path $OutDir 'loadimage.json'
+$previous = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $verify = & $python (Join-Path $toolDir 'loadimage.py') verify $exeItem.FullName `
+        (Join-Path $OutDir 'loadimage-observed') --profile $profileJson --evidence $loadJson 2>&1 |
+        ForEach-Object { "$_" }
+    $verifyCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previous
+}
+$loadTimer.Stop()
+$loadStatus = switch ($verifyCode) { 0 { 'verified' } 1 { 'mismatch' } 2 { 'unsupported' } default { 'blocked' } }
+$verify | ForEach-Object {
+    Write-Host "    $_" -ForegroundColor $(if ($verifyCode -eq 0) { 'DarkCyan' } else { 'Red' })
+}
+Write-Host ("    checked in {0:N1} s; the record is {1}" -f $loadTimer.Elapsed.TotalSeconds, $loadJson) -ForegroundColor DarkGray
+if ($verifyCode -ne 0) {
+    $first = @($verify | Where-Object { $_ -like 'first failing check:*' -or $_ -like 'load image:*' })
+    $what = ($first | Select-Object -First 2) -join '; '
+    if (-not $AllowLoadMismatch) {
+        throw "load image $loadStatus, stopping before anything is built on it: $what. Read $loadJson; pass -AllowLoadMismatch to continue anyway."
+    }
+    Write-Host ''
+    Write-Host '    ************************************************************' -ForegroundColor Yellow
+    Write-Host "    LOAD IMAGE NOT VERIFIED ($loadStatus). Continuing only because" -ForegroundColor Yellow
+    Write-Host '    -AllowLoadMismatch was given. Every address and byte from here' -ForegroundColor Yellow
+    Write-Host '    on rests on a load that differs from the file.' -ForegroundColor Yellow
+    Write-Host "    $what" -ForegroundColor Yellow
+    Write-Host '    ************************************************************' -ForegroundColor Yellow
+}
+
 if (-not $SkipRecovery) {
-    Write-Host "`n[3/4] Recover missed functions" -ForegroundColor Cyan
+    Write-Host "`n[4/5] Recover missed functions" -ForegroundColor Cyan
     Invoke-Headless -HeadlessArgs @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
                       '-scriptPath', $scripts, '-postScript', 'RecoverFunctions.java') 'recovering'
 } else {
-    Write-Host "`n[3/4] Recovery skipped" -ForegroundColor DarkYellow
+    Write-Host "`n[4/5] Recovery skipped" -ForegroundColor DarkYellow
 }
 
-Write-Host "`n[4/4] Decompile and fingerprint" -ForegroundColor Cyan
-Invoke-Headless -HeadlessArgs @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
-                  '-scriptPath', $scripts, '-postScript', 'ExportDecompiledC.java', $OutDir) 'exporting'
+Write-Host "`n[5/5] Decompile and fingerprint" -ForegroundColor Cyan
+$exportArgs = @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
+                '-scriptPath', $scripts, '-postScript', 'ExportDecompiledC.java', $OutDir,
+                "load_image:$loadStatus")
+if ($verifyCode -ne 0) { $exportArgs += 'load_image:allowed' }
+Invoke-Headless -HeadlessArgs $exportArgs 'exporting'
 
 # Expected against observed. Any difference means these results were not
 # produced under the settings every later tool assumes, so stop here rather
