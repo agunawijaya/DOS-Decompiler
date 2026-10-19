@@ -164,11 +164,20 @@ and `FISTTP`, and Transylvania's `2616:1274` starts
 `enter 0x404f, 0` followed by `hlt`. They read as `recovered-prologue`, and
 `origin` is there so a later tool can discount them.
 
-**emuverify guesses DGROUP as the lowest relocated segment.** That is right
+**emuverify guessed DGROUP as the lowest relocated segment.** That is right
 for a small-model C program, where the relocations are the startup loading
 DGROUP. In a program with far code placed before its data, it is a code
-segment: the far-call fixture's guess is its far segment. Pass `--dgroup-a`
-and `--dgroup-b` there.
+segment: the far-call fixture's guess was its far segment, 0x0003, where
+DGROUP is 0x0005. Since prompt 05 it runs the startup instead, under
+comrun.py's loader, and takes the first segment loaded into DS that the
+loader relocated; the old guess is the fallback, and stderr says which was
+used. Measured on the six real programs: five startups load DS within 220
+instructions, each agreeing with the old guess. adventur.exe is EXEPACK'd: its
+decompressor loads its own code segment, 0x0f77, into DS after five
+instructions. Nothing relocated that segment -- the file has no relocations
+at all -- so it is passed over, and adventur is refused as before. The
+condition that the value be relocated is what keeps a packer's segment from
+being taken for the program's data.
 
 **Ghidra gives `INT` and `CALL` a fall-through.** `int 0x21` with `AH=4Ch`
 never returns, but in Ghidra's flow model the instruction after it follows.

@@ -212,6 +212,29 @@ def _():
     return result + "; both said so on stderr"
 
 
+@case("emuverify takes DGROUP from what the startup loads into DS, not the lowest relocated segment")
+def _():
+    # The relocated words are DGROUP twice and the far segment once, and the
+    # far segment is lower: the old guess. The startup's `mov ds, ax` at
+    # image offset 3 loads DGROUP.
+    lowest = min(far_segment(), dgroup())
+    said = io.StringIO()
+    with contextlib.redirect_stderr(said):
+        emu = emuverify.Emulator(EXE, export(WORK / "export"))
+    if emu.dgroup != dgroup():
+        raise AssertionError(f"DGROUP 0x{emu.dgroup:04x}, not 0x{dgroup():04x}; the lowest "
+                             f"relocated segment is 0x{lowest:04x}")
+    want = (f"DGROUP 0x{dgroup():04x}, the segment the startup loads into DS "
+            f"(at {addr(LOAD, L('start') + 3)})")
+    if want not in said.getvalue():
+        raise AssertionError(f"stderr does not say {want!r}: {said.getvalue()!r}")
+    got = emu.profile(emu.symbols[far_entry()])
+    if got != far_profile_expected():
+        raise AssertionError(f"farfunc profiled as {got} with that DGROUP")
+    return (f"0x{dgroup():04x} from the startup at {addr(LOAD, L('start') + 3)}, where the "
+            f"lowest relocated segment is 0x{lowest:04x}; farfunc's write lands in far_result")
+
+
 # ---------------------------------------------------------------- Ghidra
 
 def ghidra_ready():

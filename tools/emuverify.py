@@ -23,6 +23,10 @@ How a function is run
 ---------------------
   * The load image is mapped at segment 0x1000; DGROUP goes wherever the
     binary's own layout puts it, so global offsets line up between builds.
+    A linker map names DGROUP. Without one it is the segment the program's
+    startup loads into DS, found by running the startup; failing that, the
+    lowest relocated segment, which is a code segment when far code sits
+    below the data. Which one was used is said on stderr.
   * A function is found by its whole entry, segment and offset, through the
     verified load mapping. One outside the segment the image starts in runs
     at its own CS:IP, entered with a far return address when it ends in RETF.
@@ -53,7 +57,7 @@ says so (tools/evidence.py).
 
 The report goes to stdout; --json writes the full result, matches, ambiguous
 and uninformative functions included. --dgroup-a/--dgroup-b give the data
-segment paragraph when it cannot be read from the map or the relocations,
+segment paragraph when it cannot be read from the map or the startup,
 --limit profiles only the first N functions of each side, and --quiet drops
 the progress lines on stderr.
 
@@ -169,14 +173,9 @@ def code_symbols(mapfile):
     return out
 
 
-def dgroup_from_relocations(exe_path):
-    """Recover the data segment from the MZ relocation table.
-
-    A binary with no linker map still tells you where DGROUP is: in a
-    small-model program the startup loads it from a relocated word, so the
-    relocation targets hold the segment values the loader patches in. The
-    lower of them is DGROUP; the higher is the stack.
-    """
+def relocated_segments(exe_path):
+    """The segment words the loader patches: the value at every relocation
+    target, as the file holds it (relative to the start of the image)."""
     data = Path(exe_path).read_bytes()
     hdr = struct.unpack_from("<H", data, 8)[0] * 16
     nreloc = struct.unpack_from("<H", data, 6)[0]
@@ -187,9 +186,96 @@ def dgroup_from_relocations(exe_path):
         pos = hdr + (seg << 4) + off
         if pos + 2 <= len(data):
             values.append(struct.unpack_from("<H", data, pos)[0])
+    return values
+
+
+def dgroup_from_relocations(exe_path):
+    """Recover the data segment from the MZ relocation table.
+
+    A binary with no linker map still tells you where DGROUP is: in a
+    small-model program the startup loads it from a relocated word, so the
+    relocation targets hold the segment values the loader patches in. The
+    lower of them is DGROUP; the higher is the stack.
+    """
+    values = relocated_segments(exe_path)
     if not values:
         raise SystemExit(f"{exe_path}: no relocations, cannot locate DGROUP")
     return min(values)
+
+
+STARTUP_BUDGET = 100_000    # instructions of startup to run looking for DS
+
+
+def dgroup_from_startup(exe_path, budget=STARTUP_BUDGET):
+    """The data segment the program's own startup loads into DS.
+
+    The lowest relocated segment is DGROUP only when nothing relocated sits
+    below the data. Far code placed before it is relocated too -- every far
+    call's segment word is -- and then the guess is a code segment
+    (tests/farcall: the far segment, 0x0003, where DGROUP is 0x0005). The
+    startup is not guessing: it loads DGROUP into DS before C code runs. So
+    run it, under comrun.py's loader (relocations, PSP, enough DOS to get
+    through a C runtime's version check), and take the first value DS takes
+    that the loader relocated: one of the relocated segment words, or the
+    header's SS.
+
+    That condition is what keeps a packed file from answering. EXEPACK's
+    decompressor sets DS to its own code segment within five instructions
+    (adventur.exe: 0x0f77), and nothing relocated it, so it is passed over.
+    Returns (paragraph, (segment, offset) of the instruction that loaded it,
+    relative to the image), or None.
+    """
+    import comrun   # here, so the comparison itself does not depend on it
+    from unicorn.x86_const import UC_X86_REG_DS as DS, UC_X86_REG_CS as CS
+    try:
+        data = Path(exe_path).read_bytes()
+        machine = comrun.Machine(data)
+    except Exception:   # noqa: BLE001 -- any failure to load means no answer
+        return None
+    if machine.mz is None:
+        return None
+    load = comrun.SEG + (comrun.LOAD >> 4)
+    accepted = set(relocated_segments(exe_path)) | {machine.mz["ss"]}
+    seen = {"ds": machine.uc.reg_read(DS), "at": None, "found": None}
+
+    def watch(uc, address, size, _):
+        ds = uc.reg_read(DS)
+        if ds != seen["ds"] and (ds - load) & 0xFFFF in accepted:
+            seen["found"] = ((ds - load) & 0xFFFF, seen["at"])
+            machine.stopped = "DS loaded"
+            uc.emu_stop()
+        seen["ds"] = ds
+        cs = uc.reg_read(CS)
+        seen["at"] = ((cs - load) & 0xFFFF, address - (cs << 4))
+
+    machine.uc.hook_add(comrun.UC_HOOK_CODE, watch)
+    try:
+        machine.run(budget=budget)
+    except Exception:   # noqa: BLE001
+        return None
+    return seen["found"]
+
+
+def locate_dgroup(exe_path):
+    """DGROUP for a binary read without a linker map: (paragraph, how it was
+    found, where -- segment:offset at segment 0x1000 -- or None).
+
+    The startup's DS first; the lowest relocated segment when the startup
+    does not load a relocated one within STARTUP_BUDGET instructions. Raises
+    SystemExit, as before, when there is neither."""
+    found = dgroup_from_startup(exe_path)
+    if found is not None:
+        paragraph, (seg, off) = found
+        return (paragraph, "the segment the startup loads into DS",
+                f"{(IMAGE_SEG + seg) & 0xFFFF:04x}:{off:04x}")
+    return (dgroup_from_relocations(exe_path),
+            "the lowest relocated segment; the startup loaded no relocated segment into DS "
+            f"within {STARTUP_BUDGET:,} instructions", None)
+
+
+def say_dgroup(exe_path, paragraph, how, where):
+    print(f"emuverify.py: {Path(exe_path).name}: DGROUP 0x{paragraph:04x}, {how}"
+          + (f" (at {where})" if where else ""), file=sys.stderr)
 
 
 class Entry:
@@ -247,8 +333,11 @@ class Emulator:
         if str(symbols_source).lower().endswith(".json"):
             self.symbols = entries_from_functions_json(symbols_source, exe,
                                                        accept_drift)
-            self.dgroup = dgroup if dgroup is not None \
-                else dgroup_from_relocations(exe)
+            if dgroup is not None:
+                self.dgroup = dgroup
+            else:
+                self.dgroup, how, where = locate_dgroup(exe)
+                say_dgroup(exe, self.dgroup, how, where)
         else:
             self.symbols = code_symbols(symbols_source)
             self.dgroup = dgroup if dgroup is not None \
