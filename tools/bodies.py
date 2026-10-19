@@ -29,7 +29,9 @@ What it reports
                does not contain their own entry
   unclaimed    every run no body covers, classified by residue.py, the rules
                comrec.py uses for its residue: padding, a table of near
-               pointers into the code, text, repeated bytes, or "looks like
+               pointers into the code (into some function's body: here a
+               block holding functions can be mostly data), text, repeated
+               bytes, or "looks like
                code" -- decodes cleanly, every instruction plausible for an
                8088, for at least --min-instructions instructions, ending in a
                return or an unconditional jump. A run that is "other" as a
@@ -59,6 +61,7 @@ loadimage.json or executable to read the bytes from.
 
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -163,8 +166,14 @@ def kind_of(data, address, segment, in_code, md, min_instructions):
     k = residue.kind(data, lambda w: in_code((segment << 4) + w),
                      lambda: looks_like_code(md, data, address, min_instructions))
     name = KIND_NAMES[k]
-    if name == "other" and len(data) >= 2 and len(set(data)) == 1:
-        name = "padding" if data[0] in PADDING_BYTES else "repeated bytes"
+    # One byte value throughout. A lone 90 between two functions is the
+    # commonest residue of all -- knowledge/11 found eleven of Karateka's
+    # twenty-three runs were one -- and is alignment, like a run of them.
+    if name == "other" and len(set(data)) == 1:
+        if data[0] in PADDING_BYTES:
+            name = "padding"
+        elif len(data) >= 2:
+            name = "repeated bytes"
     return name
 
 
@@ -198,7 +207,13 @@ def classify(lo, hi, data, segment, in_code, md, min_instructions):
 def describe(kind, data, segment, in_code, md):
     """A few words on what was seen, for the prose and the envelope."""
     if kind == "text":
-        return repr(bytes(data[:40]).decode("latin-1")) + ("..." if len(data) > 40 else "")
+        # The first string in it, not its first bytes: a long run passes as
+        # text by being three fifths printable, and may start with anything.
+        printable = sum(1 for x in data if 0x20 <= x < 0x7F)
+        words = re.findall(rb"[\x20-\x7e]{4,}", bytes(data))
+        first = words[0].decode("ascii") if words else ""
+        shown = repr(first[:40] + ("..." if len(first) > 40 else ""))
+        return f"{printable * 100 // len(data)}% printable, first string {shown}"
     if kind == "pointer table":
         words = [data[i] | (data[i + 1] << 8) for i in range(0, len(data) - 1, 2)]
         inside = sum(1 for w in words if in_code((segment << 4) + w))
@@ -243,9 +258,6 @@ def analyse(functions_path, exe=None, loadimage_path=None, min_instructions=3,
                         for lo, hi in bodies)]
     region = merge((m["linear_start"], m["linear_end_inclusive"]) for m in code_maps)
 
-    def in_code(linear):
-        return any(lo <= linear <= hi for lo, hi in region)
-
     def segment_of(linear):
         for m in code_maps:
             if m["linear_start"] <= linear <= m["linear_end_inclusive"]:
@@ -255,6 +267,15 @@ def analyse(functions_path, exe=None, loadimage_path=None, min_instructions=3,
     claimed = [(max(lo, rlo), min(hi, rhi)) for lo, hi in bodies
                for rlo, rhi in region if lo <= rhi and hi >= rlo]
     claimed = merge(claimed)
+
+    # A near pointer is "into the code" when it lands in some function's body,
+    # not merely in a block that holds one. comrec can use its code region
+    # because it trims the data off either end first; here a hand-written
+    # program's one block is most of the file, and with the block as the test
+    # every word in it landed "in code" (measured: Talisman, 63,792 bytes of
+    # its data called pointer tables).
+    def in_code(linear):
+        return any(lo <= linear <= hi for lo, hi in claimed)
     code_bytes = sum(hi - lo + 1 for lo, hi in region)
     claimed_bytes = sum(hi - lo + 1 for lo, hi in claimed)
 

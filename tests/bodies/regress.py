@@ -159,10 +159,12 @@ def _():
     from capstone import Cs, CS_ARCH_X86, CS_MODE_16
     md = Cs(CS_ARCH_X86, CS_MODE_16)
     img = image()
-    code_end = L("data_start")
+    # "Into the code", as bodies.py means it: into some function's body.
+    claimed = [(LOAD * 16 + lo, LOAD * 16 + hi)
+               for ranges in expected_bodies().values() for lo, hi in ranges]
 
     def in_code(linear):
-        return LOAD * 16 <= linear < LOAD * 16 + code_end
+        return any(lo <= linear <= hi for lo, hi in claimed)
 
     got = []
     for lo, hi, want in expected_unclaimed():
@@ -187,7 +189,15 @@ def _():
                        ("two instructions", bytes([0x40, 0xC3]))):
         if bodies.looks_like_code(md, run, 0, 3):
             raise AssertionError(f"{label}: looks like code")
-    return "table, text, padding, code, padding; three near misses refused"
+    # One byte value throughout: a lone 90 is alignment like a run of them; a
+    # run of anything else is repeated bytes; a lone anything else is nothing.
+    for run, want in ((b"\x90", "padding"), (b"\xee\xee\xee", "repeated bytes"),
+                      (b"\x10", "other")):
+        got = bodies.kind_of(run, 0, LOAD, in_code, md, 3)
+        if got != want:
+            raise AssertionError(f"{run.hex()}: {got}, not {want}")
+    return ("table, text, padding, code, padding; three near misses refused; "
+            "90 padding, ee ee ee repeated")
 
 
 def synthetic_export(folder, functions, overlaps=()):
