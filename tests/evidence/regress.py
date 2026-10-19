@@ -983,16 +983,21 @@ def _():
     if code == 0 or "could not run" not in err:
         raise AssertionError(f"blocked: exit {code}, {err!r}")
 
-    # functions.json rewritten after the check: the record no longer
-    # describes it, so it warns and reads rather than refusing.
-    env["status"] = "mismatch"
+    # functions.json rewritten after a check that passed: the record is about
+    # an earlier export, so this one never went through a handshake. Refused
+    # like a mismatch, and read only with the override, which says why.
+    env["status"] = "verified"
     record.write_text(json.dumps(env), encoding="utf-8")
     fj = folder / "functions.json"
     fj.write_text(fj.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     code, _, err = run(*args)
-    if code != 0 or "describes an earlier export" not in err:
+    if code == 0 or "checked an earlier export" not in err:
         raise AssertionError(f"out of date: exit {code}, {err!r}")
-    return "verified silent, blocked refused, out-of-date warned"
+    code, _, err = run(*(list(args) + ["--accept-profile-drift"]))
+    if code != 0 or "--accept-profile-drift: reading" not in err \
+            or "checked an earlier export" not in err:
+        raise AssertionError(f"out of date, overridden: exit {code}, {err!r}")
+    return "verified silent, blocked refused, out-of-date refused and overridable"
 
 
 @case("CRLF and LF copies of a source file hash the same; a target does not")

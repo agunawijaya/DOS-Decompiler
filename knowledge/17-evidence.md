@@ -453,7 +453,7 @@ were given, through `evidence.load_functions`:
 | `verified` | silent |
 | `mismatch` | refuses, exit 1, with each drifted field and what to do |
 | `blocked` | refuses: the handshake could not run, there was no export to check |
-| about an earlier export | one warning, and reads. The record carries `functions_sha256`, the hash of the export it checked; if `functions.json` has been rewritten since, the record says nothing about it |
+| about an earlier export | refuses, like `mismatch`, whatever the record's status. The record carries `functions_sha256`, the hash of the export it checked; if `functions.json` has been rewritten since, the export beside the record never went through a handshake. (01a had this warn and read; the architect changed it) |
 | unreadable | one warning, and reads |
 
 Real output, on what a forced-drift pipeline run left in `drift\`:

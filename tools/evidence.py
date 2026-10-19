@@ -338,11 +338,12 @@ def check_handshake(functions_path, tool="this tool", accept_drift=False):
       * handshake.json beside it says mismatch or blocked: SystemExit, with
         the fields that drifted and what to do -- unless accept_drift, which
         says on stderr that it is reading a drifted export, every time.
+      * it is about a different export -- functions.json was rewritten after
+        the check, so the export beside it never went through a handshake:
+        refused the same way, and overridden the same way.
       * it says verified, or there is none (a work folder from before the
         handshake): silence, as before.
-      * it is about a different export -- functions.json was rewritten after
-        the check -- or cannot be read: one warning, and carry on, because
-        the record then says nothing about this file.
+      * it cannot be read: one warning, and carry on.
     """
     record = Path(functions_path).parent / "handshake.json"
     if not record.is_file():
@@ -357,17 +358,18 @@ def check_handshake(functions_path, tool="this tool", accept_drift=False):
                         f"nothing confirms {functions_path} passed its handshake.")
         return
 
+    # A record of a different export says nothing about this one, and an
+    # export that was never checked is refused like one that failed: the
+    # architect's decision after 01a, which had this warn and carry on.
     checked = result.get("functions_sha256")
-    if checked and checked != sha256_file(functions_path):
-        _warn_once(key, (
-            f"{tool}: warning: {record} describes an earlier export, not the "
-            f"{functions_path} beside it now. Run tools/analysis_profile.py "
-            f"check to bring it up to date."))
-        return
-    if status not in HANDSHAKE_REFUSED:
+    rewritten = bool(checked) and checked != sha256_file(functions_path)
+    if not rewritten and status not in HANDSHAKE_REFUSED:
         return
 
-    if status == "blocked":
+    if rewritten:
+        what = ("the handshake beside it checked an earlier export, so this one "
+                "never went through a handshake")
+    elif status == "blocked":
         what = ("the handshake could not run when this folder was made -- there "
                 "was no export to check")
     else:
@@ -380,12 +382,16 @@ def check_handshake(functions_path, tool="this tool", accept_drift=False):
               f"{what}. Everything below rests on settings the rest of the "
               f"toolkit does not assume.", file=sys.stderr)
         return
+    if rewritten:
+        fix = (f"Re-run tools/pipeline.ps1, or tools/analysis_profile.py check "
+               f"--evidence {record}, to check the export as it is now")
+    else:
+        fix = ("Find out why Ghidra did not do what the profile expected, fix "
+               "it and re-run tools/pipeline.ps1")
     raise SystemExit(
         f"{tool}: {functions_path} did not pass its profile handshake: {what}.\n"
-        f"The record is {record}. Find out why Ghidra did not do what the "
-        f"profile expected, fix it and re-run tools/pipeline.ps1. If you have "
-        f"understood the drift and want these results anyway, pass "
-        f"{ACCEPT_DRIFT_FLAG}.")
+        f"The record is {record}. {fix}. If you have understood why and want "
+        f"these results anyway, pass {ACCEPT_DRIFT_FLAG}.")
 
 
 def load_functions(functions_path, exe=None, tool="this tool", accept_drift=False):

@@ -237,6 +237,19 @@ def check_readers(work, exe):
         code, err = run(args)
         results.append((code == 0 and not err.strip(),
                         f"{name} reads it as before once handshake.json is gone"))
+
+    # The verified export, rewritten after its handshake: what is beside the
+    # record now was never checked, so it is refused like a drift.
+    plain = work / "plain" / "functions.json"
+    plain.write_text(plain.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    name, args = readers(plain)[0]
+    code, err = run(args)
+    results.append((code != 0 and "checked an earlier export" in err,
+                    f"{name} refuses an export rewritten after its verified "
+                    f"handshake (exit {code})"))
+    code, err = run(args + ["--accept-profile-drift"])
+    results.append((code == 0 and "--accept-profile-drift: reading" in err,
+                    f"{name} reads it with --accept-profile-drift, and says so"))
     return results
 
 
