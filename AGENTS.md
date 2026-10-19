@@ -438,6 +438,28 @@ Provisional names get a `__maybe` suffix and a warning comment, so uncertainty
 stays visible in the code instead of being quietly forgotten. Names applied to
 routines of 200+ bytes are flagged separately.
 
+### What a function's body is, and what no function claims
+
+```
+python tools/bodies.py OUTDIR/functions.json --evidence bodies.json
+```
+
+A function's `size` is the number of addresses in Ghidra's body, not the length
+of one contiguous run. `body.ranges` (ends inclusive) says where it lies.
+`origin` says whether Ghidra found it or `RecoverFunctions.java` inferred it,
+and from what. A recovered function rests on weaker evidence, so say so when
+you name one. `body_overlaps` lists code one function runs inside a body
+Ghidra gave another. Ghidra never lets bodies overlap, so a shared epilogue
+comes out as a function of its own that others jump to. Do not read a body as
+everything its function runs, nor as only what it owns.
+
+`bodies.py` reports the share of the code no function's body claims, and
+classifies each unclaimed run with comrec's rules. Its last line says either
+"nothing unclaimed looks like code" or which ranges do. A range that looks like
+code is a question to read, not a function to create. On Crimson Crown those
+runs were real handlers, reached through a table in data that recovery does not
+read (`knowledge/03-what-works.md`).
+
 ---
 
 ## Step 3b — Identify by matching, when reference source exists
@@ -629,7 +651,8 @@ not mean nothing got worse.
   analysis profile and its handshake, load-image verification and `map`, and
   the refusal of a stale `functions.json`; including the measured facts that
   Ghidra's `image_base` is not the load segment and that its MZ loader gets two
-  kinds of file wrong, and how the pipeline corrects them
+  kinds of file wrong, and how the pipeline corrects them; and function bodies
+  as address ranges, their origins, shared code, and `bodies.py`
 - `knowledge/ghidra-upstream-mzloader.md` — the two MZ loader divergences
   written up as an issue for Ghidra, with a reproducer; drafted, not filed
 - `tests/sopwith/CASE-STUDY.md` — the whole method worked through, including the

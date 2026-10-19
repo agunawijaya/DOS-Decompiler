@@ -264,3 +264,14 @@ toolkit exists not to go.
 - **A search limit is not a result.** Report "ran out of rounds" differently
   from "found everything there is", or the first will be read as the second for
   as long as nobody checks.
+
+## The same question on the MZ route
+
+Since prompt 03, `tools/bodies.py` asks it of an MZ program through Ghidra's
+function bodies. It uses the residue rules above, moved into `tools/residue.py`
+without changing a byte of comrec's output, and ends in the same words. None of
+the five real MZ programs measured so far says "nothing unclaimed looks like
+code". Their unreached code is the shape this note describes: handlers reached
+through a table in data, and switch arms behind a jump nothing resolved.
+`03-what-works.md` has the figures, and `17-evidence.md` how bodies are
+reported.

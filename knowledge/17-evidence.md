@@ -26,6 +26,10 @@ and built here from nothing, has four parts:
    recorded (prompt 02a); the check does not take the corrector's word.
 4. **Stale-result protection**: every tool that reads `functions.json` beside
    an executable checks that the export was made from that executable.
+5. **Function bodies as address ranges**: each function's body as Ghidra holds
+   it, ends inclusive, where the function came from, and which bytes more
+   than one function claims; `bodies.py` says which code no function claims
+   and what it looks like (prompt 03).
 
 ## The envelope
 
@@ -415,6 +419,13 @@ A forced `load_segment` drift no longer gets this far. Since prompt 02 the load
 image is verified right after import, against the profile's load segment, and
 that stops the run first (below).
 
+An export written before prompt 02a has no `observed_profile.load_correction`.
+Checked against a profile written now, it reports drift on
+`load_correction.ran`, which is true: the corrector did not run on it. That was
+accepted rather than special-cased. Re-run the pipeline. Readers of an old
+work folder are unaffected, because they read the `handshake.json` written at
+the time.
+
 The run stops; it does not delete anything. `functions.json` is still on disk
 after a failed handshake, and `handshake.json` beside it says why — which is
 also what stops every reader of it (below).
@@ -567,12 +578,41 @@ export proves the corrector ran, which copy, and with what result, as
 stop with prompt 02's mismatches, word for word (tested), and the profile
 expects `load_correction.ran: false`.
 
-What it cannot correct: a relocation *inside* the missing page. The corrector
-restores the page and applies the fixup (`1006:0172: 0x0004 -> 0x1004` on the
-`TAIL_RELOCATION` fixture). But the relocation record Ghidra wrote for it says
-`FAILURE`, with no original bytes, and nothing in the program API rewrites a
-relocation record. So `relocations.status` and `relocations.original` still
-fail, and the run stops, which is the verifier doing its job.
+What it cannot correct: the record of a relocation *inside* the missing page.
+The corrector restores the page and applies the fixup
+(`1006:0172: 0x0004 -> 0x1004` on the `TAIL_RELOCATION` fixture). But the
+relocation record Ghidra wrote for it says `FAILURE`, with no original bytes,
+and `RelocationTable` has only `add` and `get` methods (checked with `javap` on
+12.1.2), so nothing can rewrite that record. Until prompt 03 such a file
+failed `relocations.status` and `relocations.original` and stopped.
+
+It now verifies, through a check of its own,
+`relocations.status_after_correction`. A `FAILURE` record is accepted only
+when all three of these hold:
+
+- the word in memory is the value the verifier computes from the file;
+- the address lies inside a range the corrections record says was restored;
+- that record passed its provenance checks.
+
+The ranges are the only thing taken from the record, and only to say which
+records the check may judge. When it accepts a record, the check lists it, and
+the envelope's `limitations` say that Ghidra's relocation table still reads
+`FAILURE` there. The check appears only when there is such a record, so
+`TAIL_RELOCATION` verifies with 32 checks where the other corrected fixtures
+have 31. If the word in memory is changed, the check fails and names both
+values (`1006:0172: memory holds 0x1005, not 0x1004`). A `FAILURE` outside
+the restored range, or under a record from another corrector, fails as it
+always did (tested).
+
+When the page does not fit in the segment of the block before it, the
+corrector maps it at its own paragraph instead. `tests/loadimage/fixtures/bigpage.asm`,
+one segment just past 64 KB, exercises that: its page at offset `0xFFC0` of
+segment `0x1000` goes back at `1ffc:0000`, joins `CODE_0` (which Ghidra then
+shows as `1000:0000..2000:01bf`), and the load verifies. Forced into the
+segment form by a mutation, the page went in at `1000:ffc0` and verified as
+well: Ghidra 12.1.2 accepts a block running past offset `0xFFFF`. So the
+paragraph form is a choice, not a necessity, and the test pins it by the exact
+record.
 
 **Analysis now runs after verification.** In 02, import ran Ghidra's
 auto-analysis, which reads every byte, so the page would have been missing
@@ -595,6 +635,7 @@ export matched too.
 | `module.coverage` | every byte of the module is mapped exactly once, and nothing outside it is |
 | `module.as-stored` | Ghidra's copy of the module bytes, before fixups, is the file's |
 | `relocations.set`, `.multiplicity`, `.status`, `.original` | the same targets, the same number of entries for each, all `APPLIED`, each record's original bytes the file's word |
+| `relocations.status_after_correction` | only when a `FAILURE` record lies in a page the corrector restored: its word in memory is the file's after the fixup, the range is one the record says it restored, and the record's provenance holds. Only then is that record left out of `.status` and `.original` |
 | `relocations.words` | each patched word holds its value after every fixup to it |
 | `mapping <block> <address>.address`, `.digest` | for each range of each block: it sits at load segment × 16 + image offset, and its bytes are the file's with fixups applied |
 | `module.loaded`, `file.modified` | the module in memory, and Ghidra's own patched copy of the file, are the file with fixups applied |
@@ -760,6 +801,161 @@ Ghidra left behind: each refuses, each reads with the override and says so,
 each reads the verified export silently, and each reads the drifted one as
 before once `handshake.json` is removed.
 
+## Function bodies
+
+`functions.json` gave each function an entry and one `size`, and every
+consumer read that as one contiguous run of bytes the function owns. Code of
+the period is not that tidy: a jump table sits in the middle of a function, two
+functions share an epilogue, hand-written assembly jumps into the middle of a
+neighbour, and `RecoverFunctions.java` splits functions Ghidra ran together.
+
+### `body`
+
+Every function record now ends with `origin` and `body`:
+
+```json
+"body": {"available": true, "provenance": "ghidra-function-body-address-set",
+         "ranges": [{"start": "1000:0087", "end": "1000:0095", "start_linear": "0x10087", "end_linear": "0x10095"},
+                    {"start": "1000:009c", "end": "1000:00aa", "start_linear": "0x1009c", "end_linear": "0x100aa"}],
+         "total_bytes": 30, "span_bytes": 36, "non_contiguous": true, "contains_entry": true}
+```
+
+| field | holds |
+|---|---|
+| `ranges` | every range of Ghidra's body address set, in address order. **Ends are inclusive**: `1000:0087..1000:0095` is 15 bytes. Each end as Ghidra writes it (`ssss:oooo`) and as a linear address (segment × 16 + offset) |
+| `total_bytes` | the addresses in the body |
+| `span_bytes` | lowest to highest, inclusive: what one contiguous run from the first byte to the last would hold |
+| `non_contiguous` | `total_bytes` differs from `span_bytes`: something that is not this function's sits between its first byte and its last |
+| `contains_entry` | the body holds the entry address |
+| `available`, `provenance` | whether Ghidra has a body at all, and where it came from: `ghidra-function-body-address-set` |
+
+**`size` is unchanged, and was measured to be the body's address count**,
+`getBody().getNumAddresses()`, the same as `total_bytes`. It is not the span.
+The two differ for every non-contiguous function: the switch above is
+`"size": 30`, its span 36, and the 6 bytes between are its jump table.
+
+What Ghidra 12.1.2 does with each shape, measured on
+`tests/bodies/fixtures/bodies.asm`:
+
+| shape | what Ghidra makes of it |
+|---|---|
+| two functions jumping to one epilogue | **three functions.** Each of the two ends at its own `jmp`, and the epilogue is a function of its own |
+| a jump into the middle of a neighbour | the neighbour keeps the tail it falls into; the jumper's body ends at its jump |
+| a chunk past another function, reached by an unconditional `jmp` | a function of its own |
+| the same chunk reached by a conditional jump | kept in the body: two ranges, the other function between them |
+| a jump table in the middle of a function | the table is data, so the body is two ranges, one either side of it |
+| two bodies sharing a byte | refused. `Function.setBody` and `FunctionManager.createFunction` both throw `OverlappingFunctionException` |
+
+### `origin`
+
+Why the function exists. A function `RecoverFunctions.java` created is a
+hypothesis resting on weaker evidence than Ghidra's flow analysis, and a later
+tool should be able to tell:
+
+| origin | evidence |
+|---|---|
+| `ghidra-analysis` | Ghidra's own analysis. An import without analysis holds no functions (measured), so a function no mark names is analysis's |
+| `recovered-call-target` | something calls it |
+| `recovered-code-pointer` | an immediate in the code points at it |
+| `recovered-split` | a prologue inside another function's body; the function the split shortens keeps its own origin |
+| `recovered-prologue` | a prologue no function contained |
+
+`RecoverFunctions.java` records the origin of each function it creates in a
+string property map, `DOS-Decompiler function origin`, keyed by entry address.
+Its split removes a function and creates it again, so nothing attached to a
+function would survive that. A plate comment is printed into `decompiled.c`,
+and is where `ApplyNames.java` writes its warnings. A bookmark is something a
+person clears from the GUI. A property map is saved with the program and
+invisible in the listing and in the decompiler's output.
+
+### `body_overlaps`
+
+A top-level list of every byte range more than one function claims, and which
+functions. It reports overlaps and does not resolve them.
+
+Ghidra never lets two bodies share a byte, so shared code shows up another way.
+One function leaves its own body, by a jump or by falling through, into a body
+Ghidra gave another function. So a function claims its `body`, and also what
+it reaches from each `jump` or `fallthrough` out of it. That is followed
+through jumps and fall-throughs until it returns, comes back into the
+function's own body, or leaves every function's body:
+
+```json
+{"start": "1000:0057", "end": "1000:005a", "start_linear": "0x10057", "end_linear": "0x1005a", "bytes": 4,
+ "functions": [{"entry": "1000:0047", "name": "FUN_1000_0047", "claim": "jump", "via": ["1000:004d"]},
+               {"entry": "1000:004f", "name": "FUN_1000_004f", "claim": "jump", "via": ["1000:0055"]},
+               {"entry": "1000:0057", "name": "FUN_1000_0057", "claim": "body"}]}
+```
+
+That is the shared epilogue: Ghidra's function at `1000:0057`, reached by the
+`jmp short` at the end of each of the other two. `via` is the instruction each
+claim leaves by. A walk that stops at its limit of 65,536 instructions says so
+(`walk_limit_reached`). Body against body is checked as well, so a Ghidra that
+allows overlapping bodies would show it here rather than be assumed not to.
+
+Calls are not claims. A fall-through is followed only from an ordinary
+instruction, and a call or interrupt is stepped over only when it returns into
+the body it was made from. Ghidra gives `int 0x21` a fall-through, and without
+that rule the fixture's startup "fell through" from its DOS exit into `main`.
+A function that ends in a call to a routine that never returns, and really
+does run into the next function, is missed by the same rule.
+
+Jumps are told from calls by mnemonic rather than by Ghidra's flow type.
+Ghidra overrides a jump to another function's entry into a call-return, and
+that override is exactly the case being looked for.
+
+### `bodies.py`: what no function claims
+
+`tools/bodies.py out/functions.json` reads the bodies and the module layout
+`loadimage.json` verified. On the fixture:
+
+```
+bodies: BODIES.EXE  (15 functions, load image verified)
+code        : 240 bytes in 1 block(s) holding functions (CODE_0 1000:0000..1000:00ef)
+claimed     : 207 bytes by some function's body (86.2%)
+origins     : 11 ghidra-analysis, 2 recovered-code-pointer, 1 recovered-prologue, 1 recovered-split
+non-contiguous: 2
+  1000:006d  FUN_1000_006d  2 ranges, 18 of 26 bytes
+  1000:0087  FUN_1000_0087  2 ranges, 30 of 36 bytes
+claimed by more than one function: 3 range(s), 16 bytes (see body_overlaps)
+  1000:0057..1000:005a  1000:0047 jump; 1000:004f jump; 1000:0057 body
+  1000:0069..1000:006c  1000:005b jump; 1000:0063 body
+  1000:00c5..1000:00cc  1000:00be fallthrough; 1000:00c5 body
+entry outside body: none
+unclaimed   : 33 bytes in 5 range(s): 14 looks like code, 7 padding, 6 pointer table, 6 text
+  1000:0096..1000:009b       6  pointer table   3 words, 3 into the code
+  1000:00cd..1000:00d2       6  text            100% printable, first string 'BODIES'
+  1000:00db..1000:00dc       2  padding         90 x2
+  1000:00dd..1000:00ea      14  looks like code 7 instructions, ending ret
+  1000:00eb..1000:00ef       5  padding         00 x5
+1 unclaimed range looks like code: 1000:00dd..1000:00ea (14 bytes)
+```
+
+The code is the blocks that hold at least one function's body. The bytes are
+the file's with DOS's fixups applied, which is the program Ghidra analysed
+when the load verified. A word counts as a near pointer "into the code" when
+it lands in some function's body, not merely somewhere in those blocks. In a
+hand-written program the one block is code and data together, and with the
+block as the test every word of Talisman's data landed "in code" (measured).
+
+Unclaimed runs are classified by `tools/residue.py`, the rules `comrec.py`
+classifies its residue by (`11-unreached-code.md`). They were moved there
+unchanged: comrec's report, `.asm` and map are byte-identical for every `.COM`
+fixture, six real programs and Karateka's `.EXE`. Each route keeps its own
+idea of what counts as code. comrec wants some control flow anywhere in the
+run. bodies.py wants a run that decodes cleanly from its first byte to its
+last, every instruction plausible for an 8088, at least `--min-instructions`
+(3) of them, ending in a return or an unconditional jump. A run that is
+"other" as a whole is tried again without the `00`/`90` fill at either end,
+so a routine followed by alignment padding is still seen.
+
+The last line is in the `.COM` route's words. Each range that looks like code
+is also an `unknowns` entry in the envelope (`--evidence`): a question about
+the program, not a finding. An export from before bodies is refused, exit 3,
+with what to do.
+
+What it measured on real programs is in `03-what-works.md`.
+
 ## What this does not do
 
 - **It does not make an observation truer.** An envelope records what a tool
@@ -767,8 +963,8 @@ before once `handshake.json` is removed.
   `verified` handshake proves Ghidra used the expected settings; it says
   nothing about whether the decompiled C is right.
 - **Only the first-step tools emit envelopes so far** — triage, survey, mzinfo
-  — plus the profile, handshake and load-image records. Everything else still
-  prints prose.
+  — plus the profile, handshake and load-image records, and `bodies.py`.
+  Everything else still prints prose.
 - **The profile is measured on one Ghidra version and one fixture.** A drift
   after an upgrade is a measurement to make, not an error to suppress.
 - **`toolkit_version` is recorded but not compared**, and not part of

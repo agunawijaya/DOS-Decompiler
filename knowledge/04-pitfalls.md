@@ -42,7 +42,10 @@ correction, with its value before and after, is in `load-corrections.json`, and
 `loadimage.json` and `functions.json` carry the count: `"status": "verified",
 "corrections": 1`. Nothing else is corrected. A relocation *inside* the missing
 page gets its word fixed, but Ghidra's record for it says `FAILURE` and no API
-rewrites a relocation record, so that file still stops. To see Ghidra's own
+rewrites a relocation record. Since prompt 03 the verifier accepts that record
+only when the word in memory is the file's after the fixup, under a
+corrections record whose provenance holds, and says so in a check of its own,
+`relocations.status_after_correction` (`17-evidence.md`). To see Ghidra's own
 load, run the pipeline with `-NoLoadCorrection`: the two fixtures then stop
 with prompt 02's mismatches, word for word. The upstream report is drafted in
 `ghidra-upstream-mzloader.md`.
@@ -76,6 +79,37 @@ contain defined functions.
 control flow, and games dispatch through function pointers in data. Expect to
 lose roughly a third of the functions, concentrated in the gameplay code, and
 recover them explicitly.
+
+**`RecoverFunctions.java` does not find routines reached through a table in
+data.** It follows calls, immediates in instructions and prologues. A table of
+handler addresses stored as data, read by an indirect call, gives it none of
+those. On Crimson Crown (small model, 0.9 prologues per KB; Microsoft C by the
+sibling project's notes) `bodies.py` found 1,011 bytes in 10 runs that nothing
+claims and that read as code, among
+them a block of three-instruction condition handlers, `call`/`je`/`inc
+byte ptr`/`ret`, one after another.
+
+**Ghidra never lets two function bodies overlap.** `Function.setBody` and
+`FunctionManager.createFunction` both throw `OverlappingFunctionException`
+(measured, 12.1.2). So code two functions share is never in two bodies. Two
+functions jumping to one epilogue come out as three functions, the epilogue its
+own. A jump into the middle of a neighbour stays in the neighbour's body, and
+the jumper's body ends at its jump. Read a body as what Ghidra assigned, not as
+what the function runs. `body_overlaps` in `functions.json` lists the code a
+function reaches in another's body (`17-evidence.md`).
+
+**Ghidra gives `INT` and `CALL` a fall-through.** `int 0x21` with `AH=4Ch`
+never returns, but in Ghidra's flow model the instruction after it follows.
+The first version of the overlap walk followed it, and claimed that the
+fixture's startup "fell through" into `main`. A fall-through is evidence of
+running on only after an ordinary instruction, or after a call that returns
+into the body it was made from.
+
+**In a hand-written program, "inside a block that holds functions" is not
+"inside code".** The program is often one block of code and data together.
+Testing a word for "points into code" by the block made every word in
+Talisman's data land in code, and 63,792 bytes of it read as pointer tables.
+Test against function bodies instead.
 
 **The Open Watcom Windows installer crashed twice** (heap corruption, then an
 access violation), leaving a half-populated tree without `wcc` or `lib286` —

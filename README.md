@@ -621,6 +621,11 @@ nasm -f bin -o rebuilt.com src\game.asm      # then compare SHA-256 yourself
 python tools\loadimage.py map out\loadimage.json --file 0x201
 python tools\loadimage.py map out\loadimage.json --address 1000:0001
 
+# 1b. Which code no function claims, and whether any of it reads as code.
+#     Each function in functions.json carries its body as address ranges
+#     (ends inclusive) and its origin; see knowledge/17-evidence.md.
+python tools\bodies.py out\functions.json --evidence out\bodies.json
+
 # 2. Names from evidence alone — no reference source needed.
 #    --exe refuses a functions.json that was made from a different file.
 python tools\anchors.py out\functions.json --exe path\to\GAME.EXE `
@@ -871,6 +876,10 @@ tools/
   loadimage.py               what a correct load of an MZ looks like, from the
                              file alone; checks Ghidra's against it; maps
                              file offsets to addresses and back
+  bodies.py                  which code no function's body claims, and what it
+                             looks like; non-contiguous and shared bodies
+  residue.py                 not a tool: the rules comrec.py and bodies.py both
+                             classify unclaimed bytes by
   mzinfo.py                  MZ structure, segments, packer and overlay detection
   anchors.py                 identify functions from evidence, with no source
   libscan.py                 find the C runtime using the compiler's own .LIB,
@@ -885,8 +894,10 @@ tools/
   fatextract.py              pull files out of raw FAT12 floppy images
   dosrun.ps1                 drive a period DOS toolchain headlessly under DOSBox-X
   ghidra_scripts/
-    RecoverFunctions.java    find the functions Ghidra's analysis misses
-    ExportDecompiledC.java   export decompiled C + per-function fingerprints
+    RecoverFunctions.java    find the functions Ghidra's analysis misses, and
+                             mark why each one exists
+    ExportDecompiledC.java   export decompiled C + per-function fingerprints,
+                             bodies as address ranges, origins, shared code
     CorrectMzLoad.java       correct the two MZ loads Ghidra gets wrong, and
                              record each correction
     DumpLoadImage.java       write down what Ghidra loaded, for loadimage.py
@@ -922,6 +933,8 @@ tests/evidence/              envelopes, the handshake's logic, stale-result refu
 tests/handshake/             the profile handshake run through Ghidra itself
 tests/loadimage/             load-image correction and verification: correct,
                              corrected, tampered, malformed
+tests/bodies/                function bodies, origins, shared code, and what
+                             no function claims
 AGENTS.md                    the method, for any agent or human
 SKILL.md                     Claude Code wrapper
 env.example.ps1              copy to env.ps1, point at your own tool copies

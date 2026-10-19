@@ -42,6 +42,48 @@ of how much data each program keeps *between* its routines: Hard Hat Mack's
 residue is 1,201 bytes of CGA scanline offsets, 1,171 of artwork and 793 of HUD
 strings, none of it lost.
 
+### And on the MZ route, what the function bodies cover
+
+`tools/bodies.py` asks the MZ route the `.COM` route's question: of the code,
+which bytes does no function's body claim, and do any of them read as code
+nothing reached (`17-evidence.md`)? Measured on five real programs, through
+the pipeline as of prompt 03, read in place. A sixth file, the recovered
+Transylvania, has the same SHA-256 as the original and gave the same numbers.
+
+| program | shape | functions (recovered) | code | claimed | non-contiguous | claimed by 2+ | unclaimed that looks like code |
+|---|---|---|---|---|---|---|---|
+| `adventur.exe`, 64,512 B | one segment, no relocations, 0.7 prologues/KB | 302 (42) | 63,660 B | **72.1%** | 35 | 129 ranges, 26,100 B | **25 ranges, 5,548 B** |
+| Crimson Crown `NOVEL1.EXE`, 51,904 B | small model, 1 relocation, 0.9 prologues/KB | 170 (30) | 14,592 B | **66.0%** | 2 | 16 ranges, 370 B | **10 ranges, 1,011 B** |
+| Ootopos `Novel.exe`, 110,620 B | 5 relocations, no prologues | 124 (23) | 31,340 B | **21.8%** | 5 | 7 ranges, 264 B | **12 ranges, 512 B** |
+| Talisman `NOVEL1.EXE`, 171,917 B | 6 relocations, no prologues | 118 (13) | 92,525 B | **8.1%** | 11 | 17 ranges, 519 B | **12 ranges, 740 B** |
+| Transylvania `Novel.exe`, 103,276 B | 5 relocations, no prologues | 117 (19) | 23,916 B | **30.9%** | 9 | 5 ranges, 126 B | **7 ranges, 291 B** |
+
+"Code" is every block that holds at least one function's body, so it is only
+as good as that block boundary. In the three programs with no prologues (the
+sibling project's notes call two of them hand-written assembly) code and data
+share the blocks, and most of what is unclaimed is data. Talisman's 8.1% says
+that 92 KB of blocks hold 7.5 KB of functions, not that 85 KB of code was
+missed. The column worth reading is the last one.
+
+None of the five says "nothing unclaimed looks like code", unlike the four
+`.COM` reconstructions. The runs that do were read, not counted. A sample of
+the longest in two programs were plainly code:
+
+- Crimson Crown's 582-byte run at `1000:1005` is 234 instructions: condition
+  handlers of three or four instructions each, `call`, `je`, `inc byte ptr
+  [...]`, `ret`, one after another. They are reached through a table in data,
+  which `RecoverFunctions.java` does not read.
+- `adventur.exe`'s 1,550-byte run at `1000:80d2` addresses `[bp - 0xc]`, a
+  frame some function set up: switch arms Ghidra never resolved.
+- A 16-byte run at `1000:dd1d` sets `DS`, writes a flag, and returns with
+  `retf`: a far routine nothing in the code calls.
+
+That is the MZ route's version of `11-unreached-code.md`, and nothing has
+yet been done to recover it. "Claimed by 2+" is code one function runs inside
+a body Ghidra gave another. Ghidra never lets bodies overlap, so this is how
+shared tails show. `adventur.exe` has the most: one range is reached from 32
+functions.
+
 ### Reconstruction is not reading
 
 Karateka's reconstruction is finished in every sense the tools can measure, and
