@@ -9,9 +9,14 @@ Every address in functions.json, every fingerprint, every name carried across
 by emuverify.py rests on settings nobody wrote down: which loader Ghidra
 picked, which language and compiler spec, which segment it loaded the image
 at, whether RecoverFunctions.java ran. Change one -- a Ghidra upgrade that
-picks a different default, a project reused from another import, recovery
-silently lost to chained -postScript flags (knowledge/04-pitfalls.md) -- and
-the output still looks like output. Nothing downstream can tell.
+picks a different default, a project reused from another import, an export
+taken before recovery ran or with an older copy of the script -- and the
+output still looks like output. Nothing downstream can tell.
+
+(One thing it is not shown to catch: the chained -postScript loss recorded
+in knowledge/04-pitfalls.md. On Ghidra 12.1.2 that loss did not reproduce --
+chained on -import or on -process, the export saw every function recovery
+added and saw its mark -- so there was nothing there to catch.)
 
 So the settings are a *profile*, written to profile.json before import, and
 the export writes down what Ghidra actually did. pipeline.ps1 compares the

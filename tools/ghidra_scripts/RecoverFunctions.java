@@ -64,9 +64,9 @@ public class RecoverFunctions extends GhidraScript {
 
         // Leave a mark in the program saying this ran, and which version of
         // this script it was. ExportDecompiledC reports it and the pipeline's
-        // profile handshake holds it to what tools/profile.py expected, so a
-        // recovery lost to chained -postScript flags (knowledge/04-pitfalls.md)
-        // stops the run instead of passing as a plain auto-analysis.
+        // profile handshake holds it to what tools/profile.py expected, so an
+        // export from a project where recovery never ran, or ran an older copy
+        // of this script, stops the run instead of passing as the real thing.
         currentProgram.getOptions(Program.PROGRAM_INFO)
                 .setString(RECOVERY_OPTION, sourceSha256());
     }
