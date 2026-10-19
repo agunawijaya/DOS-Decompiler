@@ -1102,11 +1102,15 @@ def _():
     if copy.git_ok and not edited["toolkit_version"].endswith("-dirty"):
         raise AssertionError(f"toolkit_version {edited['toolkit_version']} not dirty")
 
+    # Every hashed file, the load corrector included, moves the id on its own.
     moved = []
-    for rel in ("tools/ghidra_scripts/ExportDecompiledC.java",
-                "tools/ghidra_scripts/RecoverFunctions.java",
-                "tools/ghidra_scripts/ApplyNames.java",
+    hashed = sorted(base["analysis_code"]["files"])
+    for rel in ("tools/ghidra_scripts/CorrectMzLoad.java",
+                "tools/ghidra_scripts/ExportDecompiledC.java",
                 "tools/pipeline.ps1"):
+        if rel not in hashed:
+            raise AssertionError(f"{rel} is not hashed in analysis_code")
+    for rel in hashed:
         path = copy.root / rel
         original = _touched(path, lambda b: b + b"\n// an edit\n")
         edited = copy.profile()
