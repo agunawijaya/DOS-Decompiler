@@ -36,7 +36,7 @@ it with `--evidence FILE`, or `--evidence -` for the envelope alone on stdout.
 | `target` | `path` (absolute), `size`, `sha256` of the file examined. For a folder: `kind: "directory"`, `files`, total `size`, and one `sha256` over a manifest of every file's relative path, size and hash. `size` and `sha256` are `null` only in an `error` envelope for a file that could not be read |
 | `profile` | the analysis profile the result was produced under, with its `profile_id`; `null` for a tool that runs no analysis |
 | `status` | one of the six below |
-| `result` | the tool's answer. For triage, survey and mzinfo it is exactly what `--json` writes, plus `verdict_text` and `next_step` where the report prints them |
+| `result` | the tool's answer. For survey and mzinfo, exactly what `--json` writes (survey adds `next_step`); for triage, what `--json` writes less its `findings` list, whose entries are evidence items instead, plus `verdict_text` and, for a `.COM`, `next_step` |
 | `evidence` | the observations the result rests on, one item each |
 | `limitations` | what the method cannot see, true of every run |
 | `unknowns` | what this run raised about this target and could not settle |
@@ -252,9 +252,10 @@ What the prose never said, and the envelope does: *where* each thing was seen �
 `0xc00`, `0x504/0x509/0x50e`, `0x200..0xa00` — and which of the five warnings
 are open questions about this file (four) rather than standing caveats (one).
 
-`tests/evidence/regress.py` checks this mapping mechanically for triage, survey
-and mzinfo on every fixture: each report line must match the envelope field
-that carries it, and a line that matches nothing fails the suite.
+`tests/evidence/regress.py` checks this mapping mechanically — triage on all 18
+fixture files, survey on 5 folders, mzinfo on the 7 MZ fixtures: each report
+line must match the envelope field that carries it, and a line that matches
+nothing fails the suite.
 
 ## The analysis profile
 
