@@ -14,9 +14,15 @@ this establishes the facts every later stage depends on:
     early" confusion
   * heuristic detection of packers and of overlay managers
 
+--json is what pipeline.ps1 reads, and its shape does not change. --evidence
+writes the same facts as an evidence envelope (knowledge/17-evidence.md)
+instead: each one with the file offset it was read from, tied to the file's
+SHA-256, with what these checks cannot see written down beside them.
+
 Usage:
     python mzinfo.py GAME.EXE            # human-readable report
     python mzinfo.py GAME.EXE --json     # machine-readable, for the pipeline
+    python mzinfo.py GAME.EXE --evidence -   # the envelope alone, on stdout
 """
 
 import argparse
@@ -25,6 +31,8 @@ import struct
 import sys
 from collections import Counter
 from pathlib import Path
+
+import evidence
 
 MZ_HEADER = "<2sHHHHHHHHHHHHH"  # 28 bytes through the overlay number
 MZ_HEADER_SIZE = struct.calcsize(MZ_HEADER)
@@ -350,12 +358,131 @@ def _wrap(text, width):
     return lines
 
 
+# True of every run, whatever the file: what these checks cannot see.
+LIMITATIONS = [
+    "Nothing is disassembled. Every finding comes from the header, the "
+    "relocation table and byte searches.",
+    "The segment inventory is read from the relocation table. A program that "
+    "builds segment values at run time uses segments this does not list.",
+    "Packer and overlay signatures are searched for anywhere in the file; a "
+    "hit is evidence of the bytes, not of the packer. One far from the entry "
+    "point is reported as possibly coincidental.",
+]
+
+
+def _unknown_for(f, result):
+    """The question a finding leaves open, when it leaves one."""
+    if f["code"] == "trailing-data" and f["level"] == "warn":
+        return (f"what the {result['layout']['trailing_bytes']} bytes past the "
+                f"load image are: overlays, appended data, or a packer's payload")
+    if f["code"] == "few-relocations":
+        return ("whether the program is packed, or builds its segment values "
+                "at run time instead of letting the loader fix them up")
+    if f["code"] == "no-relocations":
+        return "whether this is a single-segment program or a packed one"
+    if f["code"] == "packer" and f["level"] == "info":
+        return "whether the packer signature far from the entry point is coincidental"
+    return None
+
+
+def _hex(v):
+    return f"0x{v:x}"
+
+
+def envelope(path):
+    """The evidence envelope: the --json result, each finding as an evidence
+    item, and what the header-level checks cannot see."""
+    try:
+        _, result = parse(path)
+        target = evidence.target_identity(path)
+    except MZError as e:
+        target = evidence.target_identity(path)
+        return evidence.envelope(
+            "mzinfo", target, status="unsupported",
+            result={"file": str(path), "error": str(e)},
+            limitations=["Only MZ executables are read. A .COM has no header "
+                         "for this to describe; see triage.py."])
+    except OSError as e:
+        return evidence.envelope(
+            "mzinfo", {"path": str(Path(path).resolve()), "size": None,
+                       "sha256": None},
+            status="error", result={"file": str(path), "error": str(e)},
+            limitations=["The file could not be read, so nothing about it "
+                         "was established."])
+
+    h, lay = result["header"], result["layout"]
+    items = [
+        {"kind": "magic", "claim": f"MZ signature {h['magic']!r}",
+         "location": {"file_offset": "0x0"}, "value": h["magic"]},
+        {"kind": "header-size",
+         "claim": f"header of {h['header_size']} bytes "
+                  f"({h['header_paragraphs']} paragraphs)",
+         "location": {"file_offset": "0x8"}, "value": h["header_size"]},
+        {"kind": "load-image",
+         "claim": f"load image 0x{lay['image_start']:X}..0x{lay['image_end']:X} "
+                  f"({lay['image_size']} bytes)",
+         "location": {"file_offset": _hex(lay["image_start"]),
+                      "file_end": _hex(lay["image_end"])},
+         "value": {"pages_512": h["pages_512"],
+                   "bytes_on_last_page": h["bytes_on_last_page"],
+                   "image_size": lay["image_size"],
+                   "trailing_bytes": lay["trailing_bytes"]}},
+        {"kind": "entry-point",
+         "claim": f"entry {lay['entry_point_cs_ip']} at file offset "
+                  f"0x{lay['entry_point_file_offset']:X}",
+         "location": {"file_offset": _hex(lay["entry_point_file_offset"])},
+         "value": lay["entry_point_cs_ip"]},
+        {"kind": "stack", "claim": f"stack {lay['stack_ss_sp']}",
+         "location": {"file_offset": "0xe"}, "value": lay["stack_ss_sp"]},
+        {"kind": "memory-request",
+         "claim": f"extra memory min {lay['min_memory_bytes']:,} / max "
+                  f"{lay['max_memory_bytes']:,} bytes",
+         "location": {"file_offset": "0xa"},
+         "value": {"min": lay["min_memory_bytes"], "max": lay["max_memory_bytes"]}},
+        {"kind": "overlay-field", "claim": f"overlay number {h['overlay_number']}",
+         "location": {"file_offset": "0x1a"}, "value": h["overlay_number"]},
+        {"kind": "relocation-count",
+         "claim": f"{h['relocations']} relocations, table at "
+                  f"0x{h['reloc_table_offset']:04X}",
+         "location": {"file_offset": _hex(h["reloc_table_offset"])},
+         "value": h["relocations"]},
+    ]
+    for s in result["referenced_segments"]:
+        items.append({"kind": "referenced-segment",
+                      "claim": f"segment {s['segment']:04X}h is patched by "
+                               f"{s['count']} relocation(s)",
+                      "value": s})
+    unknowns = []
+    for f in result["findings"]:
+        items.append({"kind": f["code"], "level": f["level"], "claim": f["code"],
+                      "detail": f["message"]})
+        question = _unknown_for(f, result)
+        if question:
+            unknowns.append(question)
+    return evidence.envelope("mzinfo", target, status="ok", result=result,
+                             evidence=items, limitations=LIMITATIONS,
+                             unknowns=unknowns)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("exe", help="DOS MZ executable")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of a report")
+    ap.add_argument("--evidence", metavar="FILE",
+                    help="also write the evidence envelope here (knowledge/"
+                         "17-evidence.md); '-' prints it instead of the report")
     args = ap.parse_args()
+    if args.json and args.evidence == "-":
+        ap.error("--json and --evidence - both want stdout; give --evidence a file")
+
+    if args.evidence:
+        env = envelope(args.exe)
+        evidence.write(env, args.evidence)
+        if args.evidence == "-":
+            return 0 if env["status"] == "ok" else 2
+        # stdout may be the --json the pipeline reads, so say it elsewhere.
+        print(f"mzinfo: wrote {args.evidence}", file=sys.stderr)
 
     try:
         _, result = parse(args.exe)

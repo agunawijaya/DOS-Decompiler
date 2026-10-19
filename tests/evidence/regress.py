@@ -9,10 +9,10 @@ rather than trusted:
 * **An envelope is deterministic.** Two runs over the same file give the same
   bytes, and an evidence id depends on the bytes examined and what was claimed
   about them -- not on the file's name, its folder, or the order of a list.
-* **An envelope says everything the report says.** Every line triage.py and
-  survey.py print is matched to the envelope field that carries it. A line
-  with no counterpart is a failure, so a report that grows a new kind of line
-  fails here until the envelope carries it too.
+* **An envelope says everything the report says.** Every line triage.py,
+  survey.py and mzinfo.py print is matched to the envelope field that carries
+  it. A line with no counterpart is a failure, so a report that grows a new
+  kind of line fails here until the envelope carries it too.
 * **A stale result is refused.** Each tool that reads functions.json beside an
   executable refuses one recorded against a different file, names the file to
   regenerate, and still opens an old functions.json with exactly one warning.
@@ -140,6 +140,10 @@ def triage_envelope(path):
     return code, out, err
 
 
+def mzinfo_envelope(path):
+    return run(TOOLS / "mzinfo.py", path, "--evidence", "-")
+
+
 def survey_envelope(folder):
     return run(TOOLS / "survey.py", folder, "--evidence", "-")
 
@@ -229,6 +233,15 @@ def _():
     return f"{len(FIX.files())} fixtures, each run twice"
 
 
+@case("two runs of mzinfo --evidence give identical bytes")
+def _():
+    for path in FIX.mz.values():
+        a, b = mzinfo_envelope(path)[1], mzinfo_envelope(path)[1]
+        if a != b or not a:
+            raise AssertionError(f"{path.name}: the two runs differ")
+    return f"{len(FIX.mz)} fixtures, each run twice"
+
+
 @case("two runs of survey --evidence give identical bytes")
 def _():
     for name, folder in FIX.folders.items():
@@ -240,6 +253,7 @@ def _():
 @case("envelopes are canonical and their ids recompute")
 def _():
     envelopes = [triage_envelope(p)[1] for p in FIX.files()]
+    envelopes += [mzinfo_envelope(p)[1] for p in FIX.mz.values()]
     envelopes += [survey_envelope(f)[1] for f in FIX.folders.values()]
     items = 0
     for raw in envelopes:
@@ -356,6 +370,99 @@ def _():
                                  + "; ".join(repr(m) for m in missing))
         lines += sum(1 for l in prose.splitlines() if l.strip())
     return f"{lines} lines over {len(FIX.files())} fixtures"
+
+
+def mzinfo_unmapped(prose, env):
+    """Lines of the mzinfo report that nothing in the envelope carries."""
+    result = env["result"]
+    kinds = {i["kind"]: i for i in env["evidence"]}
+    h, lay, relocs = result["header"], result["layout"], result["relocations"]
+    lines, unmapped, i = prose.splitlines(), [], 0
+    field = lambda kind: kinds.get(kind, {}).get("value")  # noqa: E731
+    while i < len(lines):
+        line, s = lines[i], lines[i].strip()
+        ok = False
+        if not s or re.match(r"^-- .+ -+$", line):
+            ok = True
+        elif line.startswith("File            : "):
+            ok = line[18:] == result["file"]
+        elif m := re.match(r"^Size            : (\d+) bytes$", line):
+            ok = int(m.group(1)) == result["file_size"] == env["target"]["size"]
+        elif m := re.match(r"^  magic\s+(\S+)$", line):
+            ok = field("magic") == m.group(1)
+        elif m := re.match(r"^  header size\s+(\d+) bytes \((\d+) paragraphs\)$", line):
+            ok = field("header-size") == int(m.group(1)) and \
+                h["header_paragraphs"] == int(m.group(2))
+        elif m := re.match(r"^  pages / last page\s+(\d+) / (\d+)$", line):
+            v = field("load-image")
+            ok = (v["pages_512"], v["bytes_on_last_page"]) == \
+                (int(m.group(1)), int(m.group(2)))
+        elif m := re.match(r"^  relocations\s+(\d+) \(table at 0x([0-9A-F]+)\)$", line):
+            ok = field("relocation-count") == int(m.group(1)) and \
+                kinds["relocation-count"]["location"]["file_offset"] == \
+                f"0x{int(m.group(2), 16):x}"
+        elif m := re.match(r"^  entry CS:IP\s+(\S+)  -> file offset 0x([0-9A-F]+)$", line):
+            ok = field("entry-point") == m.group(1) and \
+                kinds["entry-point"]["location"]["file_offset"] == \
+                f"0x{int(m.group(2), 16):x}"
+        elif m := re.match(r"^  stack SS:SP\s+(\S+)$", line):
+            ok = field("stack") == m.group(1)
+        elif m := re.match(r"^  extra memory\s+min ([\d,]+) / max ([\d,]+) bytes$", line):
+            ok = field("memory-request") == {"min": int(m.group(1).replace(",", "")),
+                                             "max": int(m.group(2).replace(",", ""))}
+        elif m := re.match(r"^  overlay number\s+(\d+)$", line):
+            ok = field("overlay-field") == int(m.group(1))
+        elif m := re.match(r"^  load image\s+0x([0-9A-F]+) \.\. 0x([0-9A-F]+)  \((\d+) bytes\)$", line):
+            ok = (lay["image_start"], lay["image_end"], field("load-image")["image_size"]) \
+                == (int(m.group(1), 16), int(m.group(2), 16), int(m.group(3)))
+        elif m := re.match(r"^  trailing data\s+(-?\d+) bytes$", line):
+            ok = field("load-image")["trailing_bytes"] == int(m.group(1))
+        elif m := re.match(r"^  ([0-9A-F]{4})h   \((\d+) relocation\(s\)\)$", line):
+            ok = any(i["kind"] == "referenced-segment" and
+                     i["value"] == {"segment": int(m.group(1), 16),
+                                    "count": int(m.group(2))}
+                     for i in env["evidence"])
+        elif m := re.match(r"^  \[\s*(\d+)\] ([0-9A-F]{4}):([0-9A-F]{4})  file "
+                           r"0x([0-9A-F]+)  patches segment value (\S+)h$", line):
+            r = relocs[int(m.group(1))]
+            value = "----" if r["value"] is None else f"{r['value']:04X}"
+            ok = (r["seg"], r["off"], r["linear"], value) == \
+                (int(m.group(2), 16), int(m.group(3), 16), int(m.group(4), 16),
+                 m.group(5))
+        elif m := re.match(r"^  \.\.\. (\d+) more$", line):
+            ok = len(relocs) - 32 == int(m.group(1))
+        elif s == "(nothing unusual)":
+            ok = not result["findings"]
+        elif m := re.match(r"^  \[(INFO |WARN |ERROR)\] (\S+)$", line):
+            detail = []
+            while i + 1 < len(lines) and lines[i + 1].startswith("          "):
+                i += 1
+                detail.append(lines[i])
+            ok = any(it["kind"] == m.group(2) and
+                     it.get("level") == m.group(1).strip().lower() and
+                     norm(it.get("detail", "")) == norm(" ".join(detail))
+                     for it in env["evidence"])
+        if not ok:
+            unmapped.append(line)
+        i += 1
+    return unmapped
+
+
+@case("every line of mzinfo's report has a counterpart in its envelope")
+def _():
+    lines = 0
+    for path in list(FIX.mz.values()) + [FIX.com["mzsingle"], FIX.com["mzdispatchcs"]]:
+        prose = run(TOOLS / "mzinfo.py", path)[1].decode("utf-8")
+        env = json.loads(mzinfo_envelope(path)[1])
+        missing = mzinfo_unmapped(prose, env)
+        if missing:
+            raise AssertionError(f"{path.name}: no counterpart for "
+                                 + "; ".join(repr(m) for m in missing[:4]))
+        lines += sum(1 for l in prose.splitlines() if l.strip())
+    code, out, _ = mzinfo_envelope(FIX.text)
+    if code != 2 or json.loads(out)["status"] != "unsupported":
+        raise AssertionError(f"a text file: exit {code}, not unsupported")
+    return f"{lines} lines over {len(FIX.mz) + 2} MZ fixtures; a text file is unsupported"
 
 
 def survey_unmapped(prose, env):
