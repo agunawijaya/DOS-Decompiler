@@ -875,7 +875,7 @@ def map_address(record, file_offset=None, linear=None, address=None):
             "block": m["block"], "notes": notes}
 
 
-def locate_entries(functions_path, data, exe):
+def locate_entries(functions_path, data, exe, beside=True):
     """Where each function in a functions.json starts, in the file and in the
     load image: {entry: {"file_offset", "image_offset", "linear", "segment",
     "offset"}}, and how that was worked out.
@@ -887,14 +887,20 @@ def locate_entries(functions_path, data, exe):
     export from before prompt 02 -- it falls back to the same rule the
     mapping encodes, linear = segment * 16 + offset, with the export's own
     load segment, and says which it used. An entry the mapping does not cover
-    is left out."""
+    is left out.
+
+    beside=False skips the loadimage.json: for entries read from a linker map,
+    whose segments are the image's own paragraphs, so the linear rule is
+    exact, and a loadimage.json that happens to sit beside the map says
+    nothing about them."""
     functions_path = Path(functions_path)
     record_name = (data.get("load_image") or {}).get("record", "loadimage.json")
     record = None
     try:
-        env = json.loads((functions_path.parent / record_name).read_text(encoding="utf-8"))
-        if env.get("status") == "verified":
-            record = env["result"]
+        if beside:
+            env = json.loads((functions_path.parent / record_name).read_text(encoding="utf-8"))
+            if env.get("status") == "verified":
+                record = env["result"]
     except (OSError, ValueError, KeyError):
         record = None
     if record is not None:

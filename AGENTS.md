@@ -598,12 +598,14 @@ Its limits:
   code genuinely differs.
 - Some functions are behaviourally identical and always will be (`intson` is
   `sti; ret`, `intsoff` is `cli; ret`). It reports these rather than guessing.
-- It assumes the small model. A function from a `functions.json` in another
+- It assumes the small model: one DGROUP, `SS == DS`. A function in another
   code segment runs at its own `segment:offset`, with a far return address if
-  it ends in `RETF`. But a linker map's side takes segment `0000` only, and
-  the DGROUP guess from relocations can land on a far code segment. Give
-  `--dgroup-a`/`--dgroup-b` when the program has far code
-  (`knowledge/04-pitfalls.md`).
+  it ends in `RETF` -- from a `functions.json`, and from a linker map whose
+  segment table calls that segment `CODE`. DGROUP comes from the map, or
+  from the segment the startup loads into `DS`; stderr says which. When the
+  startup loads nothing the loader relocated, it falls back to the lowest
+  relocated segment, which is a code segment when far code sits below the
+  data: give `--dgroup-a`/`--dgroup-b` then (`knowledge/04-pitfalls.md`).
 
 That failure mode is the point. Statistical matching on a mismatched pair
 produces dozens of confident-looking scores and gets `main` wrong; emulation

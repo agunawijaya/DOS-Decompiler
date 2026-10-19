@@ -31,7 +31,10 @@ How a function is run
     verified load mapping. One outside the segment the image starts in runs
     at its own CS:IP, entered with a far return address when it ends in RETF.
     (A function in the first segment that ends in RETF is still entered as a
-    near one, as before.)
+    near one, as before.) A linker map's symbols in segment 0000 are read as
+    they always were; one in any other segment the map's segment table calls
+    CODE goes through the same entry locator, and is far when its bytes up to
+    the next code symbol hold RETF and no RET.
   * Small model, so SS == DS. Arguments are pushed right-to-left (cdecl) with
     a sentinel return address underneath; execution stops when it returns.
   * Calls are *not* followed. Each is skipped and given a deterministic stub
@@ -69,6 +72,7 @@ Usage:
 
 import argparse
 import json
+import re
 import struct
 import sys
 from pathlib import Path
@@ -171,6 +175,123 @@ def code_symbols(mapfile):
             name = m.group(3)
             out.setdefault(name, int(m.group(2), 16))
     return out
+
+
+# A linker map's segment table, in the two formats this era's maps come in.
+# Microsoft LINK gives linear start, stop and length, then name and class:
+#     " 00130H 0013FH 00010H FAR_TEXT               CODE"
+# Open Watcom's wlink gives name, class, group, segment:offset and size:
+#     "_TEXT                  CODE           AUTO           0000:0000       0000b48c"
+MS_SEGMENT = re.compile(r"^\s*([0-9A-Fa-f]{5})H\s+([0-9A-Fa-f]{5})H\s+([0-9A-Fa-f]{5})H"
+                        r"\s+(\S+)\s+(\S+)\s*$")
+WATCOM_SEGMENT = re.compile(r"^\s*(\S+)\s+(\S+)\s+(\S+)\s+([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4,8})"
+                            r"\s+([0-9A-Fa-f]+)\s*$")
+# And where each puts DGROUP: " 0014:0   DGROUP" under "Origin   Group"
+# (Microsoft), "DGROUP                          0b49:0000            00001ab0"
+# (Watcom).
+MS_DGROUP = re.compile(r"^\s*([0-9A-Fa-f]{4}):([0-9A-Fa-f]+)\s+DGROUP\s*$")
+WATCOM_DGROUP = re.compile(r"^\s*DGROUP\s+([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4,8})\s+[0-9A-Fa-f]+\s*$")
+MAP_SYMBOL = re.compile(r"^\s*([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4,8})\s+"
+                        r"([A-Za-z_@$?][\w@$?.]*)\s*$")
+
+
+def map_lines(mapfile):
+    return Path(mapfile).read_text(encoding="latin-1", errors="replace").splitlines()
+
+
+def map_layout(mapfile):
+    """What a linker map says about the program's layout: its code segments,
+    linear (start, end inclusive) from the start of the image, and DGROUP's
+    paragraph when the map names it."""
+    code, dgroup = [], None
+    for line in map_lines(mapfile):
+        m = MS_SEGMENT.match(line)
+        if m and m.group(5).upper().endswith("CODE"):
+            code.append((int(m.group(1), 16), int(m.group(2), 16)))
+            continue
+        m = WATCOM_SEGMENT.match(line)
+        if m and m.group(2).upper().endswith("CODE"):
+            start = (int(m.group(4), 16) << 4) + int(m.group(5), 16)
+            code.append((start, start + max(int(m.group(6), 16), 1) - 1))
+            continue
+        m = MS_DGROUP.match(line) or WATCOM_DGROUP.match(line)
+        if m and dgroup is None:
+            dgroup = int(m.group(1), 16)
+    return {"code": code, "dgroup": dgroup}
+
+
+def in_code(layout, linear):
+    return any(lo <= linear <= hi for lo, hi in layout["code"])
+
+
+def dgroup_from_map(mapfile, layout):
+    """(paragraph, how). The map's own DGROUP when it names one. Otherwise
+    the first symbol outside segment 0000 that is not in a code segment, and
+    failing that the old rule, dgroup_paragraph(): the first symbol outside
+    segment 0000, which in a map with far code can be a far routine."""
+    if layout["dgroup"] is not None:
+        return layout["dgroup"], "the linker map's DGROUP"
+    for line in map_lines(mapfile):
+        m = MAP_SYMBOL.match(line)
+        if m and int(m.group(1), 16) != 0 and \
+                not in_code(layout, (int(m.group(1), 16) << 4) + int(m.group(2), 16)):
+            return int(m.group(1), 16), "the segment of the map's first data symbol"
+    return dgroup_paragraph(mapfile), "the segment of the map's first symbol outside 0000"
+
+
+def returns_far(image, start, end):
+    """RETF and never RET in image[start:end]: the rule the functions.json
+    side applies to a function's mnemonics, here on the bytes a map's symbol
+    has up to the next code symbol."""
+    md = Cs(CS_ARCH_X86, CS_MODE_16)
+    seen = {i.mnemonic for i in md.disasm(bytes(image[start:end]), start)}
+    return "retf" in seen and "ret" not in seen
+
+
+def map_entries(mapfile, exe, image):
+    """Every code symbol of a linker map, and the map's layout.
+
+    Segment 0000 is read exactly as code_symbols() always has: {name: image
+    offset}. That is all the code of a small-model program and a fraction of
+    any other's: a far routine's symbol is in a segment of its own, and was
+    dropped (tests/farcall: `_farfunc` at 0003:0000). A symbol outside 0000
+    is code when the map's segment table puts it in a segment of class CODE.
+    It goes through the same entry locator as functions.json
+    (loadimage.locate_entries), by the linear rule -- a map's segments are
+    the image's own paragraphs, and there is no load record to consult -- and
+    becomes an Entry, entered far when its bytes up to the next code symbol
+    hold RETF and no RET. A map without a segment table gives segment 0000
+    only, as before."""
+    out = code_symbols(mapfile)
+    layout = map_layout(mapfile)
+    if not layout["code"]:
+        return out, layout
+    others, starts = [], set()
+    for line in map_lines(mapfile):
+        m = MAP_SYMBOL.match(line)
+        if not m:
+            continue
+        seg, off, name = int(m.group(1), 16), int(m.group(2), 16), m.group(3)
+        linear = (seg << 4) + off
+        if seg == 0 or in_code(layout, linear):
+            starts.add(linear)
+        if seg != 0 and in_code(layout, linear) and name not in out \
+                and all(name != n for n, _, _ in others):
+            others.append((name, seg, off))
+    if not others:
+        return out, layout
+    entries = [f"{(IMAGE_SEG + seg) & 0xFFFF:04x}:{off:04x}" for _, seg, off in others]
+    where, _, load = loadimage.locate_entries(
+        mapfile, {"functions": [{"entry": e} for e in entries],
+                  "observed_profile": {"load_segment": f"0x{IMAGE_SEG:04x}"}}, exe, beside=False)
+    for (name, seg, off), e in zip(others, entries):
+        w = where[e]
+        start = w["image_offset"]
+        end = min([hi + 1 for lo, hi in layout["code"] if lo <= start <= hi]
+                  + [s for s in starts if s > start])
+        out[name] = Entry(IMAGE_SEG + w["segment"] - load, w["offset"],
+                          returns_far(image, start, end))
+    return out, layout
 
 
 def relocated_segments(exe_path):
@@ -339,9 +460,12 @@ class Emulator:
                 self.dgroup, how, where = locate_dgroup(exe)
                 say_dgroup(exe, self.dgroup, how, where)
         else:
-            self.symbols = code_symbols(symbols_source)
-            self.dgroup = dgroup if dgroup is not None \
-                else dgroup_paragraph(symbols_source)
+            self.symbols, layout = map_entries(symbols_source, exe, self.image)
+            if dgroup is not None:
+                self.dgroup = dgroup
+            else:
+                self.dgroup, how = dgroup_from_map(symbols_source, layout)
+                say_dgroup(exe, self.dgroup, how, None)
         self.md = Cs(CS_ARCH_X86, CS_MODE_16)
 
     def run(self, offset, args, max_insns=MAX_INSNS):

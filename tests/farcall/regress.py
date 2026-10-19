@@ -144,6 +144,30 @@ def export(folder, with_loadimage=True):
     return folder / "functions.json"
 
 
+def linker_map(folder):
+    """A Microsoft LINK /MAP for the fixture, from the labels: the segment
+    table, DGROUP's origin, and the publics by name and by value."""
+    folder.mkdir(parents=True, exist_ok=True)
+    segments = [(0, L("far_start") - 1, "_TEXT", "CODE"),
+                (L("far_start"), L("far_end") - 1, "FAR_TEXT", "CODE"),
+                (L("data_start"), len(EXE.read_bytes()) - HEADER - 1, "_DATA", "DATA")]
+    publics = [(0, L("nearfunc"), "_nearfunc"), (far_segment(), 0, "_farfunc"),
+               (dgroup(), L("near_result") - L("data_start"), "_near_result"),
+               (dgroup(), L("far_result") - L("data_start"), "_far_result")]
+    lines = ["", " Start  Stop   Length Name                   Class"]
+    lines += [f" {lo:05X}H {hi:05X}H {hi - lo + 1:05X}H {name:<22} {cls}"
+              for lo, hi, name, cls in segments]
+    lines += ["", " Origin   Group", f" {dgroup():04X}:0   DGROUP", "",
+              "  Address         Publics by Name", ""]
+    lines += [f" {s:04X}:{o:04X}       {n}" for s, o, n in sorted(publics, key=lambda p: p[2])]
+    lines += ["", "  Address         Publics by Value", ""]
+    lines += [f" {s:04X}:{o:04X}       {n}" for s, o, n in sorted(publics)]
+    lines += ["", "Program entry point at 0000:0000", ""]
+    path = folder / "FARCALL.MAP"
+    path.write_text("\r\n".join(lines), encoding="latin-1")
+    return path
+
+
 def far_profile_expected():
     """farfunc, from its source: AX = argument + 0x1111, DX = 0x00FA, the sum
     written to far_result, no calls, no globals read."""
@@ -233,6 +257,34 @@ def _():
         raise AssertionError(f"farfunc profiled as {got} with that DGROUP")
     return (f"0x{dgroup():04x} from the startup at {addr(LOAD, L('start') + 3)}, where the "
             f"lowest relocated segment is 0x{lowest:04x}; farfunc's write lands in far_result")
+
+
+@case("a linker map's far routine is read from its own code segment, and carried to functions.json")
+def _():
+    # The map puts _farfunc at 0003:0000, in FAR_TEXT, class CODE. Reading
+    # segment 0000 alone dropped it.
+    said = io.StringIO()
+    with contextlib.redirect_stderr(said):
+        mapped = emuverify.Emulator(EXE, linker_map(WORK / "map"))
+        exported = emuverify.Emulator(EXE, export(WORK / "export"))
+    far = mapped.symbols.get("_farfunc")
+    if not isinstance(far, emuverify.Entry) or (far.segment, far.offset, far.far) != \
+            (LOAD + far_segment(), 0, True):
+        raise AssertionError(f"_farfunc read from the map as {far!r}, not "
+                             f"Entry({LOAD + far_segment():04x}:0000, far)")
+    if mapped.symbols.get("_nearfunc") != L("nearfunc") or mapped.dgroup != dgroup():
+        raise AssertionError(f"_nearfunc {mapped.symbols.get('_nearfunc')!r}, DGROUP "
+                             f"0x{mapped.dgroup:04x}")
+    if f"DGROUP 0x{dgroup():04x}, the linker map's DGROUP" not in said.getvalue():
+        raise AssertionError(f"stderr: {said.getvalue()!r}")
+    got = mapped.profile(far)
+    if got != far_profile_expected():
+        raise AssertionError(f"_farfunc profiled as {got}")
+    res = emuverify.compare(mapped, exported, mapped.symbols, exported.symbols)
+    if ("_farfunc", far_entry()) not in res["matches"]:
+        raise AssertionError(f"_farfunc not carried to {far_entry()}: {res['matches']}")
+    return (f"_farfunc at {LOAD + far_segment():04x}:0000, far, DGROUP 0x{dgroup():04x} from "
+            f"the map; matched to {far_entry()} in functions.json")
 
 
 # ---------------------------------------------------------------- Ghidra
