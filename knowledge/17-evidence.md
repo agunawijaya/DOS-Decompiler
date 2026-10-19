@@ -815,14 +815,14 @@ Every function record now ends with `origin` and `body`:
 
 ```json
 "body": {"available": true, "provenance": "ghidra-function-body-address-set",
-         "ranges": [{"start": "1000:0087", "end": "1000:0095", "start_linear": "0x10087", "end_linear": "0x10095"},
-                    {"start": "1000:009c", "end": "1000:00aa", "start_linear": "0x1009c", "end_linear": "0x100aa"}],
+         "ranges": [{"start": "1000:008a", "end": "1000:0098", "start_linear": "0x1008a", "end_linear": "0x10098"},
+                    {"start": "1000:009f", "end": "1000:00ad", "start_linear": "0x1009f", "end_linear": "0x100ad"}],
          "total_bytes": 30, "span_bytes": 36, "non_contiguous": true, "contains_entry": true}
 ```
 
 | field | holds |
 |---|---|
-| `ranges` | every range of Ghidra's body address set, in address order. **Ends are inclusive**: `1000:0087..1000:0095` is 15 bytes. Each end as Ghidra writes it (`ssss:oooo`) and as a linear address (segment × 16 + offset) |
+| `ranges` | every range of Ghidra's body address set, in address order. **Ends are inclusive**: `1000:008a..1000:0098` is 15 bytes. Each end as Ghidra writes it (`ssss:oooo`) and as a linear address (segment × 16 + offset) |
 | `total_bytes` | the addresses in the body |
 | `span_bytes` | lowest to highest, inclusive: what one contiguous run from the first byte to the last would hold |
 | `non_contiguous` | `total_bytes` differs from `span_bytes`: something that is not this function's sits between its first byte and its last |
@@ -878,18 +878,43 @@ One function leaves its own body, by a jump or by falling through, into a body
 Ghidra gave another function. So a function claims its `body`, and also what
 it reaches from each `jump` or `fallthrough` out of it. That is followed
 through jumps and fall-throughs until it returns, comes back into the
-function's own body, or leaves every function's body:
+function's own body, leaves every function's body, or reaches a tail call
+(below):
 
 ```json
-{"start": "1000:0057", "end": "1000:005a", "start_linear": "0x10057", "end_linear": "0x1005a", "bytes": 4,
- "functions": [{"entry": "1000:0047", "name": "FUN_1000_0047", "claim": "jump", "via": ["1000:004d"]},
-               {"entry": "1000:004f", "name": "FUN_1000_004f", "claim": "jump", "via": ["1000:0055"]},
-               {"entry": "1000:0057", "name": "FUN_1000_0057", "claim": "body"}]}
+{"start": "1000:005a", "end": "1000:005d", "start_linear": "0x1005a", "end_linear": "0x1005d", "bytes": 4,
+ "functions": [{"entry": "1000:004a", "name": "FUN_1000_004a", "claim": "jump", "via": ["1000:0050"]},
+               {"entry": "1000:0052", "name": "FUN_1000_0052", "claim": "jump", "via": ["1000:0058"]},
+               {"entry": "1000:005a", "name": "FUN_1000_005a", "claim": "body"}]}
 ```
 
-That is the shared epilogue: Ghidra's function at `1000:0057`, reached by the
+That is the shared epilogue: Ghidra's function at `1000:005a`, reached by the
 `jmp short` at the end of each of the other two. `via` is the instruction each
-claim leaves by. A walk that stops at its limit of 65,536 instructions says so
+claim leaves by.
+
+**A tail call is not a claim** (prompt 03a). When a walk reaches the *entry*
+of a function that some instruction calls, that function is a real one, and
+the jump is an ordinary tail call. The walk stops, and the jump goes into a
+top-level list, `tail_calls`, instead:
+
+```json
+"tail_calls": [{"caller": "1000:00de", "caller_name": "FUN_1000_00de", "target": "1000:007d",
+                "target_name": "FUN_1000_007d", "via": "1000:00e5", "how": "jump"}]
+```
+
+An entry nothing calls is a fragment of whoever runs into it, and is still
+claimed and walked. That covers the epilogue Ghidra split off and the
+prologue RecoverFunctions cut a fall-through at. A jump into the *middle* of
+a body is a claim whether the function is called or not. Before this rule, a
+tail jump into a large routine claimed all the code that routine reaches:
+`adventur.exe` showed one range claimed by 32 functions (`03-what-works.md`
+has the numbers since).
+
+"Called" means some instruction whose mnemonic is a `CALL` refers to the
+entry. A pointer in data is not a call, so a routine reached only through a
+table counts as uncalled. It is told by mnemonic and not by reference type:
+measured by mutation, Ghidra's call-return override on the epilogue's jumps
+makes it look called by type, and it drops out of `body_overlaps`. A walk that stops at its limit of 65,536 instructions says so
 (`walk_limit_reached`). Body against body is checked as well, so a Ghidra that
 allows overlapping bodies would show it here rather than be assumed not to.
 
@@ -910,25 +935,26 @@ that override is exactly the case being looked for.
 `loadimage.json` verified. On the fixture:
 
 ```
-bodies: BODIES.EXE  (15 functions, load image verified)
-code        : 240 bytes in 1 block(s) holding functions (CODE_0 1000:0000..1000:00ef)
-claimed     : 207 bytes by some function's body (86.2%)
-origins     : 11 ghidra-analysis, 2 recovered-code-pointer, 1 recovered-prologue, 1 recovered-split
+bodies: BODIES.EXE  (16 functions, load image verified)
+code        : 256 bytes in 1 block(s) holding functions (CODE_0 1000:0000..1000:00ff)
+claimed     : 220 bytes by some function's body (85.9%)
+origins     : 12 ghidra-analysis, 2 recovered-code-pointer, 1 recovered-prologue, 1 recovered-split
 non-contiguous: 2
-  1000:006d  FUN_1000_006d  2 ranges, 18 of 26 bytes
-  1000:0087  FUN_1000_0087  2 ranges, 30 of 36 bytes
+  1000:0070  FUN_1000_0070  2 ranges, 18 of 26 bytes
+  1000:008a  FUN_1000_008a  2 ranges, 30 of 36 bytes
 claimed by more than one function: 3 range(s), 16 bytes (see body_overlaps)
-  1000:0057..1000:005a  1000:0047 jump; 1000:004f jump; 1000:0057 body
-  1000:0069..1000:006c  1000:005b jump; 1000:0063 body
-  1000:00c5..1000:00cc  1000:00be fallthrough; 1000:00c5 body
+  1000:005a..1000:005d  1000:004a jump; 1000:0052 jump; 1000:005a body
+  1000:006c..1000:006f  1000:005e jump; 1000:0066 body
+  1000:00c8..1000:00cf  1000:00c1 fallthrough; 1000:00c8 body
+tail calls  : 1 (jumps into a function something calls; see tail_calls)
 entry outside body: none
-unclaimed   : 33 bytes in 5 range(s): 14 looks like code, 7 padding, 6 pointer table, 6 text
-  1000:0096..1000:009b       6  pointer table   3 words, 3 into the code
-  1000:00cd..1000:00d2       6  text            100% printable, first string 'BODIES'
-  1000:00db..1000:00dc       2  padding         90 x2
-  1000:00dd..1000:00ea      14  looks like code 7 instructions, ending ret
-  1000:00eb..1000:00ef       5  padding         00 x5
-1 unclaimed range looks like code: 1000:00dd..1000:00ea (14 bytes)
+unclaimed   : 36 bytes in 5 range(s): 14 looks like code, 10 padding, 6 pointer table, 6 text
+  1000:0099..1000:009e       6  pointer table   3 words, 3 into the code
+  1000:00d0..1000:00d5       6  text            100% printable, first string 'BODIES'
+  1000:00e8..1000:00e9       2  padding         90 x2
+  1000:00ea..1000:00f7      14  looks like code 7 instructions, ending ret
+  1000:00f8..1000:00ff       8  padding         00 x8
+1 unclaimed range looks like code: 1000:00ea..1000:00f7 (14 bytes)
 ```
 
 The code is the blocks that hold at least one function's body. The bytes are

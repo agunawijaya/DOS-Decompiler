@@ -450,8 +450,11 @@ of one contiguous run. `body.ranges` (ends inclusive) says where it lies.
 and from what. A recovered function rests on weaker evidence, so say so when
 you name one. `body_overlaps` lists code one function runs inside a body
 Ghidra gave another. Ghidra never lets bodies overlap, so a shared epilogue
-comes out as a function of its own that others jump to. Do not read a body as
-everything its function runs, nor as only what it owns.
+comes out as a function of its own that others jump to. A jump to the entry of
+a function something calls is an ordinary tail call: it goes in `tail_calls`,
+not in `body_overlaps`. Do not read a body as everything its function runs,
+nor as only what it owns. A large claim usually means one routine that
+recovery cut into pieces.
 
 `bodies.py` reports the share of the code no function's body claims, and
 classifies each unclaimed run with comrec's rules. Its last line says either
@@ -580,6 +583,12 @@ Its limits:
   code genuinely differs.
 - Some functions are behaviourally identical and always will be (`intson` is
   `sti; ret`, `intsoff` is `cli; ret`). It reports these rather than guessing.
+- It assumes the small model. A function from a `functions.json` in another
+  code segment runs at its own `segment:offset`, with a far return address if
+  it ends in `RETF`. But a linker map's side takes segment `0000` only, and
+  the DGROUP guess from relocations can land on a far code segment. Give
+  `--dgroup-a`/`--dgroup-b` when the program has far code
+  (`knowledge/04-pitfalls.md`).
 
 That failure mode is the point. Statistical matching on a mismatched pair
 produces dozens of confident-looking scores and gets `main` wrong; emulation

@@ -98,6 +98,38 @@ the jumper's body ends at its jump. Read a body as what Ghidra assigned, not as
 what the function runs. `body_overlaps` in `functions.json` lists the code a
 function reaches in another's body (`17-evidence.md`).
 
+**A jump to another function's entry looks like a call to Ghidra.** It
+overrides the jump's flow to a call-return, and the reference type follows. So
+"is this function called?" has to be answered from the calling instruction's
+mnemonic. By reference type, measured by mutation, the fixture's shared
+epilogue looks called, and the jumps into it look like tail calls rather than
+shared code.
+
+**An entry's offset is not its address.** `libsig.py` and `emuverify.py` found
+a function by the offset half of its `ssss:oooo` entry, which is right only in
+the segment the image starts in. On the real programs, 17 functions sit in
+another segment (adventur 6, Ootopos 2, Talisman 5, Transylvania 4), and both
+tools read the wrong code for every one of them. Talisman's `2629:80b2` was
+read at file `0x82b2`, all zeros. adventur's far routine at `1f77:0010` was
+profiled as 3,535 writes by whatever sits at `1000:0010`. Since prompt 03a
+both put the whole entry through the verified load mapping
+(`loadimage.locate_entries`), and `tests/farcall/` holds a far function in a
+second segment open.
+
+**RecoverFunctions' `enter` pattern fires in data.** It treats `C8 xx xx 00`
+as a prologue, and in a program's data that is just four bytes. Every one of
+the 11 functions outside the first segment in Ootopos, Talisman and
+Transylvania is such a match. Their mnemonics include `AAA`, `ARPL`, `BOUND`
+and `FISTTP`, and Transylvania's `2616:1274` starts
+`enter 0x404f, 0` followed by `hlt`. They read as `recovered-prologue`, and
+`origin` is there so a later tool can discount them.
+
+**emuverify guesses DGROUP as the lowest relocated segment.** That is right
+for a small-model C program, where the relocations are the startup loading
+DGROUP. In a program with far code placed before its data, it is a code
+segment: the far-call fixture's guess is its far segment. Pass `--dgroup-a`
+and `--dgroup-b` there.
+
 **Ghidra gives `INT` and `CALL` a fall-through.** `int 0x21` with `AH=4Ch`
 never returns, but in Ghidra's flow model the instruction after it follows.
 The first version of the overlap walk followed it, and claimed that the

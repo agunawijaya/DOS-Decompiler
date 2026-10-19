@@ -933,6 +933,8 @@ tests/evidence/              envelopes, the handshake's logic, stale-result refu
 tests/handshake/             the profile handshake run through Ghidra itself
 tests/loadimage/             load-image correction and verification: correct,
                              corrected, tampered, malformed
+tests/farcall/               a far function in a second segment, for libsig.py
+                             and emuverify.py
 tests/bodies/                function bodies, origins, shared code, and what
                              no function claims
 AGENTS.md                    the method, for any agent or human

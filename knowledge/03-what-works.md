@@ -50,13 +50,13 @@ nothing reached (`17-evidence.md`)? Measured on five real programs, through
 the pipeline as of prompt 03, read in place. A sixth file, the recovered
 Transylvania, has the same SHA-256 as the original and gave the same numbers.
 
-| program | shape | functions (recovered) | code | claimed | non-contiguous | claimed by 2+ | unclaimed that looks like code |
+| program | shape | functions (recovered) | code | claimed | non-contiguous | claimed by 2+ (tail calls) | unclaimed that looks like code |
 |---|---|---|---|---|---|---|---|
-| `adventur.exe`, 64,512 B | one segment, no relocations, 0.7 prologues/KB | 302 (42) | 63,660 B | **72.1%** | 35 | 129 ranges, 26,100 B | **25 ranges, 5,548 B** |
-| Crimson Crown `NOVEL1.EXE`, 51,904 B | small model, 1 relocation, 0.9 prologues/KB | 170 (30) | 14,592 B | **66.0%** | 2 | 16 ranges, 370 B | **10 ranges, 1,011 B** |
-| Ootopos `Novel.exe`, 110,620 B | 5 relocations, no prologues | 124 (23) | 31,340 B | **21.8%** | 5 | 7 ranges, 264 B | **12 ranges, 512 B** |
-| Talisman `NOVEL1.EXE`, 171,917 B | 6 relocations, no prologues | 118 (13) | 92,525 B | **8.1%** | 11 | 17 ranges, 519 B | **12 ranges, 740 B** |
-| Transylvania `Novel.exe`, 103,276 B | 5 relocations, no prologues | 117 (19) | 23,916 B | **30.9%** | 9 | 5 ranges, 126 B | **7 ranges, 291 B** |
+| `adventur.exe`, 64,512 B | one segment, no relocations, 0.7 prologues/KB | 302 (42) | 63,660 B | **72.1%** | 35 | 110 ranges, 24,823 B (20) | **25 ranges, 5,548 B** |
+| Crimson Crown `NOVEL1.EXE`, 51,904 B | small model, 1 relocation, 0.9 prologues/KB | 170 (30) | 14,592 B | **66.0%** | 2 | 15 ranges, 365 B (1) | **10 ranges, 1,011 B** |
+| Ootopos `Novel.exe`, 110,620 B | 5 relocations, no prologues | 124 (23) | 31,340 B | **21.8%** | 5 | 7 ranges, 264 B (0) | **12 ranges, 512 B** |
+| Talisman `NOVEL1.EXE`, 171,917 B | 6 relocations, no prologues | 118 (13) | 92,525 B | **8.1%** | 11 | 13 ranges, 462 B (5) | **12 ranges, 740 B** |
+| Transylvania `Novel.exe`, 103,276 B | 5 relocations, no prologues | 117 (19) | 23,916 B | **30.9%** | 9 | 5 ranges, 126 B (0) | **7 ranges, 291 B** |
 
 "Code" is every block that holds at least one function's body, so it is only
 as good as that block boundary. In the three programs with no prologues (the
@@ -79,10 +79,38 @@ the longest in two programs were plainly code:
   `retf`: a far routine nothing in the code calls.
 
 That is the MZ route's version of `11-unreached-code.md`, and nothing has
-yet been done to recover it. "Claimed by 2+" is code one function runs inside
-a body Ghidra gave another. Ghidra never lets bodies overlap, so this is how
-shared tails show. `adventur.exe` has the most: one range is reached from 32
-functions.
+yet been done to recover it.
+
+"Claimed by 2+" is code one function runs inside a body Ghidra gave another.
+Ghidra never lets bodies overlap, so this is how shared tails show. Since
+prompt 03a a jump into the entry of a function something calls is a tail
+call, listed apart and not claimed. In prompt 03, by contrast, the walk
+followed it into everything the routine reaches. That took `adventur.exe`
+from 129 ranges and 26,100 B to 110 and 24,823, Talisman from 519 B to 462,
+and Crimson Crown from 370 B to 365; the other two had no tail calls.
+
+`adventur.exe` still has 16 claims of 300 B or more, 20,093 B between them.
+Read, they are three things, none of them a tail call:
+
+- **Large routines cut into pieces, 13,599 B in 10 claims.** `1000:39cb`
+  and six functions RecoverFunctions made from code pointers (`6720`, `68f4`,
+  `6900`, `69ce`, `7320`, `7fff`) begin `lea cx, [bp - 0xc]`, each using a
+  stack frame it never set up. They are arms of one routine sharing one frame,
+  and they jump into each other's middles, never to an entry: 10,135 B,
+  including the largest single range, 3,951 B at `1000:3a3c`. The same
+  happens around `1000:0005`, which has a real prologue. `12b0`, made from a
+  code pointer, begins mid-instruction and writes `[bp - 0xc]`, and four more
+  such pieces jump back into `0005`.
+- **A function's tail carved off as a function of its own, 4,842 B in 5
+  claims.** The second function starts on the byte after the first's body
+  ends, and jumps back into it: `9e29`/`a522`, `a577`/`ab8c`, `2dc1`/`30c0`,
+  `9be2`/`9db5` and `9920`/`9a4d`.
+- **Real shared code, 1,652 B.** Six called functions jump into the middle of
+  `1000:ea14`, which is the program's exit: a `call`, then `mov ah, 0x4c` and
+  `int 21h`.
+
+The first two are what `RecoverFunctions.java`'s code-pointer pass does to one
+large routine: an immediate that points at an arm makes the arm a function.
 
 ### Reconstruction is not reading
 
