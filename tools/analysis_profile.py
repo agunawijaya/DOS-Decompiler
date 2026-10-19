@@ -45,6 +45,8 @@ What is in it
   export              which ExportDecompiledC.java and LoadImageMap.java wrote
                       the export: each hashes its own source into
                       observed_profile, and the handshake compares them
+  load_image_dump     the same for DumpLoadImage.java, held to its dump by
+                      tools/loadimage.py verify
 
 profile_id is the SHA-256 of the profile's canonical JSON (evidence.canonical),
 computed without profile_id itself and without toolkit_version. It names the
@@ -121,6 +123,7 @@ TOOLKIT_ROOT = Path(__file__).resolve().parent.parent
 GHIDRA_SCRIPTS = TOOLKIT_ROOT / "tools" / "ghidra_scripts"
 RECOVERY_SCRIPT = GHIDRA_SCRIPTS / "RecoverFunctions.java"
 EXPORT_SCRIPT = GHIDRA_SCRIPTS / "ExportDecompiledC.java"
+DUMP_SCRIPT = GHIDRA_SCRIPTS / "DumpLoadImage.java"
 # The plain class ExportDecompiledC.java and DumpLoadImage.java share; each
 # reports its hash beside its own.
 HELPER_SCRIPT = GHIDRA_SCRIPTS / "LoadImageMap.java"
@@ -211,6 +214,10 @@ def expected_profile(ghidra_home, skip_recovery=False):
                      "script_sha256": None if skip_recovery else script_sha256()},
         "export": {"script_sha256": evidence.source_sha256(EXPORT_SCRIPT),
                    "helper_sha256": evidence.source_sha256(HELPER_SCRIPT)},
+        # Held to what DumpLoadImage.java reports by tools/loadimage.py
+        # verify, not by the handshake: the dump is not in functions.json.
+        "load_image_dump": {"script_sha256": evidence.source_sha256(DUMP_SCRIPT),
+                            "helper_sha256": evidence.source_sha256(HELPER_SCRIPT)},
     }
 
 
