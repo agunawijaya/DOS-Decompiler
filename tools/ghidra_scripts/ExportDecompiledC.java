@@ -30,15 +30,12 @@ import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.database.mem.FileBytes;
-import ghidra.program.model.address.SegmentedAddress;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
 import ghidra.program.model.listing.Parameter;
 import ghidra.program.model.listing.Program;
-import ghidra.program.model.mem.MemoryBlock;
-import ghidra.program.model.mem.MemoryBlockSourceInfo;
 import ghidra.program.model.scalar.Scalar;
 
 public class ExportDecompiledC extends GhidraScript {
@@ -192,52 +189,22 @@ public class ExportDecompiledC extends GhidraScript {
         sb.append("\"ghidra_version\": ")
           .append(quote(ghidra.framework.Application.getApplicationVersion())).append(", ");
         sb.append("\"recovery\": {\"ran\": ").append(recovery != null)
-          .append(", \"script_sha256\": ").append(quote(recovery)).append("}");
+          .append(", \"script_sha256\": ").append(quote(recovery)).append("}, ");
+        // This script's own source and the helper it uses, by the rule the
+        // profile hashes them with, so the handshake holds the exporter to
+        // the copy in this checkout the way it holds recovery.
+        sb.append("\"export\": {\"script_sha256\": ")
+          .append(quote(LoadImageMap.sourceSha256(getSourceFile())))
+          .append(", \"helper_sha256\": ")
+          .append(quote(LoadImageMap.helperSha256(getSourceFile()))).append("}");
         return sb.append("}").toString();
     }
 
-    /* The segment the first byte of the load image was put at.
-     *
-     * Program.getImageBase() does not answer this: measured on Ghidra 12.1.2
-     * it returns 0000:0000 for an MZ whose image sits at 1000:0000. So it is
-     * worked out from where the file's bytes landed instead -- each block
-     * backed by the file says which file offset it starts at, and subtracting
-     * the header size gives the image offset. Every such block must agree on
-     * one load address; if they do not, that is reported rather than one of
-     * them being picked. */
+    /* The segment the first byte of the load image was put at, worked out
+     * from where the file's bytes landed (LoadImageMap.loadSegment, which
+     * DumpLoadImage.java reports too). */
     private String observedLoadSegment() throws Exception {
-        List<FileBytes> all = currentProgram.getMemory().getAllFileBytes();
-        if (all.isEmpty()) {
-            return "unknown: no file bytes";
-        }
-        FileBytes fb = all.get(0);
-        long headerSize = ((fb.getOriginalByte(8) & 0xff)
-                | ((fb.getOriginalByte(9) & 0xff) << 8)) * 16L;
-        Set<Long> bases = new TreeSet<>();
-        for (MemoryBlock b : currentProgram.getMemory().getBlocks()) {
-            for (MemoryBlockSourceInfo si : b.getSourceInfos()) {
-                if (si.getFileBytes().isEmpty()
-                        || !(si.getMinAddress() instanceof SegmentedAddress)) {
-                    continue;       // the HEADER block lives in a space of its own
-                }
-                long imageOffset = si.getFileBytesOffset() - headerSize;
-                if (imageOffset < 0) {
-                    continue;
-                }
-                SegmentedAddress a = (SegmentedAddress) si.getMinAddress();
-                long linear = ((long) a.getSegment() << 4) + a.getSegmentOffset();
-                bases.add(linear - imageOffset);
-            }
-        }
-        if (bases.size() != 1) {
-            return bases.isEmpty() ? "unknown: no block holds the load image"
-                                   : "inconsistent: " + bases;
-        }
-        long base = bases.iterator().next();
-        if (base % 16 != 0) {
-            return String.format("unaligned: 0x%x", base);
-        }
-        return String.format("0x%04x", base >> 4);
+        return LoadImageMap.loadSegment(currentProgram);
     }
 
     /* Whether every address this export writes has the form its readers

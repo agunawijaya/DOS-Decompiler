@@ -68,7 +68,7 @@ OLD_PER_FUNCTION = ("name", "entry", "size", "thunk", "external",
 CRLF, LF = bytes([13, 10]), bytes([10])
 
 OBSERVED = ("loader", "language", "compiler_spec", "image_base", "load_segment",
-            "address_convention", "ghidra_version", "recovery")
+            "address_convention", "ghidra_version", "recovery", "export")
 
 
 def prerequisites():
@@ -175,6 +175,12 @@ def check_plain(out, exe):
            o["recovery"].get("script_sha256") == folded,
            f"observed recovery: ran, and the script in this checkout "
            f"({endings} here, hashed as LF)")
+    for key, name in (("script_sha256", "ExportDecompiledC.java"),
+                      ("helper_sha256", "LoadImageMap.java")):
+        raw = (TOOLS / "ghidra_scripts" / name).read_bytes()
+        want = hashlib.sha256(raw.replace(CRLF, LF)).hexdigest()
+        expect((o.get("export") or {}).get(key) == want,
+               f"observed export.{key}: the {name} in this checkout")
     off = [f["entry"] for f in fj["functions"] if not f["entry"].startswith("1000:")]
     expect(not off, "every entry is in segment 1000" + (f" (not {off})" if off else ""))
 

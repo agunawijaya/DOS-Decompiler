@@ -42,6 +42,9 @@ What is in it
                       contains, file by file -- see below
   recovery            whether RecoverFunctions.java ran, and which version of
                       it (the SHA-256 of the script's own source)
+  export              which ExportDecompiledC.java and LoadImageMap.java wrote
+                      the export: each hashes its own source into
+                      observed_profile, and the handshake compares them
 
 profile_id is the SHA-256 of the profile's canonical JSON (evidence.canonical),
 computed without profile_id itself and without toolkit_version. It names the
@@ -115,7 +118,12 @@ import evidence  # noqa: E402
 SCHEMA = "dos-decompiler/profile/1"
 DRIFT_VARIABLE = "DOS_DECOMPILER_FORCE_DRIFT"
 TOOLKIT_ROOT = Path(__file__).resolve().parent.parent
-RECOVERY_SCRIPT = TOOLKIT_ROOT / "tools" / "ghidra_scripts" / "RecoverFunctions.java"
+GHIDRA_SCRIPTS = TOOLKIT_ROOT / "tools" / "ghidra_scripts"
+RECOVERY_SCRIPT = GHIDRA_SCRIPTS / "RecoverFunctions.java"
+EXPORT_SCRIPT = GHIDRA_SCRIPTS / "ExportDecompiledC.java"
+# The plain class ExportDecompiledC.java and DumpLoadImage.java share; each
+# reports its hash beside its own.
+HELPER_SCRIPT = GHIDRA_SCRIPTS / "LoadImageMap.java"
 
 # What analysis_code hashes, relative to the toolkit root; see the docstring.
 ANALYSIS_CODE = ("tools/ghidra_scripts", "tools/pipeline.ps1")
@@ -134,7 +142,8 @@ ADDRESS_CONVENTION = "ssss:oooo"
 # The fields the export can observe, in the order they are reported.
 COMPARED = ("loader", "language", "compiler_spec", "image_base", "load_segment",
             "address_convention", "ghidra_version", "recovery.ran",
-            "recovery.script_sha256")
+            "recovery.script_sha256", "export.script_sha256",
+            "export.helper_sha256")
 
 LIMITATIONS = [
     "The expected values were measured once, on Ghidra 12.1.2 with one "
@@ -146,10 +155,10 @@ LIMITATIONS = [
     "that it chose these.",
     "toolkit_version is not observed by the export, so it is recorded but not "
     "compared, and it is not part of profile_id.",
-    "analysis_code is not observed by the export either. Only the recovery "
-    "script's hash is held to what ran; that ExportDecompiledC.java and "
-    "pipeline.ps1 are the files hashed rests on the pipeline running the "
-    "copies beside this one.",
+    "analysis_code as a whole is not observed by the export. The recovery "
+    "script, the exporter and the helper they share each report their own "
+    "hash and are held to it; that the pipeline.ps1 hashed is the one that "
+    "ran rests on the pipeline running the copy beside this one.",
 ]
 
 
@@ -200,6 +209,8 @@ def expected_profile(ghidra_home, skip_recovery=False):
         "analysis_code": analysis_code(),
         "recovery": {"ran": not skip_recovery,
                      "script_sha256": None if skip_recovery else script_sha256()},
+        "export": {"script_sha256": evidence.source_sha256(EXPORT_SCRIPT),
+                   "helper_sha256": evidence.source_sha256(HELPER_SCRIPT)},
     }
 
 
