@@ -17,7 +17,9 @@
  *
  * Anything else that differs is left alone, for tools/loadimage.py verify to
  * report: the verifier compares the result against the file and does not
- * trust this script.
+ * trust this script. Nothing at all is corrected when the expected record is
+ * not `ok`, is for another file, or puts the image at another load segment
+ * than Ghidra did: both corrections are computed from that segment.
  *
  * Input is `loadimage.py expected`'s envelope for the same file. Output is
  * <outdir>/load-corrections.json: each correction with its kind, where it is,
@@ -118,6 +120,16 @@ public class CorrectMzLoad extends GhidraScript {
         if (!sha.equals(want)) {
             return "the expected record is for another file (" + want.substring(0, 12)
                     + "... not " + sha.substring(0, 12) + "...), so nothing is corrected";
+        }
+        // Both corrections are worked out from the load segment. Under another
+        // one they would write values right for neither, so a load at another
+        // segment is a difference left for the verifier, not a correction.
+        String observed = LoadImageMap.loadSegment(currentProgram);
+        String expected = env.getAsJsonObject("result").get("load_segment").getAsString();
+        if (!observed.startsWith("0x")
+                || Integer.decode(observed).intValue() != Integer.decode(expected).intValue()) {
+            return "Ghidra loaded the image at segment " + observed + ", the expected record at "
+                    + expected + ", so nothing is corrected";
         }
         return null;
     }

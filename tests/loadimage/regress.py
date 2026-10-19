@@ -791,14 +791,23 @@ def _():
             f"despite the record of 1 correction")
 
 
-@case("a profile expecting another load segment stops at the load-image check",
-      ghidra=True)
+@case("a profile expecting another load segment stops at the load-image check, "
+      "and nothing is corrected under it", ghidra=True)
 def _():
-    code, log, exe, out = pipeline("plain", drift="load_segment=0x2000")
+    # BOTH, so there is something the corrector would otherwise correct: under
+    # segment 0x2000 it would write 0x4004 into a word DOS loads at 0x1000
+    # as 0x2004, and map the page 0x10000 bytes away.
+    code, log, exe, out = pipeline("BOTH", drift="load_segment=0x2000")
     want = "first failing check: load-segment: expected 0x2000, observed 0x1000"
     if code == 0 or want not in log or "[5/6]" in log:
         raise AssertionError(f"exit {code}\n{log[-1500:]}")
-    return "load-segment: expected 0x2000, observed 0x1000, before analysis ran"
+    record = corrections_of(out)
+    refusal = "Ghidra loaded the image at segment 0x1000, the expected record at 0x2000"
+    if record["count"] != 0 or record["corrections"] or \
+            not any(n.startswith(refusal) for n in record["notes"]):
+        raise AssertionError(f"count {record['count']}, notes {record['notes']}")
+    return ("load-segment: expected 0x2000, observed 0x1000, before analysis ran; "
+            "0 corrections: " + record["notes"][0])
 
 
 @case("the pipeline stops on a malformed header as unsupported", ghidra=True)
