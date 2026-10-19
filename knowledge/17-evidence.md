@@ -12,7 +12,8 @@ record of which file, or which analysis settings, produced it. A
 executable and every tool would carry on.
 
 The fix, borrowed as an idea from [rea](05-prior-art.md#rea--an-mcp-server-in-front-of-ghidra-for-the-same-binaries)
-and built here from nothing, has four parts:
+and built here from nothing, has these parts (the first four from prompts 01
+and 02, the rest added since):
 
 1. An **evidence envelope**: a result's own shape, carrying each observation
    behind it, what the method cannot see, and what it raised but could not
@@ -30,6 +31,10 @@ and built here from nothing, has four parts:
    it, ends inclusive, where the function came from, and which bytes more
    than one function claims; `bodies.py` says which code no function claims
    and what it looks like (prompt 03).
+6. **Names checked after they are written**: a mapping is validated whole
+   before anything is written, every name and comment is read back, and a
+   batch that fails is rolled back; `applynames-result.json` says what became
+   of each entry (prompt 04).
 
 ## The envelope
 
@@ -863,9 +868,9 @@ tool should be able to tell:
 `RecoverFunctions.java` records the origin of each function it creates in a
 string property map, `DOS-Decompiler function origin`, keyed by entry address.
 Its split removes a function and creates it again, so nothing attached to a
-function would survive that. A plate comment is printed into `decompiled.c`,
-and is where `ApplyNames.java` writes its warnings. A bookmark is something a
-person clears from the GUI. A property map is saved with the program and
+function would survive that. A plate comment is printed into `decompiled.c`
+(measured in prompt 04), and holds whatever comment a name mapping gives. A
+bookmark is something a person clears from the GUI. A property map is saved with the program and
 invisible in the listing and in the decompiler's output.
 
 ### `body_overlaps`
@@ -982,6 +987,59 @@ with what to do.
 
 What it measured on real programs is in `03-what-works.md`.
 
+## Names written into the program
+
+`tools/applynames.py MAPPING OUTDIR` writes names into a pipeline's Ghidra
+project and records what became of each one (prompt 04). It runs
+`ApplyNames.java`, which leaves `applynames-record.json`, and turns that into an
+envelope, `applynames-result.json`, with an exit status. It is the same split
+as `DumpLoadImage.java` and `loadimage.py`. A headless run's own exit code
+cannot carry the outcome: it is 0 even when its script throws (measured).
+
+The mapping is `match.py --json` or `anchors.py --names`; both are
+`{"mapping": [{"source", "binary", "score", ...}]}`. In order, the script then:
+
+1. **Validates every entry, and writes nothing if one fails.** The address
+   must be a function's entry. A byte inside a body is refused with the
+   function it is inside, e.g. `inside the body of FUN_1000_004a (entry
+   1000:004a), not a function entry`. The name must be a C identifier, not a C
+   keyword (period extensions such as `far` and `interrupt` included),
+   accepted by Ghidra's `SymbolUtilities.validateName`, and not of the form
+   Ghidra makes up for an address. No two functions may end up with one name,
+   whether from two entries of the mapping or from an entry and a function or
+   label the program already has. That is `annotate.py`'s rule from the
+   `.COM` route.
+2. **Writes the batch in one transaction, and reads each write back:** the
+   fully qualified name, the plate comment, the end-of-line comment and the
+   script's own note. The function's namespace is kept. One difference, or
+   one exception, and the transaction is aborted. In a headless script that
+   discards every change of the run (`04-pitfalls.md`).
+
+| status | exit | when |
+|---|---|---|
+| `ok` | 0 | the batch was applied, or a dry run found nothing to refuse |
+| `blocked` | 3 | an entry failed validation, the mapping was unreadable, or the script did not run: nothing was written |
+| `blocked` | 1 | a write or readback failed and the batch was rolled back: nothing was kept |
+
+Each entry's outcome is `applied`, `would-apply` (dry run),
+`skipped-below-floor`, `refused` with the reason, or `rolled-back`. The result
+carries what was asked and what was stored: requested and applied name, the
+name and comments read back, and the name before. One evidence item per
+entry, at `location.address`.
+
+Comments: `comment` sets the plate comment, which is what `ApplyNames.java`
+always wrote. `inline_comment` sets the end-of-line comment at the entry. A
+string sets it, `""` clears it, and a missing field leaves it alone. The
+script's own note on the name moved to the PRE comment at the entry: its
+confidence, LOW CONFIDENCE, LONG ROUTINE. `decompiled.c` prints that at the top
+of the body, so it stays visible without taking the plate. Measured: plate and
+PRE comments are printed, EOL and repeatable ones are not.
+
+`--dryrun` validates and reports `would-apply`, writing nothing.
+`DOS_DECOMPILER_APPLYNAMES_FAULT=readback|throw` makes the last write's
+readback differ, or its setter throw, so a test can prove the rollback. The
+script says so on stderr whenever it is set.
+
 ## What this does not do
 
 - **It does not make an observation truer.** An envelope records what a tool
@@ -989,7 +1047,8 @@ What it measured on real programs is in `03-what-works.md`.
   `verified` handshake proves Ghidra used the expected settings; it says
   nothing about whether the decompiled C is right.
 - **Only the first-step tools emit envelopes so far** — triage, survey, mzinfo
-  — plus the profile, handshake and load-image records, and `bodies.py`.
+  — plus the profile, handshake and load-image records, `bodies.py` and
+  `applynames.py`.
   Everything else still prints prose.
 - **The profile is measured on one Ghidra version and one fixture.** A drift
   after an upgrade is a measurement to make, not an error to suppress.

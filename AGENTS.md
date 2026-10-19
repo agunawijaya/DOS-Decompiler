@@ -428,15 +428,30 @@ Names are scored by **corroboration**: two independent kinds of evidence agreein
 earns confidence, one kind stays provisional. Apply them and re-export:
 
 ```
-analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
-    -scriptPath tools/ghidra_scripts -postScript ApplyNames.java names.json
+python tools/applynames.py names.json OUTDIR --dryrun     # what would be written
+python tools/applynames.py names.json OUTDIR              # write it
 analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
     -scriptPath tools/ghidra_scripts -postScript ExportDecompiledC.java OUT2
 ```
 
-Provisional names get a `__maybe` suffix and a warning comment, so uncertainty
-stays visible in the code instead of being quietly forgotten. Names applied to
-routines of 200+ bytes are flagged separately.
+`OUTDIR` is the pipeline's output folder. `applynames.py` runs `ApplyNames.java`
+and writes `OUTDIR/applynames-result.json`. The script **validates every entry
+before writing any**: the address is a function's entry, not a byte inside a
+body; the name is legal C and legal for Ghidra; and no two functions end up
+sharing a name, in the mapping or in the program. One failure and nothing is
+written. Then it writes the whole batch in one transaction and reads every
+name and comment back. One difference, or one exception, and the whole batch
+is rolled back. Exit 0 means applied; 1 means rolled back; 3 means refused
+before writing, and the result lists every failing entry and why. Ghidra
+itself accepts two functions with one name and a name like `FUN_1000_9999`, so
+these checks are the only thing stopping that (`knowledge/04-pitfalls.md`).
+
+Provisional names get a `__maybe` suffix, and a warning in the comment at the
+top of the function's body, so uncertainty stays visible in the code instead of
+being quietly forgotten. Names applied to routines of 200+ bytes are flagged
+separately. An entry may carry `comment` (the plate comment above the
+function) and `inline_comment`: a string sets it, `""` clears it, and leaving
+the field out leaves the comment alone.
 
 ### What a function's body is, and what no function claims
 

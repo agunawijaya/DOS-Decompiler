@@ -85,7 +85,7 @@ flowchart TD
     F --> AN["anchors.py<br/><i>names from evidence alone</i>"]
     F --> L["libsig.py<br/><i>strip the C runtime</i>"]
     L --> M["match.py<br/><i>identify vs reference source</i>"]
-    AN --> AP["ApplyNames.java"]
+    AN --> AP["applynames.py<br/><i>ApplyNames.java, all or nothing</i>"]
     M --> AP
     AP --> R["annotated C<br/><i>+ confidence marks</i>"]
     R --> E["emuverify.py<br/><i>prove equivalence by running it</i>"]
@@ -631,6 +631,12 @@ python tools\bodies.py out\functions.json --evidence out\bodies.json
 python tools\anchors.py out\functions.json --exe path\to\GAME.EXE `
        --entry 1000:8b46 --report out\anchors.txt --names out\names.json
 
+# 2a. Write them into the project: validated whole first, read back after,
+#     rolled back whole on any failure. --dryrun writes nothing. Exit 0
+#     applied, 1 rolled back, 3 refused; out\applynames-result.json says why.
+python tools\applynames.py out\names.json out --dryrun
+python tools\applynames.py out\names.json out
+
 # 3. Strip the C runtime so it stops competing for matches
 python tools\libsig.py apply path\to\GAME.EXE out\functions.json `
        --db signatures\msc50-16bit-small.json --json out\lib.json
@@ -876,6 +882,8 @@ tools/
   loadimage.py               what a correct load of an MZ looks like, from the
                              file alone; checks Ghidra's against it; maps
                              file offsets to addresses and back
+  applynames.py              write a name mapping into the project: validated,
+                             read back, rolled back whole on failure
   bodies.py                  which code no function's body claims, and what it
                              looks like; non-contiguous and shared bodies
   residue.py                 not a tool: the rules comrec.py and bodies.py both
@@ -903,7 +911,8 @@ tools/
     DumpLoadImage.java       write down what Ghidra loaded, for loadimage.py
     LoadImageMap.java        not a script: the block walk and self-hash shared
                              by the exporter, the corrector and the dumper
-    ApplyNames.java          write recovered names back, with confidence marks
+    ApplyNames.java          write recovered names back, with confidence marks;
+                             all or nothing, read back (run via applynames.py)
 knowledge/
   00-scope.md                what this handles and what it does not
   01-dos-binaries.md         MZ format, memory models, segments, packers, hardware
@@ -933,6 +942,8 @@ tests/evidence/              envelopes, the handshake's logic, stale-result refu
 tests/handshake/             the profile handshake run through Ghidra itself
 tests/loadimage/             load-image correction and verification: correct,
                              corrected, tampered, malformed
+tests/applynames/            names refused, applied, read back and rolled back,
+                             each shown by re-exporting
 tests/farcall/               a far function in a second segment, for libsig.py
                              and emuverify.py
 tests/bodies/                function bodies, origins, shared code, and what

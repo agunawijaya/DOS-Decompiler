@@ -50,6 +50,46 @@ load, run the pipeline with `-NoLoadCorrection`: the two fixtures then stop
 with prompt 02's mismatches, word for word. The upstream report is drafted in
 `ghidra-upstream-mzloader.md`.
 
+**A headless script already runs inside a transaction, and its own is only a
+sub-transaction.** Measured on Ghidra 12.1.2 with a probe script, on the bodies
+fixture:
+
+- **Inside a `-postScript`**, `getCurrentTransactionInfo()` names an open
+  transaction the framework started for the script (`'TxProbe' status=NOT_DONE`).
+- **`startTransaction`, or the `openTransaction` AutoCloseable, opens a
+  sub-transaction of it** (`isSubTransaction=true`).
+- **Ending the sub-transaction with commit=false aborts the outer one.**
+  `endTransaction` returns `false`, and the outer status becomes
+  `NOT_DONE_BUT_ABORTED`.
+- **Nothing is undone at that moment.** Names read back changed, and later
+  changes are accepted. When the script ends, *every* change of the run is
+  discarded: the ones made before the sub-transaction began, inside it, and
+  after it. A second run reads the original names.
+- **"Save succeeded" is printed even then.**
+- **A script that throws keeps its changes.** A rename followed by an
+  uncaught exception was saved, and the headless run exited 0
+  (`ERROR REPORT SCRIPT ERROR` is only a log line).
+- **Committing the sub-transaction keeps its changes**, though
+  `endTransaction(tx, true)` also returns `false`.
+
+So inside a headless script, an all-or-nothing batch is a sub-transaction
+ended with commit=false on any failure. Every exception has to be caught and
+turned into that abort: one that escapes commits the half-done batch.
+`ApplyNames.java` works this way. Its exit status comes from
+`tools/applynames.py`, because the headless run's own exit code says nothing.
+
+**Ghidra accepts names it should not.** In the same probe, `Function.setName`
+accepted a second function named exactly like the first, `a:b`, and
+`FUN_1000_9999` for a function at another address. It rejected only `has
+space` (`InvalidInputException`). An empty name was accepted and quietly
+reverted to the default. Anything that must not be stored has to be refused
+before the setter is called.
+
+**Plate and PRE comments reach `decompiled.c`; EOL and repeatable comments do
+not.** Measured by setting one of each on a function and re-exporting. The
+plate comment prints above the function, the PRE comment at the entry prints
+at the top of its body, and the other two do not appear.
+
 **`=` splits a headless script argument on Windows.** `analyzeHeadless.bat`
 passes arguments through cmd.exe, which treats `=` as a separator:
 `load_image_status=verified` reached the script as two arguments, and the
