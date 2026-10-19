@@ -36,13 +36,43 @@ What is in it
   load_segment        the segment Ghidra put image byte 0 at
   address_convention  the form of every address in functions.json
   ghidra_version      read from the Ghidra installation at write time
-  toolkit_version     git short hash of this toolkit (evidence.py)
+  toolkit_version     git short hash of this toolkit (evidence.py); a record
+                      of which commit wrote the profile, not part of its id
+  analysis_code       a hash over the code that can change what the export
+                      contains, file by file -- see below
   recovery            whether RecoverFunctions.java ran, and which version of
                       it (the SHA-256 of the script's own source)
 
 profile_id is the SHA-256 of the profile's canonical JSON (evidence.canonical),
-computed without the profile_id key itself. It names the settings, not the
-target: two executables analysed the same way share a profile_id.
+computed without profile_id itself and without toolkit_version. It names the
+settings, not the target: two executables analysed the same way share a
+profile_id.
+
+toolkit_version is left out because it moves on every commit, a commit that
+only edits a document included, and prompt 06 caches Ghidra's results by
+target hash plus profile_id: a profile_id that moved with the git hash would
+throw the cache away on every documentation change. What takes its place in
+the id is analysis_code, which moves only when code that can change the
+export does:
+
+  tools/ghidra_scripts/   every file in it, recursively. Ghidra runs these and
+                          they write the export; ApplyNames.java is included
+                          although the pipeline does not run it, because what
+                          it writes into a project is read back by the next
+                          export.
+  tools/pipeline.ps1      it chooses the import, the order of the stages and
+                          their arguments.
+
+Not in it, and why: analysis_profile.py itself (its expected values are
+already fields of the profile, so changing one changes the id anyway; its
+other code only compares), mzinfo.py (it decides whether the pipeline runs at
+all, not what an export contains), evidence.py and everything else in tools/
+(nothing the export depends on).
+
+It is computed from file contents, not from git, so it means the same thing
+outside a checkout and an uncommitted edit changes it by construction. Source
+is hashed with CRLF read as LF (evidence.source_sha256): a Windows checkout
+and a Linux checkout of one commit are the same code, and have the same id.
 
 The measured values
 -------------------
@@ -84,7 +114,14 @@ import evidence  # noqa: E402
 
 SCHEMA = "dos-decompiler/profile/1"
 DRIFT_VARIABLE = "DOS_DECOMPILER_FORCE_DRIFT"
-RECOVERY_SCRIPT = Path(__file__).resolve().parent / "ghidra_scripts" / "RecoverFunctions.java"
+TOOLKIT_ROOT = Path(__file__).resolve().parent.parent
+RECOVERY_SCRIPT = TOOLKIT_ROOT / "tools" / "ghidra_scripts" / "RecoverFunctions.java"
+
+# What analysis_code hashes, relative to the toolkit root; see the docstring.
+ANALYSIS_CODE = ("tools/ghidra_scripts", "tools/pipeline.ps1")
+
+# Kept in the profile as a record, left out of profile_id.
+NOT_IN_ID = ("profile_id", "toolkit_version")
 
 # Measured, not remembered: see the docstring.
 LOADER = "Old-style DOS Executable (MZ)"
@@ -108,7 +145,11 @@ LIMITATIONS = [
     "the loader and language at import, and the handshake checks afterwards "
     "that it chose these.",
     "toolkit_version is not observed by the export, so it is recorded but not "
-    "compared.",
+    "compared, and it is not part of profile_id.",
+    "analysis_code is not observed by the export either. Only the recovery "
+    "script's hash is held to what ran; that ExportDecompiledC.java and "
+    "pipeline.ps1 are the files hashed rests on the pipeline running the "
+    "copies beside this one.",
 ]
 
 
@@ -127,7 +168,23 @@ def ghidra_version(ghidra_home):
 
 
 def script_sha256(path=RECOVERY_SCRIPT):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    """The hash RecoverFunctions.java computes of itself: CRLF read as LF."""
+    return evidence.source_sha256(path)
+
+
+def analysis_code(root=TOOLKIT_ROOT):
+    """Per-file hashes of ANALYSIS_CODE, and one hash over all of them."""
+    files = {}
+    for entry in ANALYSIS_CODE:
+        path = Path(root) / entry
+        if path.is_dir():
+            found = sorted(p for p in path.rglob("*") if p.is_file())
+        else:
+            found = [path]
+        for p in found:
+            files[p.relative_to(root).as_posix()] = evidence.source_sha256(p)
+    digest = hashlib.sha256(evidence.canonical(files).encode("ascii")).hexdigest()
+    return {"sha256": digest, "files": files}
 
 
 def expected_profile(ghidra_home, skip_recovery=False):
@@ -140,13 +197,14 @@ def expected_profile(ghidra_home, skip_recovery=False):
         "address_convention": ADDRESS_CONVENTION,
         "ghidra_version": ghidra_version(ghidra_home),
         "toolkit_version": evidence.toolkit_version(),
+        "analysis_code": analysis_code(),
         "recovery": {"ran": not skip_recovery,
                      "script_sha256": None if skip_recovery else script_sha256()},
     }
 
 
 def profile_id(profile):
-    body = {k: v for k, v in profile.items() if k != "profile_id"}
+    body = {k: v for k, v in profile.items() if k not in NOT_IN_ID}
     return hashlib.sha256(evidence.canonical(body).encode("ascii")).hexdigest()
 
 

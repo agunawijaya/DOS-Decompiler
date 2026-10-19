@@ -19,6 +19,8 @@ What it provides
 ----------------
   target_identity(path)      absolute path, size and SHA-256 of a file
   directory_identity(path)   the same for a folder, hashed over a manifest
+  source_sha256(path)        a hash of the toolkit's own source that does not
+                             change with the checkout's line endings
   envelope(...)              build one, with deterministic evidence ids
   write(env, dest)           canonical JSON to a file, or '-' for stdout
   canonical(obj)             the compact form that ids and profile ids hash
@@ -91,6 +93,19 @@ def sha256_file(path):
         for block in iter(lambda: f.read(1 << 20), b""):
             h.update(block)
     return h.hexdigest()
+
+
+def source_sha256(path):
+    """SHA-256 of a source file with CRLF line endings read as LF.
+
+    For the toolkit's own code, not for targets. git checks a file out with
+    CRLF or LF depending on the machine (core.autocrlf), so the raw bytes of
+    one commit differ between a Windows and a Linux checkout; hashing them raw
+    gave the two different analysis profiles for the same code. Only the
+    two-byte CRLF pair is folded, exactly as git folds it. A target
+    executable is always hashed raw (target_identity): there a 0D 0A is data.
+    """
+    return hashlib.sha256(Path(path).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def target_identity(path):

@@ -74,17 +74,23 @@ public class RecoverFunctions extends GhidraScript {
     /** Program Information key ExportDecompiledC reads back. */
     static final String RECOVERY_OPTION = "DOS-Decompiler RecoverFunctions SHA-256";
 
-    /* SHA-256 of this script's own source, the same bytes analysis_profile.py hashes,
-     * so the handshake can tell which recovery ran and not merely that one
-     * did. */
+    /* SHA-256 of this script's own source, by the rule analysis_profile.py
+     * hashes it with, so the handshake can tell which recovery ran and not
+     * merely that one did. */
     private String sourceSha256() {
         try (java.io.InputStream in = getSourceFile().getInputStream()) {
-            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                md.update(buf, 0, n);
+            byte[] raw = in.readAllBytes();
+            // CRLF is read as LF, the rule evidence.source_sha256 applies, so a
+            // Windows checkout and a Linux checkout of one commit agree.
+            java.io.ByteArrayOutputStream text = new java.io.ByteArrayOutputStream(raw.length);
+            for (int i = 0; i < raw.length; i++) {
+                if (raw[i] == '\r' && i + 1 < raw.length && raw[i + 1] == '\n') {
+                    continue;
+                }
+                text.write(raw[i]);
             }
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+            md.update(text.toByteArray());
             StringBuilder sb = new StringBuilder();
             for (byte b : md.digest()) {
                 sb.append(String.format("%02x", b));

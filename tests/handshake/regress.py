@@ -56,6 +56,8 @@ OLD_PER_FUNCTION = ("name", "entry", "size", "thunk", "external",
                     "decompiled", "instruction_count", "blocks", "edges", "loops",
                     "returns", "indirect_jumps", "cyclomatic", "calls", "scalars",
                     "interrupts", "io_ports", "strings", "data_refs", "mnemonics")
+CRLF, LF = bytes([13, 10]), bytes([10])
+
 OBSERVED = ("loader", "language", "compiler_spec", "image_base", "load_segment",
             "address_convention", "ghidra_version", "recovery")
 
@@ -106,7 +108,7 @@ def check_plain(out, exe):
 
     prof = json.loads((out / "profile.json").read_text(encoding="utf-8"))
     p = prof["profile"]
-    body = {k: v for k, v in p.items() if k != "profile_id"}
+    body = {k: v for k, v in p.items() if k not in ("profile_id", "toolkit_version")}
     expect(p["profile_id"] == hashlib.sha256(
         evidence.canonical(body).encode("ascii")).hexdigest(),
         "profile.json: profile_id recomputes")
@@ -134,10 +136,16 @@ def check_plain(out, exe):
         expect(o.get(field) == p.get(field),
                f"observed {field} = {o.get(field)!r}, profile {p.get(field)!r}")
     expect(o.get("load_segment") == "0x1000", "observed load segment is 0x1000")
-    recover = TOOLS / "ghidra_scripts" / "RecoverFunctions.java"
+    # The rule, written out: the script's bytes with CRLF read as LF. On a
+    # checkout with CRLF endings this is what proves the Java side folds them
+    # the way Python does.
+    recover = (TOOLS / "ghidra_scripts" / "RecoverFunctions.java").read_bytes()
+    folded = hashlib.sha256(recover.replace(CRLF, LF)).hexdigest()
+    endings = "CRLF" if CRLF in recover else "LF"
     expect((o.get("recovery") or {}).get("ran") is True and
-           o["recovery"].get("script_sha256") == sha(recover),
-           "observed recovery: ran, and the script in this checkout")
+           o["recovery"].get("script_sha256") == folded,
+           f"observed recovery: ran, and the script in this checkout "
+           f"({endings} here, hashed as LF)")
     off = [f["entry"] for f in fj["functions"] if not f["entry"].startswith("1000:")]
     expect(not off, "every entry is in segment 1000" + (f" (not {off})" if off else ""))
 

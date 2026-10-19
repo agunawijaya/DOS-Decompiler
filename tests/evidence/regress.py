@@ -849,7 +849,9 @@ def check(work, prof, functions, name="functions.json"):
 def _():
     work, ghidra, exe, prof, expected, _, env = handshake_setup()
     p = expected["profile"]
-    body = {k: v for k, v in p.items() if k != "profile_id"}
+    # The rule from knowledge/17, written out rather than imported, so a
+    # change to what the id covers has to change this test too.
+    body = {k: v for k, v in p.items() if k not in ("profile_id", "toolkit_version")}
     want = hashlib.sha256(evidence.canonical(body).encode("ascii")).hexdigest()
     if p["profile_id"] != want or expected["result"]["profile_id"] != want:
         raise AssertionError("profile_id does not recompute")
@@ -864,6 +866,155 @@ def _():
     if json.loads(other.read_text())["profile"]["profile_id"] != want:
         raise AssertionError("profile_id changed with the target")
     return f"profile {want[:12]}, the same for two executables"
+
+
+@case("CRLF and LF copies of a source file hash the same; a target does not")
+def _():
+    work = FIX.work / "endings"
+    work.mkdir(exist_ok=True)
+    lf, crlf, bare = work / "lf.java", work / "crlf.java", work / "cr.java"
+    lf.write_bytes(b"class A {\n    int b;\n}\n")
+    crlf.write_bytes(b"class A {\r\n    int b;\r\n}\r\n")
+    bare.write_bytes(b"class A {\r    int b;\r}\r")
+    if evidence.source_sha256(lf) != evidence.source_sha256(crlf):
+        raise AssertionError("CRLF and LF copies hash differently")
+    if evidence.source_sha256(bare) == evidence.source_sha256(lf):
+        raise AssertionError("a lone CR was folded; only CRLF should be")
+    if evidence.sha256_file(lf) == evidence.sha256_file(crlf):
+        raise AssertionError("the raw files should differ")
+    if evidence.target_identity(lf)["sha256"] == evidence.target_identity(crlf)["sha256"]:
+        raise AssertionError("a target was hashed with its line endings folded")
+    return "source hashes agree, raw and target hashes differ, a lone CR is kept"
+
+
+class ToolkitCopy:
+    """tools/ and knowledge/ copied into a git repository of their own, with
+    a git configuration of their own too, so nothing in the user's (hooks,
+    signing, autocrlf) reaches it, and nothing done here reaches the real
+    checkout."""
+
+    def __init__(self, work):
+        self.root = work / "toolkit"
+        shutil.copytree(ROOT / "tools", self.root / "tools",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(ROOT / "knowledge", self.root / "knowledge")
+        # Without it the __pycache__ that importing evidence.py leaves behind
+        # is an untracked file, and every reading says -dirty.
+        shutil.copy(ROOT / ".gitignore", self.root / ".gitignore")
+        self.ghidra = fake_ghidra(work)
+        config = work / "gitconfig"
+        config.write_text("[user]\n\tname = evidence regress\n"
+                          "\temail = regress@example.invalid\n", encoding="utf-8")
+        self.env = dict(os.environ, GIT_CONFIG_GLOBAL=str(config),
+                        GIT_CONFIG_NOSYSTEM="1")
+        self.env.pop(analysis_profile.DRIFT_VARIABLE, None)
+        self.git_ok = shutil.which("git") is not None
+        if self.git_ok:
+            self.git("init", "-q")
+            self.commit("the toolkit, copied")
+
+    def git(self, *args):
+        r = subprocess.run(["git", "-C", str(self.root)] + list(args),
+                           capture_output=True, text=True, env=self.env)
+        if r.returncode != 0:
+            raise AssertionError(f"git {' '.join(args)}: {r.stderr.strip()}")
+        return r.stdout.strip()
+
+    def commit(self, message):
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+
+    def profile(self):
+        code, out, err = run(self.root / "tools" / "analysis_profile.py", "show",
+                             "--ghidra", self.ghidra, env=self.env)
+        if code != 0:
+            raise AssertionError(f"analysis_profile.py show: {err}")
+        return json.loads(out)
+
+
+def _touched(path, edit):
+    original = path.read_bytes()
+    path.write_bytes(edit(original))
+    return original
+
+
+@case("a documentation commit leaves profile_id alone; analysis code moves it")
+def _():
+    copy = ToolkitCopy(FIX.work / "profile-id")
+    base = copy.profile()
+    notes = []
+
+    doc = copy.root / "knowledge" / "17-evidence.md"
+    doc.write_bytes(doc.read_bytes() + b"\nA line a later commit added.\n")
+    if copy.git_ok:
+        copy.commit("knowledge: a documentation-only change")
+    after_doc = copy.profile()
+    if after_doc["profile_id"] != base["profile_id"]:
+        raise AssertionError("a knowledge edit moved profile_id")
+    if copy.git_ok:
+        if after_doc["toolkit_version"] == base["toolkit_version"]:
+            raise AssertionError("the commit did not move toolkit_version")
+        notes.append(f"doc commit: toolkit_version {base['toolkit_version']} -> "
+                     f"{after_doc['toolkit_version']}, profile_id kept")
+    else:
+        notes.append("doc edit kept profile_id (git not on PATH: not committed)")
+
+    # A tool the export does not depend on: the record says dirty, the id
+    # does not move.
+    other = copy.root / "tools" / "evidence.py"
+    original = _touched(other, lambda b: b + b"\n# an edit\n")
+    edited = copy.profile()
+    other.write_bytes(original)
+    if edited["profile_id"] != base["profile_id"]:
+        raise AssertionError("an edit to evidence.py moved profile_id")
+    if copy.git_ok and not edited["toolkit_version"].endswith("-dirty"):
+        raise AssertionError(f"toolkit_version {edited['toolkit_version']} not dirty")
+
+    moved = []
+    for rel in ("tools/ghidra_scripts/ExportDecompiledC.java",
+                "tools/ghidra_scripts/RecoverFunctions.java",
+                "tools/ghidra_scripts/ApplyNames.java",
+                "tools/pipeline.ps1"):
+        path = copy.root / rel
+        original = _touched(path, lambda b: b + b"\n// an edit\n")
+        edited = copy.profile()
+        path.write_bytes(original)
+        if edited["profile_id"] == base["profile_id"]:
+            raise AssertionError(f"an edit to {rel} left profile_id alone")
+        changed = [f for f, h in edited["analysis_code"]["files"].items()
+                   if base["analysis_code"]["files"].get(f) != h]
+        if changed != [rel]:
+            raise AssertionError(f"editing {rel} changed {changed}")
+        moved.append(Path(rel).name)
+    if copy.git_ok and base["toolkit_version"].endswith("-dirty"):
+        raise AssertionError(f"a fresh commit reads as {base['toolkit_version']}")
+    if copy.profile()["profile_id"] != base["profile_id"]:
+        raise AssertionError("restoring the files did not restore profile_id")
+    notes.append("moved by " + ", ".join(moved))
+    return "; ".join(notes)
+
+
+@case("a CRLF checkout and an LF checkout of the same code share a profile_id")
+def _():
+    copy = ToolkitCopy(FIX.work / "profile-endings")
+    base = copy.profile()
+    flipped = 0
+    for rel in analysis_profile.ANALYSIS_CODE:
+        path = copy.root / rel
+        for p in (sorted(path.rglob("*")) if path.is_dir() else [path]):
+            if not p.is_file():
+                continue
+            raw = p.read_bytes()
+            lf = raw.replace(b"\r\n", b"\n")
+            p.write_bytes(lf if lf != raw else lf.replace(b"\n", b"\r\n"))
+            flipped += 1
+    other = copy.profile()
+    if other["profile_id"] != base["profile_id"]:
+        raise AssertionError("the same code with other line endings has another "
+                             "profile_id")
+    if other["recovery"]["script_sha256"] != base["recovery"]["script_sha256"]:
+        raise AssertionError("the recovery script's hash moved with its line endings")
+    return f"{flipped} files flipped, profile {base['profile_id'][:12]} both ways"
 
 
 @case("the handshake verifies an export that matches")
