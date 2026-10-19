@@ -194,6 +194,48 @@ def _():
     return f"{len(list(TOOLS.glob('*.py')))} modules, no clash"
 
 
+@case("run-all.ps1 uses $env:PYTHON over PATH, and -Python over both")
+def _():
+    pwsh = shutil.which("pwsh")
+    if not pwsh:
+        raise Skip("pwsh not on PATH -- skipped")
+    decoy = FIX.work / "decoy"
+    decoy.mkdir(exist_ok=True)
+    (decoy / "python.cmd").write_text("@echo decoy\r\n@exit /b 9\r\n", encoding="ascii")
+    posix = decoy / "python"
+    posix.write_text("#!/bin/sh\necho decoy\nexit 9\n", encoding="ascii")
+    posix.chmod(0o755)
+    path = str(decoy) + os.pathsep + os.environ.get("PATH", "")
+    runner = ROOT / "tests" / "run-all.ps1"
+
+    def run_all(python_env, *extra):
+        env = dict(os.environ, PATH=path)
+        env.pop("PYTHON", None)
+        if python_env:
+            env["PYTHON"] = python_env
+        r = subprocess.run([pwsh, "-NoProfile", "-File", str(runner), "-Only",
+                            "pcxlib"] + list(extra),
+                           capture_output=True, text=True, env=env)
+        return r.returncode, r.stdout + r.stderr
+
+    real = str(Path(sys.executable).resolve())
+    for label, python_env, extra in (
+            ("$env:PYTHON", real, []),
+            ("-Python over a wrong $env:PYTHON", str(FIX.work / "nowhere.exe"),
+             ["-Python", real])):
+        code, out = run_all(python_env, *extra)
+        header = next((l for l in out.splitlines() if l.startswith("python :")), "")
+        passed = re.search(r"(?m)^pcxlib\s+PASS\b", out)
+        if code != 0 or real.lower() not in header.lower() or not passed:
+            raise AssertionError(f"{label}: exit {code}, {header!r}")
+    # With neither, bare `python` is the decoy, and run-all must say it has no
+    # Python rather than run the suites under something that prints and fails.
+    code, out = run_all(None)
+    if code != 1 or "no Python at 'python'" not in out:
+        raise AssertionError(f"with no PYTHON: exit {code}, {out.strip()[-160:]!r}")
+    return "PYTHON honoured, -Python wins, a decoy python is refused"
+
+
 # ------------------------------------------------------------ identity
 
 def independent_sha256(path):
@@ -866,6 +908,91 @@ def _():
     if json.loads(other.read_text())["profile"]["profile_id"] != want:
         raise AssertionError("profile_id changed with the target")
     return f"profile {want[:12]}, the same for two executables"
+
+
+def drifted_folder(name, drift="load_segment=0x2000"):
+    """A work folder as a failed pipeline leaves it: functions.json, and a
+    handshake.json beside it that says mismatch."""
+    work, ghidra, exe, _, _, functions, env = handshake_setup()
+    folder = FIX.work / name
+    folder.mkdir(exist_ok=True)
+    forced = folder / "profile.json"
+    run(TOOLS / "analysis_profile.py", "write", "--exe", exe, "--ghidra", ghidra,
+        "--out", forced, env=dict(env, **{analysis_profile.DRIFT_VARIABLE: drift}))
+    (folder / "functions.json").write_text(json.dumps(functions), encoding="utf-8")
+    code, _, _ = run(TOOLS / "analysis_profile.py", "check", "--profile", forced,
+                     "--functions", folder / "functions.json",
+                     "--evidence", folder / "handshake.json")
+    if code != 1:
+        raise AssertionError(f"the forced handshake did not fail (exit {code})")
+    src = folder / "src.json"
+    src.write_text('{"functions": []}', encoding="utf-8")
+    return folder, exe, src
+
+
+def readers_on(folder, exe, src, extra=()):
+    """Run every reader on folder/functions.json: [(name, code, stderr)]."""
+    out = []
+    for name, args, needs in consumers(folder / "functions.json", exe, src):
+        if not all(has_module(m) for m in needs):
+            continue
+        code, _, err = run(*(list(args) + list(extra)))
+        out.append((name, code, err))
+    return out
+
+
+@case("a drifted handshake stops every reader; the override reads, and says so")
+def _():
+    folder, exe, src = drifted_folder("drifted")
+    want = "load_segment: expected 0x2000, observed 0x1000"
+    refused = readers_on(folder, exe, src)
+    for name, code, err in refused:
+        if code == 0 or "did not pass its profile handshake" not in err \
+                or want not in err or "--accept-profile-drift" not in err:
+            raise AssertionError(f"{name}: exit {code}, {err.strip()[-200:]!r}")
+    accepted = readers_on(folder, exe, src, ["--accept-profile-drift"])
+    for name, code, err in accepted:
+        if code != 0 or "--accept-profile-drift: reading" not in err or want not in err:
+            raise AssertionError(f"{name} with the override: exit {code}, {err!r}")
+    (folder / "handshake.json").unlink()
+    for name, code, err in readers_on(folder, exe, src):
+        if code != 0 or err.strip():
+            raise AssertionError(f"{name} with no handshake.json: exit {code}, {err!r}")
+    skipped = 5 - len(refused)
+    return (f"{len(refused)} refused, {len(accepted)} read with the override, "
+            f"{len(refused)} unchanged without the record"
+            + (f"; {skipped} skipped (capstone/unicorn)" if skipped else ""))
+
+
+@case("a verified, blocked or out-of-date handshake is read for what it says")
+def _():
+    folder, exe, src = drifted_folder("records")
+    record = folder / "handshake.json"
+    env = json.loads(record.read_text(encoding="utf-8"))
+    name, args, _ = consumers(folder / "functions.json", exe, src)[0]   # anchors
+
+    env["status"] = "verified"
+    record.write_text(json.dumps(env), encoding="utf-8")
+    code, _, err = run(*args)
+    if code != 0 or err.strip():
+        raise AssertionError(f"verified: exit {code}, {err!r}")
+
+    env["status"] = "blocked"
+    record.write_text(json.dumps(env), encoding="utf-8")
+    code, _, err = run(*args)
+    if code == 0 or "could not run" not in err:
+        raise AssertionError(f"blocked: exit {code}, {err!r}")
+
+    # functions.json rewritten after the check: the record no longer
+    # describes it, so it warns and reads rather than refusing.
+    env["status"] = "mismatch"
+    record.write_text(json.dumps(env), encoding="utf-8")
+    fj = folder / "functions.json"
+    fj.write_text(fj.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+    code, _, err = run(*args)
+    if code != 0 or "describes an earlier export" not in err:
+        raise AssertionError(f"out of date: exit {code}, {err!r}")
+    return "verified silent, blocked refused, out-of-date warned"
 
 
 @case("CRLF and LF copies of a source file hash the same; a target does not")

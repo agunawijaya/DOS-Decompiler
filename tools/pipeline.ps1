@@ -16,6 +16,9 @@
     with the field, the expected value and the observed value if any of them
     differ (tools/analysis_profile.py, knowledge/17-evidence.md).
 
+    The Python tools run under $env:PYTHON when it is set, and under the
+    first `python` on PATH when it is not.
+
 .PARAMETER Exe
     The DOS executable to analyse.
 
@@ -57,6 +60,15 @@ if (-not $JavaHome) { throw "JDK directory unknown. Pass -JavaHome or set JAVA_H
 $headless = Join-Path $Ghidra 'support\analyzeHeadless.bat'
 if (-not (Test-Path $headless)) { throw "analyzeHeadless.bat not found under $Ghidra" }
 
+# Which Python runs the tools: $env:PYTHON, then whatever `python` is first on
+# PATH. Worth setting: on the machine this was written on, the first python
+# on PATH in one shell was a copy bundled with another application, without
+# capstone or unicorn.
+$python = if ($env:PYTHON) { $env:PYTHON } else { 'python' }
+if (-not (Get-Command $python -ErrorAction SilentlyContinue)) {
+    throw "no Python at '$python'. Set PYTHON to the interpreter that has capstone and unicorn."
+}
+
 $env:JAVA_HOME = $JavaHome
 New-Item -ItemType Directory -Force $OutDir | Out-Null
 $projDir  = Join-Path $OutDir 'ghidra-project'
@@ -89,8 +101,8 @@ function Invoke-Headless {
 
 Write-Host "`n[1/4] Structure" -ForegroundColor Cyan
 $report = Join-Path $OutDir 'mzinfo.txt'
-python (Join-Path $toolDir 'mzinfo.py') $exeItem.FullName | Tee-Object -FilePath $report
-python (Join-Path $toolDir 'mzinfo.py') $exeItem.FullName --json |
+& $python (Join-Path $toolDir 'mzinfo.py') $exeItem.FullName | Tee-Object -FilePath $report
+& $python (Join-Path $toolDir 'mzinfo.py') $exeItem.FullName --json |
     Set-Content (Join-Path $OutDir 'mzinfo.json')
 
 # A packed file decompiles into its own decompressor. Stop rather than waste
@@ -108,7 +120,7 @@ Write-Host "`n[2/4] Import and analyse" -ForegroundColor Cyan
 $profileJson = Join-Path $OutDir 'profile.json'
 $profileArgs = @('write', '--exe', $exeItem.FullName, '--ghidra', $Ghidra, '--out', $profileJson)
 if ($SkipRecovery) { $profileArgs += '--skip-recovery' }
-python (Join-Path $toolDir 'analysis_profile.py') @profileArgs
+& $python (Join-Path $toolDir 'analysis_profile.py') @profileArgs
 if ($LASTEXITCODE -ne 0) { throw "analysis_profile.py could not write $profileJson" }
 
 Invoke-Headless -HeadlessArgs @($projDir, $projName, '-import', $exeItem.FullName, '-overwrite') 'importing'
@@ -135,7 +147,7 @@ $handshake = Join-Path $OutDir 'handshake.json'
 $previous = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {
-    $check = python (Join-Path $toolDir 'analysis_profile.py') check --profile $profileJson `
+    $check = & $python (Join-Path $toolDir 'analysis_profile.py') check --profile $profileJson `
         --functions (Join-Path $OutDir 'functions.json') --evidence $handshake 2>&1 |
         ForEach-Object { "$_" }
     $checkCode = $LASTEXITCODE

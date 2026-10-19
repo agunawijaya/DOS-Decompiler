@@ -23,6 +23,14 @@ $env:GHIDRA_HOME = 'C:\Applications\ghidra\ghidra_12.1.2_PUBLIC'
 # JDK 21 or newer, required by Ghidra
 $env:JAVA_HOME = 'C:\Applications\jdk21\jdk-21.0.12+8'
 
+# The Python with capstone and unicorn installed. pipeline.ps1 and
+# tests\run-all.ps1 use this, and fall back to the first `python` on PATH
+# only when it is unset. Set it: other applications bundle a Python of their
+# own and put it on PATH -- on one machine the first python found was
+# Inkscape's, which has neither package, and every tool needing them failed
+# with an ImportError.
+$env:PYTHON = 'C:\Applications\Python311\python.exe'
+
 # --- required only for rebuilding ground truth ------------------------------
 
 # Open Watcom V2 (needs binnt64, h, lib286). Used for the free, automatic

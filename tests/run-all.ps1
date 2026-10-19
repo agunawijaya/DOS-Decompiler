@@ -28,9 +28,11 @@
     The exit code is 1 if any suite failed, 0 otherwise.
 
 .PARAMETER Python
-    Interpreter to run the suites with. Defaults to $env:PYTHON, then
-    `python`. Worth passing explicitly where several are installed: whichever
+    Interpreter to run the suites with. Wins over $env:PYTHON, which wins
+    over `python`. Worth setting where several are installed: whichever
     `python` is first on PATH may not be the one with capstone and unicorn.
+    The one chosen is passed on to the suites as $env:PYTHON, so a suite that
+    runs pipeline.ps1 runs it with the same interpreter.
 
 .PARAMETER Only
     Run just these suites (directory names under tests/).
@@ -140,7 +142,10 @@ $pythonVersion = $null
 try {
     $previous = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
+    $pythonExe = (& $Python -c "import sys; print(sys.executable)" 2>$null)
     $pythonVersion = (& $Python -c "import sys; print(sys.executable + ' ' + sys.version.split()[0])" 2>$null)
+    # Something that prints and fails is not a Python either.
+    if ($LASTEXITCODE -ne 0) { $pythonVersion = $null }
 } catch {
 } finally {
     $ErrorActionPreference = $previous
@@ -157,6 +162,9 @@ foreach ($module in 'capstone', 'unicorn') {
 
 # Children inherit the tool locations, so a suite that reads NASM or
 # GHIDRA_HOME sees what this script decided rather than what the shell had.
+# PYTHON too: tests/handshake runs pipeline.ps1, which reads it, and the
+# pipeline has to use the interpreter the suite was run with.
+$env:PYTHON = $pythonExe
 if ($nasmPath) { $env:NASM = $nasmPath }
 if ($Ghidra) { $env:GHIDRA_HOME = $Ghidra }
 if ($JavaHome) { $env:JAVA_HOME = $JavaHome }
@@ -166,6 +174,8 @@ $suites = Get-ChildItem -Path $testsDir -Directory |
     Where-Object { Test-Path (Join-Path $_.FullName 'regress.py') } |
     Sort-Object Name
 if ($Only) {
+    # Under `pwsh -File`, -Only a,b arrives as the one string "a,b".
+    $Only = @($Only | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
     $unknown = $Only | Where-Object { $_ -notin $suites.Name }
     if ($unknown) {
         Write-Host "no such suite: $($unknown -join ', ')" -ForegroundColor Red

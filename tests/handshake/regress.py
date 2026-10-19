@@ -19,6 +19,15 @@ Two pipeline runs over tests/evidence/fixtures/smallc.asm:
    exit non-zero with a message naming load_segment, the expected 0x2000 and
    the observed 0x1000.
 
+Both runs have a decoy `python` first on PATH that fails if anything runs it,
+and the real interpreter in $env:PYTHON: the pipeline has to use the one it
+was given.
+
+After the drifted run, every reader of functions.json -- anchors, libsig,
+match, modcluster, emuverify -- must refuse what it left behind, read it with
+--accept-profile-drift and say so, and read it as before once handshake.json
+is removed.
+
 Then, without Ghidra, the first run's export is checked against a profile that
 expects no recovery: the recovery mark RecoverFunctions left in the program
 has to be what makes that fail.
@@ -80,10 +89,30 @@ def prerequisites():
     return (nasm, ghidra, java, pwsh), None
 
 
+DECOY_SAYS = "decoy python on PATH"
+
+
+def decoy_python(folder):
+    """A `python` that refuses to run anything, for the front of PATH.
+
+    pipeline.ps1 is meant to use $env:PYTHON and fall back to PATH only when
+    it is unset. With this first on PATH and PYTHON set to the real
+    interpreter, a pipeline that reached for bare `python` fails and says
+    so -- which is the machine this was written on, where the first python
+    on PATH lacked capstone and unicorn."""
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "python.cmd").write_text(f"@echo {DECOY_SAYS}\r\n@exit /b 9\r\n",
+                                       encoding="ascii")
+    posix = folder / "python"
+    posix.write_text(f"#!/bin/sh\necho '{DECOY_SAYS}'\nexit 9\n", encoding="ascii")
+    posix.chmod(0o755)
+    return folder
+
+
 def pipeline(pwsh, exe, out, ghidra, java, drift=None):
     env = dict(os.environ)
-    # pipeline.ps1 calls `python`; make it this interpreter.
-    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
+    env["PYTHON"] = sys.executable
+    env["PATH"] = str(decoy_python(out.parent / "decoy")) + os.pathsep + env.get("PATH", "")
     env.pop("DOS_DECOMPILER_FORCE_DRIFT", None)
     if drift:
         env["DOS_DECOMPILER_FORCE_DRIFT"] = drift
@@ -155,6 +184,56 @@ def check_plain(out, exe):
     return results
 
 
+def check_readers(work, exe):
+    """Every functions.json reader, on what the forced drift left behind.
+
+    The pipeline stopped, but functions.json is still in drift/. Each reader
+    has to refuse it, read it with --accept-profile-drift and say so, and read
+    it silently once handshake.json is gone -- a work folder from before the
+    handshake. The export from the plain run, whose handshake is verified,
+    has to be read silently throughout."""
+    src = work / "src.json"
+    src.write_text('{"functions": []}', encoding="utf-8")
+    db = ROOT / "signatures" / "msc50-16bit-small.json"
+
+    def readers(functions):
+        return [
+            ("anchors.py", [TOOLS / "anchors.py", functions, "--exe", exe]),
+            ("libsig.py", [TOOLS / "libsig.py", "apply", exe, functions, "--db", db]),
+            ("match.py", [TOOLS / "match.py", src, functions, "--exe", exe]),
+            ("modcluster.py", [TOOLS / "modcluster.py", functions, "--exe", exe]),
+            ("emuverify.py", [TOOLS / "emuverify.py", exe, functions, exe, functions,
+                              "--quiet"]),
+        ]
+
+    def run(args):
+        r = subprocess.run([sys.executable] + [str(a) for a in args],
+                           capture_output=True, text=True)
+        return r.returncode, r.stderr
+
+    want = "load_segment: expected 0x2000, observed 0x1000"
+    drifted = work / "drift" / "functions.json"
+    results = []
+    for name, args in readers(drifted):
+        code, err = run(args)
+        results.append((code != 0 and "did not pass its profile handshake" in err
+                        and want in err,
+                        f"{name} refuses the drifted export (exit {code})"))
+        code, err = run(args + ["--accept-profile-drift"])
+        results.append((code == 0 and "--accept-profile-drift: reading" in err,
+                        f"{name} reads it with --accept-profile-drift, and says so"))
+    for name, args in readers(work / "plain" / "functions.json"):
+        code, err = run(args)
+        results.append((code == 0 and not err.strip(),
+                        f"{name} reads the verified export silently"))
+    (work / "drift" / "handshake.json").unlink()
+    for name, args in readers(drifted):
+        code, err = run(args)
+        results.append((code == 0 and not err.strip(),
+                        f"{name} reads it as before once handshake.json is gone"))
+    return results
+
+
 def main():
     found, why = prerequisites()
     if not found:
@@ -174,6 +253,9 @@ def main():
 
         code, log = pipeline(pwsh, exe, work / "plain", ghidra, java)
         results.append((code == 0, f"plain run exits 0 (got {code})"))
+        results.append((DECOY_SAYS not in log,
+                        "pipeline.ps1 ran $env:PYTHON, not the decoy python "
+                        "first on PATH"))
         if code != 0:
             print(log[-3000:])
         else:
@@ -193,6 +275,8 @@ def main():
                             f"{hs['result']['drift']}"))
         else:
             results.append((False, "handshake.json written for the drifted run"))
+        if (work / "drift" / "functions.json").exists():
+            results += check_readers(work, exe)
 
         # Without Ghidra: the first export, against a profile expecting no
         # recovery. Only the mark RecoverFunctions left can make this differ.
