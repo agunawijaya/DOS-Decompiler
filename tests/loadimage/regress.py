@@ -44,6 +44,9 @@ With Ghidra (skipped, and saying so, without it)
   fixup back, and verifies although Ghidra's record for that relocation
   still says FAILURE: relocations.status_after_correction holds the word to
   the file instead, and a word changed in memory fails it.
+* tests/loadimage/fixtures/bigpage.asm, one segment just past 64 KB with a
+  full last page, has its page restored at the page's own paragraph,
+  because it does not fit in the segment of the block before it.
 * With -NoLoadCorrection the two must stop exactly as they did in prompt 02;
   with -AllowLoadMismatch as well they must continue, say so, and record it.
 * A dump tampered after correction is still a mismatch.
@@ -70,6 +73,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent.parent
 TOOLS = ROOT / "tools"
 FIXTURE = HERE / "fixtures" / "segments.asm"
+# One segment past 64 KB, last page full: the page the corrector restores
+# does not fit in the segment of the block before it.
+BIGPAGE = HERE / "fixtures" / "bigpage.asm"
 sys.path.insert(0, str(TOOLS))
 import evidence                                          # noqa: E402
 import loadimage                                         # noqa: E402
@@ -830,6 +836,30 @@ def _():
     return f"{held['value']['observed'][0]}; failed {env['result']['failed'][:3]}"
 
 
+@case("a page that does not fit the segment before it is restored at its own paragraph",
+      ghidra=True)
+def _():
+    # bigpage.asm: header 64 bytes, 129 pages, bytes-on-last-page 0. Ghidra
+    # maps (129 - 1) * 512 = 0x10000 bytes of file, image 0..0xFFBF in one
+    # block at 1000:0000, so the last page is file 0x10000..0x101FF, linear
+    # 0x10000 + 0x10000 - 0x40 = 0x1FFC0 -- offset 0xFFC0 in segment 0x1000,
+    # whose 512 bytes would run past 0xFFFF. Its own paragraph is 1FFC:0000.
+    code, log, exe, out = pipeline("BIGPAGE")
+    env = record_of(out)
+    made = env["result"]["corrections_made"]
+    want = [{"kind": "missing-last-page", "file_start": 0x10000, "file_end_inclusive": 0x101FF,
+             "linear_start": 0x1FFC0, "linear_end_inclusive": 0x201BF, "address": "1ffc:0000",
+             "before": "not loaded",
+             "after": "file 0x10000..0x101ff mapped at 1ffc:0000, joined to CODE_0",
+             # minalloc's 256 bytes, from right after Ghidra's block to right
+             # after the restored page; 2000:01c0 is how Ghidra spells 0x201C0.
+             "uninitialized_moved": "DATA 1000:ffc0 size 256 -> DATA 2000:01c0 size 256",
+             "fixups": []}]
+    if code != 0 or env["status"] != "verified" or made != want:
+        raise AssertionError(f"exit {code}, {env['status']}, {env['result']['failed']}, {made}")
+    return f"1ffc:0000, joined to CODE_0; verified, {env['result']['checks']} checks agree"
+
+
 @case("with -NoLoadCorrection the two stop exactly as they did in prompt 02",
       ghidra=True)
 def _():
@@ -971,6 +1001,13 @@ def main():
                 print(f"FAIL  nasm could not build {v}:\n{r.stderr}")
                 return 1
             EXE[v] = out
+        out = WORK / "BIGPAGE.exe"
+        r = subprocess.run([nasm, "-f", "bin", "-o", str(out), str(BIGPAGE)],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            print(f"FAIL  nasm could not build bigpage:\n{r.stderr}")
+            return 1
+        EXE["BIGPAGE"] = out
         only = sys.argv[sys.argv.index("--only") + 1] if "--only" in sys.argv else None
         for name, fn, needs_ghidra in CASES:
             if only and only not in name:
