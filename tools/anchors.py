@@ -17,9 +17,13 @@ Ranked by how much the evidence actually pins down:
   4. I/O ports                                 -- says which device
   5. distinctive memory constants              -- says which screen mode
 
+Given --exe, functions.json is first checked against that executable and
+refused if it was made from a different file (tools/evidence.py).
+
 Usage:
     python anchors.py functions.json
     python anchors.py functions.json --entry 1000:8b46 --json anchors.json
+    python anchors.py functions.json --exe GAME.EXE --entry 1000:8b46
 """
 
 import argparse
@@ -27,6 +31,8 @@ import json
 import sys
 from collections import defaultdict, deque
 from pathlib import Path
+
+import evidence
 
 INTERRUPTS = {
     0x05: "BIOS print screen",
@@ -91,8 +97,8 @@ CONSTANTS = {
 }
 
 
-def load(path):
-    d = json.loads(Path(path).read_text(encoding="utf-8"))
+def load(path, exe=None):
+    d = evidence.load_functions(path, exe, "anchors.py")
     return d["functions"], d
 
 
@@ -395,6 +401,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("functions_json")
+    ap.add_argument("--exe", help="the executable functions.json was made from; it is refused "
+                         "if its SHA-256 differs from the one recorded")
     ap.add_argument("--entry", help="entry point address, e.g. 1000:8b46")
     ap.add_argument("--json", help="write findings here")
     ap.add_argument("--report", help="write the readable report here")
@@ -402,7 +410,7 @@ def main():
                     help="write evidence-based names in ApplyNames.java format")
     args = ap.parse_args()
 
-    functions, _ = load(args.functions_json)
+    functions, _ = load(args.functions_json, args.exe)
     findings = analyze(functions, args.entry)
     text = summarize(findings, functions)
 

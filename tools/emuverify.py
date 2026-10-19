@@ -40,6 +40,10 @@ something observable: a routine that ignores its arguments and returns zero
 matches every other such routine, so those are reported as indistinguishable
 rather than as matches.
 
+Either map may be a functions.json from the pipeline instead. It is checked
+against the executable beside it on the command line and refused if it was
+made from a different file (tools/evidence.py).
+
 Usage:
     python emuverify.py a.exe a.map b.exe b.map --report out.md
     python emuverify.py a.exe a.map b.exe b.map --pairs candidates.json
@@ -50,6 +54,9 @@ import json
 import struct
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import evidence  # noqa: E402
 
 try:
     from unicorn import (Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_CODE,
@@ -170,13 +177,15 @@ def dgroup_from_relocations(exe_path):
     return min(values)
 
 
-def entries_from_functions_json(path):
+def entries_from_functions_json(path, exe=None):
     """Function offsets from the pipeline's export, for a binary with no map.
 
     Names are the Ghidra placeholders, so a match here transfers a name *to*
-    this binary rather than confirming one it already has.
+    this binary rather than confirming one it already has. Given `exe`, the
+    export is refused if it was made from a different file: offsets from one
+    build run against another are profiles of the wrong code.
     """
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    data = evidence.load_functions(path, exe, "emuverify.py")
     out = {}
     for f in data["functions"]:
         if f.get("thunk"):
@@ -190,7 +199,7 @@ class Emulator:
     def __init__(self, exe, symbols_source, dgroup=None):
         self.image = load_image(exe)
         if str(symbols_source).lower().endswith(".json"):
-            self.symbols = entries_from_functions_json(symbols_source)
+            self.symbols = entries_from_functions_json(symbols_source, exe)
             self.dgroup = dgroup if dgroup is not None \
                 else dgroup_from_relocations(exe)
         else:

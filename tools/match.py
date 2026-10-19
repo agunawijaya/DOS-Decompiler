@@ -28,9 +28,13 @@ The signal used, in order of discriminating power:
   3. Size. Instruction count against source line count: weak on its own, but
      useful for breaking ties.
 
+Given --exe, the binary inventory is first checked against that executable
+and refused if it was made from a different file (tools/evidence.py).
+
 Usage:
     python match.py source-inventory.json ghidra-functions.json
     python match.py src.json bin.json --exclude-file swnetio.c --report out.md
+    python match.py src.json bin.json --exe GAME.EXE --align
 """
 
 import argparse
@@ -39,6 +43,8 @@ import math
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+
+import evidence
 
 # Constants so common they identify nothing. Segment registers' worth of noise:
 # stack frame offsets, small loop bounds, and the ubiquitous CGA/DOS values that
@@ -590,6 +596,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("source_json", help="output of srcinv.py --json")
     ap.add_argument("binary_json", help="functions.json from ExportDecompiledC")
+    ap.add_argument("--exe", help="the executable functions.json was made from; it is refused "
+                         "if its SHA-256 differs from the one recorded")
     ap.add_argument("--exclude-file", action="append", default=[],
                     help="source file not linked into the binary (repeatable)")
     ap.add_argument("--exclude-library", metavar="FILE",
@@ -616,7 +624,7 @@ def main():
     args = ap.parse_args()
 
     src = json.loads(Path(args.source_json).read_text(encoding="utf-8"))
-    binr = json.loads(Path(args.binary_json).read_text(encoding="utf-8"))
+    binr = evidence.load_functions(args.binary_json, args.exe, "match.py")
 
     seed = json.loads(Path(args.seed).read_text(encoding="utf-8")) if args.seed else None
 

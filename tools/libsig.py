@@ -33,6 +33,9 @@ reference program written purely to pull in as much of the library as
 possible. That makes matching against a *different* binary a genuine
 held-out test.
 
+`apply` refuses a functions.json that records a different executable than
+the one it is given (tools/evidence.py).
+
 Usage:
     python libsig.py build  libref.exe libref.map --json sigs.json
     python libsig.py apply  target.exe functions.json --db sigs.json
@@ -46,6 +49,9 @@ import struct
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import evidence  # noqa: E402
 
 try:
     from capstone import Cs, CS_ARCH_X86, CS_MODE_16
@@ -210,7 +216,7 @@ def match_at(code, table):
 
 def apply(exe, functions_json, db):
     hdr, data = header_size(exe)
-    funcs = json.loads(Path(functions_json).read_text(encoding="utf-8"))["functions"]
+    funcs = evidence.load_functions(functions_json, exe, "libsig.py")["functions"]
     table = compile_db(db)
 
     hits = []

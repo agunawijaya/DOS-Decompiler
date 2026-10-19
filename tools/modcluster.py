@@ -31,9 +31,13 @@ A segmentation of the function list into candidate modules. Combined with a
 handful of identified functions, each segment can be voted onto a source file,
 which yields the link order that `match.py --module-order` wants.
 
+Given --exe, functions.json is first checked against that executable and
+refused if it was made from a different file (tools/evidence.py).
+
 Usage:
     python modcluster.py functions.json --report
     python modcluster.py functions.json --json segments.json --window 5
+    python modcluster.py functions.json --exe GAME.EXE
 """
 
 import argparse
@@ -42,6 +46,8 @@ import math
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+
+import evidence
 
 
 def linear(addr):
@@ -275,6 +281,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("functions_json")
+    ap.add_argument("--exe", help="the executable functions.json was made from; it is refused "
+                         "if its SHA-256 differs from the one recorded")
     ap.add_argument("--window", type=int, default=3,
                     help="functions each side of a gap to compare (3 measured best)")
     ap.add_argument("--min-segment", type=int, default=2)
@@ -284,7 +292,7 @@ def main():
     ap.add_argument("--json", help="write segments here")
     args = ap.parse_args()
 
-    data = json.loads(Path(args.functions_json).read_text(encoding="utf-8"))
+    data = evidence.load_functions(args.functions_json, args.exe, "modcluster.py")
     funcs = [f for f in data["functions"] if not f.get("thunk")]
 
     seg = ModuleSegmenter(funcs, window=args.window, min_segment=args.min_segment)
