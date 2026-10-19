@@ -23,8 +23,7 @@ both size the image as `pages * 512 - header`. Ghidra 12.1.2's `MzLoader`
 computes `(pages - 1) * 512 + bytes_on_last_page` and so loses the entire last
 page. Measured on a two-page fixture: `module.coverage` failed with
 `file 0x200..0x3ff not loaded`. A linker writes 0 whenever the file is an exact
-multiple of 512 bytes, so a real game can hit this. The load-image check after
-import (`17-evidence.md`) stops the pipeline on it.
+multiple of 512 bytes, so a real game can hit this.
 
 **Ghidra's MZ loader applies a duplicated relocation once.** DOS adds the load
 segment once per relocation entry, so a word listed twice gets it twice:
@@ -33,6 +32,20 @@ FreeDOS `*spot += start_seg;`, DOSBox
 `0x1000 + the file's word` for each entry instead of adding, so the second
 write changes nothing. Measured: `1006:0016: 0x1004 not 0x2004`. It keeps both
 relocation records, so only the word itself shows the difference.
+
+*Both are now corrected by default.* `tools/ghidra_scripts/CorrectMzLoad.java`
+runs straight after import: it maps the missing page from the file's own bytes,
+joined to the block before it, and writes each duplicated word as DOS would.
+The load-image check then compares the corrected program with the file exactly
+as before, so a correction that went wrong is still a mismatch. Every
+correction, with its value before and after, is in `load-corrections.json`, and
+`loadimage.json` and `functions.json` carry the count: `"status": "verified",
+"corrections": 1`. Nothing else is corrected. A relocation *inside* the missing
+page gets its word fixed, but Ghidra's record for it says `FAILURE` and no API
+rewrites a relocation record, so that file still stops. To see Ghidra's own
+load, run the pipeline with `-NoLoadCorrection`: the two fixtures then stop
+with prompt 02's mismatches, word for word. The upstream report is drafted in
+`ghidra-upstream-mzloader.md`.
 
 **`=` splits a headless script argument on Windows.** `analyzeHeadless.bat`
 passes arguments through cmd.exe, which treats `=` as a separator:

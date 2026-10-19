@@ -321,21 +321,31 @@ means something is hiding.
 ## Step 2 — Load into Ghidra and recover the missing functions
 
 ```
-analyzeHeadless <proj_dir> <proj> -import GAME.EXE -overwrite
+python tools/loadimage.py expected GAME.EXE --evidence expected.json
+analyzeHeadless <proj_dir> <proj> -import GAME.EXE -overwrite -noanalysis
+analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
+    -scriptPath tools/ghidra_scripts -postScript CorrectMzLoad.java expected.json OUTDIR
+analyzeHeadless <proj_dir> <proj> -process GAME.EXE
 analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
     -scriptPath tools/ghidra_scripts -postScript RecoverFunctions.java
 analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
     -scriptPath tools/ghidra_scripts -postScript ExportDecompiledC.java OUTDIR
 ```
 
-Or just `tools/pipeline.ps1 -Exe GAME.EXE -OutDir out`, which does all three.
+Or just `tools/pipeline.ps1 -Exe GAME.EXE -OutDir out`, which does all of
+these and checks the load between the correction and the analysis (below).
+Import without analysis, and analyse only after correcting: auto-analysis reads
+the program's bytes, and until then some of them may be missing.
 
-**Run these as three separate invocations.** Chaining two `-postScript` flags
+**Run these as separate invocations.** Chaining two `-postScript` flags
 in one command was recorded, on an earlier setup whose Ghidra version was not
 written down, as silently losing the first script's changes. On 2026-10-19 it
 did not reproduce on Ghidra 12.1.2: chained on `-import` and on `-process`, the
 export saw every function recovery added (`knowledge/04-pitfalls.md`). Keep the
-separate invocations anyway; they are known to work and cost little.
+separate invocations anyway; they are known to work and cost little. Analysis
+and recovery in particular stay apart: run together, on a real game, the export
+came out with one function more and 11 other records changed, because Ghidra
+then analyses what the script creates (`knowledge/17-evidence.md`).
 
 `pipeline.ps1` writes `profile.json` before import — the loader, language,
 load segment and recovery it expects — and after export compares it with what
@@ -347,22 +357,32 @@ does not assume; find out why first. The readers in Step 3 refuse a
 `functions.json` whose `handshake.json` says `mismatch`, and
 `--accept-profile-drift` — which announces itself on every use — is for a
 person who has understood the drift, not for getting past the refusal. If you
-run the three steps by hand, run `python tools/analysis_profile.py write`
-before and `python tools/analysis_profile.py check --evidence handshake.json`
-after.
+run the steps by hand, run `python tools/analysis_profile.py write` before and
+`python tools/analysis_profile.py check --evidence handshake.json` after.
 
-Right after import the pipeline also checks that Ghidra's program **is the
-file**: the same bytes at the addresses the header implies, each relocation
-applied once per entry (`loadimage.json`). It stops on anything but verified
-and prints the first failing check. Treat that stop the same way. Ghidra
-12.1.2 was measured getting two kinds of MZ wrong — a header whose last page
-is marked full loses that page, and a duplicated relocation is applied once —
-so a mismatch is likely a real loader problem, not a quirk of the check
-(`knowledge/04-pitfalls.md`). `-AllowLoadMismatch` exists for a person who has
-read `loadimage.json`; every later reader of that export then warns. By hand:
-`-postScript DumpLoadImage.java OUTDIR` with `-readOnly`, then
-`python tools/loadimage.py verify GAME.EXE OUTDIR/loadimage-observed --profile
-profile.json --evidence loadimage.json`.
+Ghidra 12.1.2 was measured getting two kinds of MZ wrong: a header whose last
+page is marked full loses that page, and a duplicated relocation is applied
+once (`knowledge/04-pitfalls.md`). Right after import, `CorrectMzLoad.java`
+puts those two right and nothing else, and writes each correction, with its
+value before and after, to `load-corrections.json`. Then the pipeline checks
+that Ghidra's program **is the file**: the same bytes at the addresses the
+header implies, each relocation applied once per entry (`loadimage.json`). The
+check does not take the corrector's word for anything; it compares the
+corrected program with the file. It stops on anything but verified and prints
+the first failing check. Treat that stop the same way: after correction, a
+mismatch is a loader problem nobody has corrected yet, not a quirk of the
+check. `-AllowLoadMismatch` exists for a person who has read `loadimage.json`;
+every later reader of that export then warns.
+
+**Report a corrected load as corrected.** `loadimage.json` and the `load_image`
+record in `functions.json` say `"status": "verified", "corrections": N`. When N
+is not 0, say so and point at `load-corrections.json`: the analysis is of the
+program DOS would load, which is not the program Ghidra's loader alone
+produced. `-NoLoadCorrection` skips the corrector, to compare with Ghidra's
+raw load. By hand: `-postScript DumpLoadImage.java OUTDIR` with `-readOnly`,
+then `python tools/loadimage.py verify GAME.EXE OUTDIR/loadimage-observed
+--profile profile.json --evidence loadimage.json --corrections
+OUTDIR/load-corrections.json`.
 
 To find where a file offset is in the program, or which file byte an address
 came from, use `python tools/loadimage.py map loadimage.json --file 0x...` or
@@ -609,7 +629,9 @@ not mean nothing got worse.
   analysis profile and its handshake, load-image verification and `map`, and
   the refusal of a stale `functions.json`; including the measured facts that
   Ghidra's `image_base` is not the load segment and that its MZ loader gets two
-  kinds of file wrong
+  kinds of file wrong, and how the pipeline corrects them
+- `knowledge/ghidra-upstream-mzloader.md` — the two MZ loader divergences
+  written up as an issue for Ghidra, with a reproducer; drafted, not filed
 - `tests/sopwith/CASE-STUDY.md` — the whole method worked through, including the
   hypotheses that turned out wrong
 - `tests/com/CASE-STUDY.md` — a 1982 `.COM` game rebuilt byte-for-byte, and the

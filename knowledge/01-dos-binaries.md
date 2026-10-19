@@ -31,6 +31,13 @@ loader differs on both (`04-pitfalls.md`):
 alone: the module's file range and digest, every relocation with its word
 before and after the fixup, the entry and stack, anything appended.
 
+The pipeline corrects both divergences by default, before anything reads the
+program's bytes, then checks the result against the file, not against the
+correction. The corrections are recorded: each one, with its value before and
+after, in `load-corrections.json`, and the count in `loadimage.json` and in
+`functions.json`. `-NoLoadCorrection` leaves Ghidra's own load in place to
+compare.
+
 A `.COM` file has no header at all: it loads at offset `0x100` in a single
 segment. Tell the disassembler that base or every address is wrong by `0x100`.
 

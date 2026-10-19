@@ -21,7 +21,9 @@ and built here from nothing, has four parts:
    down before import and checked against what the export observed.
 3. **Load-image verification**: right after import, a check that Ghidra's
    program is the file — the same bytes, at the addresses the header implies,
-   every relocation applied once per entry (prompt 02).
+   every relocation applied once per entry (prompt 02). Before it, the two
+   loads Ghidra is known to get wrong are corrected, and every correction is
+   recorded (prompt 02a); the check does not take the corrector's word.
 4. **Stale-result protection**: every tool that reads `functions.json` beside
    an executable checks that the export was made from that executable.
 
@@ -30,7 +32,10 @@ and built here from nothing, has four parts:
 `tools/evidence.py` builds it; `triage.py`, `survey.py` and `mzinfo.py` emit
 it with `--evidence FILE`, or `--evidence -` for the envelope alone on stdout.
 `tools/analysis_profile.py` writes two more: `profile.json` and `handshake.json`.
-`tools/loadimage.py` writes `loadimage.json`.
+`tools/loadimage.py` writes `loadimage.json`. `load-corrections.json`, written
+by `CorrectMzLoad.java`, is a record of its own (schema
+`dos-decompiler/load-corrections/1`), not an envelope: it states what the script
+did, and nothing in it is a finding.
 
 | field | what it holds |
 |---|---|
@@ -280,6 +285,7 @@ envelope whose `profile` is:
 | `recovery` | `{ran, script_sha256}` | a mark `RecoverFunctions.java` leaves in Program Information |
 | `export` | `{script_sha256, helper_sha256}` of `ExportDecompiledC.java` and `LoadImageMap.java` | each hashes its own source into `observed_profile` |
 | `load_image_dump` | the same for `DumpLoadImage.java` and `LoadImageMap.java` | each hashes its own source into the dump; held to it by `loadimage.py verify`, not the handshake |
+| `load_correction` | `{ran, script_sha256, helper_sha256}` of `CorrectMzLoad.java` and `LoadImageMap.java`; `ran: false` and `null` hashes under `-NoLoadCorrection` | a mark `CorrectMzLoad.java` leaves in Program Information, with the count; `ran` and `script_sha256` are compared, and the helper's hash is held by `loadimage.py verify`, which checks the corrections record was written by the copy in this checkout |
 
 `LoadImageMap.java` is a plain class, not a script: the walk over where the
 file's bytes landed, and the self-hash, shared by the exporter and the dumper
@@ -317,8 +323,10 @@ logic needed. Tested on a copy of the toolkit in a git repository of its own: a
 commit to `knowledge/17-evidence.md` moved `toolkit_version` (`4b21af0` →
 `433afa4` in one run — the throwaway repository's own hashes, different every
 run) and left `profile_id` alone; an edit to `tools/evidence.py` made
-`toolkit_version` dirty and left it alone; an edit to any one of the four hashed
-files moved it, and `analysis_code.files` named that file and no other.
+`toolkit_version` dirty and left it alone; an edit to any one of the hashed
+files moved it, and `analysis_code.files` named that file and no other. That
+was four files when first measured; the test now edits every file
+`analysis_code` lists, seven since prompt 02a added `CorrectMzLoad.java`.
 
 ### Line endings
 
@@ -380,9 +388,10 @@ Two of those are worth knowing on their own:
 
 ### The handshake
 
-After export, `analysis_profile.py check` compares thirteen fields — the eleven
-the export observes, the exporter's and its helper's own hashes among them, and
-the target's SHA-256 and size from `profile.json` against `functions.json` —
+After export, `analysis_profile.py check` compares fifteen fields — the
+thirteen the export observes, the exporter's and its helper's own hashes and
+the load corrector's mark among them, and the target's SHA-256 and size from
+`profile.json` against `functions.json` —
 and writes `handshake.json`, status `verified` or `mismatch`, one
 `profile-field` evidence item per field. On any difference the pipeline stops:
 
@@ -398,7 +407,7 @@ Exception: E:\Projects\DOS-Decompiler\tools\pipeline.ps1:221
 That run was forced: `DOS_DECOMPILER_FORCE_DRIFT=compiler_spec=borland` makes
 `analysis_profile.py write` expect a wrong value, and announces itself on stderr when it
 does. It exists so a test can prove the check fails; never set it for real
-work. `tests/evidence/` drifts each of the thirteen fields in turn against
+work. `tests/evidence/` drifts each of the fifteen fields in turn against
 hand-written exports and requires each to be refused by name;
 `tests/handshake/` forces the drift above through Ghidra itself.
 
@@ -433,8 +442,8 @@ The profile says which settings Ghidra used. It does not say that Ghidra's
 program *is the file*: the same bytes, at the addresses the MZ header implies,
 every relocation applied once per entry. A loader that drops part of the image
 or applies a fixup the wrong number of times produces decompiled C that looks
-perfectly normal. So stage 3 of the pipeline checks it, right after import and
-before anything is built on the program.
+perfectly normal. So stage 4 of the pipeline checks it, right after import and
+correction, and before anything is built on the program.
 
 | side | what | where |
 |---|---|---|
@@ -488,6 +497,93 @@ image but inside its last page do reach memory under DOS. This check keeps the
 prompt's definition: the module is the header-declared image, and anything
 after it is reported as appended, its digest kept, outside the module.
 
+### Correcting the two, then checking anyway
+
+Refusing such a file left two bad choices: stop, or analyse a load known to be
+wrong. So stage 3, `tools/ghidra_scripts/CorrectMzLoad.java`, corrects those
+two divergences and nothing else, after import and before anything reads the
+program's bytes. It reads the record `loadimage.py expected` writes, whose path
+it is given as an argument.
+
+| divergence | what the corrector does |
+|---|---|
+| the last page is missing (bytes-on-last-page 0, and Ghidra's mapping ends exactly one page short of the module) | maps the missing file range at its expected addresses, from Ghidra's own copy of the file, and joins it to the block before it. Ghidra places the minalloc block right where the page belongs, so that block is moved after the page, with its name, size and permissions. Relocations inside the page are applied as DOS applies them |
+| a word listed in several relocation entries | writes the file word plus the load segment once per entry, modulo `0x10000`; the relocation table stays as Ghidra recorded it |
+
+How to restore the page was measured on 12.1.2 rather than chosen. A new
+initialised block from the file bytes, at `1006:0160` in the segment of the
+block before it, joins to that block: `CODE_3` becomes `1006:0000..035f`, one
+block backed by one run of the file. A new block on its own is the fallback.
+No fixture needed it, but forced by disabling the join, it verified as well;
+only the record says which happened (`a block of its own (CODE_3_page)`).
+
+It changes nothing if the expected record did not come out `ok`, if the program
+has no copy of the file, if that copy's hash is not the target's, or if Ghidra
+put the image at another load segment than the record expects. Both
+corrections are computed from that segment, so under a forced `load_segment`
+drift to `0x2000` the corrector would otherwise write `0x4004` where DOS writes
+`0x2004`; it refuses, and the load-segment check stops the run (tested). It
+corrects nothing it was not written for: a third kind of difference stays a
+mismatch for the verifier to report. Each run writes `load-corrections.json`,
+with the script's own hash folded as in [line endings](#line-endings). On the
+fixture with both divergences:
+
+```json
+{"kind": "missing-last-page", "file_start": 512, "file_end_inclusive": 1023,
+ "linear_start": 65984, "linear_end_inclusive": 66495, "address": "1006:0160",
+ "before": "not loaded",
+ "after": "file 0x200..0x3ff mapped at 1006:0160, joined to CODE_3",
+ "uninitialized_moved": "DATA 1006:0160 size 256 -> DATA 1006:0360 size 256",
+ "fixups": []},
+{"kind": "duplicated-relocation", "address": "1006:0016", "linear": 65654,
+ "file_offset": 182, "entries": 2, "relocation_records": 2,
+ "before": "0x1004", "after": "0x2004"}
+```
+
+**The verifier does not trust the corrector.** It checks only where the record
+came from: `corrector.script_sha256`, `corrector.helper_sha256` and
+`corrector.target`, so a fixture's 28 checks become 31. Everything else is
+compared with the file exactly as though no corrector existed. A dump changed
+after correction is still a mismatch, tested. The record's corrections are
+copied into `loadimage.json` (`corrections`, `corrections_made`,
+`correction_record`), and the count reaches `functions.json`:
+
+```json
+"load_image": {"status": "verified", "corrections": 2, "mismatch_allowed": false, "record": "loadimage.json"}
+```
+
+`corrections` is `null` when the corrector did not run, `0` for a clean load,
+and the count otherwise, so a reader can always tell a clean load from a
+corrected one. The prose says `load image: verified after 2 corrections (see
+load-corrections.json), 31 checks agree`.
+
+On a clean file it corrects nothing and says so. The dump is byte for byte
+Ghidra's own (tested on the good fixtures). It still writes one thing into the
+program: its mark in Program Information, with the count 0. That is how the
+export proves the corrector ran, which copy, and with what result, as
+`RecoverFunctions.java`'s mark does.
+
+`-NoLoadCorrection` skips it, to see Ghidra's raw load. The two fixtures then
+stop with prompt 02's mismatches, word for word (tested), and the profile
+expects `load_correction.ran: false`.
+
+What it cannot correct: a relocation *inside* the missing page. The corrector
+restores the page and applies the fixup (`1006:0172: 0x0004 -> 0x1004` on the
+`TAIL_RELOCATION` fixture). But the relocation record Ghidra wrote for it says
+`FAILURE`, with no original bytes, and nothing in the program API rewrites a
+relocation record. So `relocations.status` and `relocations.original` still
+fail, and the run stops, which is the verifier doing its job.
+
+**Analysis now runs after verification.** In 02, import ran Ghidra's
+auto-analysis, which reads every byte, so the page would have been missing
+while functions were found. Import now uses `-noanalysis`, and stage 5 runs the
+analysis in its own invocation, then recovery in another. They are separate
+because combined, on a 51,904-byte real game, the export came out with one
+function more (171, not 170) and 11 of the other records changed: Ghidra
+analyses what the script creates. Separately, it matched the
+export from before this prompt record for record, and the segments fixture's
+export matched too.
+
 ### The checks, in the order a failure is reported
 
 | check | holds that |
@@ -504,6 +600,7 @@ after it is reported as appended, its digest kept, outside the module.
 | `module.loaded`, `file.modified` | the module in memory, and Ghidra's own patched copy of the file, are the file with fixups applied |
 | `overlay.excluded` | nothing past the declared image was loaded |
 | `entry`, `stack` | `CS:IP` and `SS:SP` as the header gives them |
+| `corrector.script_sha256`, `.helper_sha256`, `.target` | only when the corrector ran: `load-corrections.json` was written by the `CorrectMzLoad.java` and `LoadImageMap.java` in this checkout, about this file. Where it came from, never what it says it did |
 
 **A relocated word differs from the file word by design.** Every memory digest
 is taken against the file *with the fixups applied*, never the file as stored,
@@ -540,19 +637,27 @@ initialised byte, file offset to address to file offset.
 ### In the pipeline
 
 ```
-[3/5] Verify the load image
+[3/6] Correct the load
+  correcting what the loader is known to get wrong
+    INFO  CorrectMzLoad.java> CorrectMzLoad: 0 correction(s); Ghidra loaded the image at segment 0x1000, the expected record at 0x2000, so nothing is corrected -> segdrift\load-corrections.json (GhidraScript)
+    corrected in 8.3 s; the record is segdrift\load-corrections.json
+
+[4/6] Verify the load image
   dumping what Ghidra loaded
-    INFO  DumpLoadImage.java> DumpLoadImage: 4 blocks, 2 relocations, 1 entry point(s) -> segdrift\loadimage-observed (GhidraScript)
-    load image: mismatch, 10 of 24 checks failed
+    INFO  DumpLoadImage.java> DumpLoadImage: 6 blocks, 4 relocations, 1 entry point(s) -> segdrift\loadimage-observed (GhidraScript)
+    load image: mismatch, 14 of 31 checks failed
     first failing check: load-segment: expected 0x2000, observed 0x1000
-    checked in 6.0 s; the record is segdrift\loadimage.json
-Exception: E:\Projects\DOS-Decompiler\tools\pipeline.ps1:172
-     | load image mismatch, stopping before anything is built on it: load image: mismatch, 10 of 24 checks failed;
+    checked in 8.0 s; the record is segdrift\loadimage.json
+Exception: E:\Projects\DOS-Decompiler\tools\pipeline.ps1:212
+     | load image mismatch, stopping before anything is built on it: load image: mismatch, 14 of 31 checks failed;
      | first failing check: load-segment: expected 0x2000, observed 0x1000. Read segdrift\loadimage.json; pass
      | -AllowLoadMismatch to continue anyway.
 ```
 
-(That one is the forced `load_segment` drift the handshake used to catch.)
+(That one is the forced `load_segment` drift the handshake used to catch, on
+the `tests/loadimage` fixture. The corrector refuses first, because both of its
+corrections depend on the load segment. The stage times are from a run while
+the machine was busy with other work.)
 
 Anything but `verified` — `mismatch`, `unsupported`, or `blocked` when there is
 no dump to compare — stops the run. `-AllowLoadMismatch` goes on with a banner
@@ -562,18 +667,31 @@ an argument at `=` and that form never arrived), and lands in
 `functions.json`:
 
 ```json
-"load_image": {"status": "mismatch", "mismatch_allowed": true, "record": "loadimage.json"}
+"load_image": {"status": "mismatch", "corrections": null, "mismatch_allowed": true, "record": "loadimage.json"}
 ```
+
+(That is `-NoLoadCorrection -AllowLoadMismatch` on the full-last-page fixture,
+so `corrections` is `null`: the corrector did not run.)
 
 Every reader of such a `functions.json` then warns, once, with the first
 failing check from the `loadimage.json` beside it. It does not refuse: going on
 was someone's explicit decision.
 
-Measured cost: the stage took 5.0 to 5.2 s in three runs each on the two
-largest fixtures, of a 22 s pipeline. On six real MZ files of 51,904 to
-171,917 bytes it took 5.2 to 6.5 s. The Python comparison is 0.17 s of that on the largest; the
-rest is starting Ghidra headless once more. All six verified (24 to 30 checks),
-one with 340 bytes appended past its image, kept out of the module.
+Measured cost, prompt 02: the check took 5.0 to 5.2 s in three runs each on
+the two largest fixtures, of a 22 s pipeline. On six real MZ files of 51,904
+to 171,917 bytes it took 5.2 to 6.5 s. The Python comparison is 0.17 s of that
+on the largest; the rest is starting Ghidra headless once more. All six
+verified (24 to 30 checks), one with 340 bytes appended past its image, kept
+out of the module.
+
+Measured cost, prompt 02a, in eight runs on three fixtures while the machine
+was otherwise quiet: correcting took 4.9 to 5.3 s, checking 4.9 to 5.6 s, and
+the whole pipeline 31.6 to 34.9 s, with one run at 38.3 s. That is about 10 s
+more than prompt 02's 22 s. The extra time is two more starts of Ghidra
+headless: the corrector's, and analysis now running on its own instead of
+during import. On the six real files, correcting took 5.0 to 5.6 s. Every one
+verified with 0 corrections and 27 to 33 checks, and its dump was identical to
+prompt 02's.
 
 ## Stale results
 
