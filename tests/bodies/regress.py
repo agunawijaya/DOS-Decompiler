@@ -498,9 +498,11 @@ def _():
     last = r.stdout.strip().splitlines()[-1]
     if not last.startswith(f"1 unclaimed range looks like code: {a(L('orphan'))}"):
         raise AssertionError(f"last line {last!r}")
-    if env["result"]["overlaps"] != 3 or env["result"]["load_image"] != "verified":
+    if env["result"]["overlaps"] != 3 or env["result"]["load_image"] != "verified" \
+            or env["result"]["tail_calls"] != 1:
         raise AssertionError(f"overlaps {env['result']['overlaps']}, "
-                             f"load image {env['result']['load_image']}")
+                             f"load image {env['result']['load_image']}, "
+                             f"tail calls {env['result']['tail_calls']}")
     return f"table at {table['start']}: {table['detail']}; {last}"
 
 

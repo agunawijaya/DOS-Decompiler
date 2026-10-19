@@ -321,6 +321,10 @@ def analyse(functions_path, exe=None, loadimage_path=None, min_instructions=3,
         "non_contiguous": split,
         "overlaps": len(overlaps),
         "overlap_bytes": sum(o["bytes"] for o in overlaps),
+        # Jumps into a function something calls: ordinary tail calls, which
+        # end a claim rather than extend it (17-evidence.md). None in an
+        # export from before prompt 03a, which had no such list.
+        "tail_calls": len(data["tail_calls"]) if "tail_calls" in data else None,
         "entry_outside_body": outside,
         "unclaimed": unclaimed,
         "unclaimed_bytes": sum(u["bytes"] for u in unclaimed),
@@ -384,6 +388,9 @@ def summary(env, show=40):
         if item["kind"] == "body-overlap":
             out.append(f"  {item['location']['address']}..{item['location']['end']}  "
                        + "; ".join(item["value"]))
+    if r.get("tail_calls") is not None:
+        out.append(f"tail calls  : {r['tail_calls']} (jumps into a function something "
+                   f"calls; see tail_calls)")
     if r["entry_outside_body"]:
         out.append("entry outside body: " + ", ".join(
             f"{o['entry']} {o['name']}" for o in r["entry_outside_body"]))
