@@ -9,6 +9,21 @@ script's work.** `RecoverFunctions` reported creating 100 functions; the
 exporter that ran immediately after saw 232, the pre-recovery count. Run each
 script as its own `analyzeHeadless` invocation against the saved project.
 
+*Measured again on Ghidra 12.1.2 (2026-10-19), it did not reproduce.* With a
+fixture recovery adds two functions to, chaining both scripts on `-import` and
+on `-process -noanalysis` each exported all seven functions, the same as
+separate invocations. The version that lost them was not recorded. The
+pipeline keeps the separate invocations, which cost nothing; what it now
+checks instead is in `17-evidence.md` — whether recovery ran, by a mark the
+script leaves in the program.
+
+**`getImageBase()` is not the load segment.** Ghidra's MZ loader puts image
+byte 0 at `1000:0000`, and `Program.getImageBase()` returns `0000:0000` for the
+same program (measured, Ghidra 12.1.2). The `image_base` field in
+`functions.json` has always been that value. Read it as the load segment and
+every address is `0x10000` out. `observed_profile.load_segment` is the real
+one, worked out from where the file's bytes landed.
+
 **Ghidra's MZ loader marks every segment executable, including data.** Any
 scan that trusts `block.isExecute()` will happily create functions inside
 sprite bitmaps. Filter to blocks that contain the entry point or already

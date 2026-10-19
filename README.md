@@ -454,6 +454,15 @@ functions.json    187,852 bytes
 mzinfo.txt          2,445 bytes
 ```
 
+That listing predates two more files the pipeline now writes. `profile.json`
+records, before import, the loader, language, load segment and recovery the run
+expects Ghidra to use; after export the pipeline compares it with what
+`functions.json` says Ghidra actually did, writes `handshake.json`, and stops
+with the field, the expected value and the observed one if they differ.
+`functions.json` also records the SHA-256 of the file it describes, and every
+tool that reads it beside an executable refuses one made from a different file.
+See [`knowledge/17-evidence.md`](knowledge/17-evidence.md).
+
 ### 4. The wall
 
 `decompiled.c` is 311 KB of this:
@@ -544,6 +553,9 @@ python tools\survey.py path\to\game\folder
 
 # 0a. Is that one in scope?
 python tools\triage.py path\to\GAME.EXE
+#     The same findings as JSON, each with where it was seen. survey.py and
+#     mzinfo.py take --evidence too. See knowledge/17-evidence.md.
+python tools\triage.py path\to\GAME.EXE --evidence -
 
 # 0b. If it says packed:
 python tools\unpack.py path\to\GAME.EXE -o unpacked.exe
@@ -554,12 +566,14 @@ python tools\triage.py unpacked.exe
 python tools\comrec.py path\to\GAME.COM --out src\game.asm
 nasm -f bin -o rebuilt.com src\game.asm      # then compare SHA-256 yourself
 
-# 1. Structure, decompilation, function recovery
+# 1. Structure, decompilation, function recovery. Writes profile.json first
+#    and stops after export if Ghidra did not do what the profile expected.
 .\tools\pipeline.ps1 -Exe path\to\GAME.EXE -OutDir .\out
 
-# 2. Names from evidence alone — no reference source needed
-python tools\anchors.py out\functions.json --entry 1000:8b46 `
-       --report out\anchors.txt --names out\names.json
+# 2. Names from evidence alone — no reference source needed.
+#    --exe refuses a functions.json that was made from a different file.
+python tools\anchors.py out\functions.json --exe path\to\GAME.EXE `
+       --entry 1000:8b46 --report out\anchors.txt --names out\names.json
 
 # 3. Strip the C runtime so it stops competing for matches
 python tools\libsig.py apply path\to\GAME.EXE out\functions.json `
@@ -701,7 +715,10 @@ python survey.py game
 ### Entry points
 
 Every tool is plain Python or PowerShell with `--help`, so any agent that can
-run a shell can drive this. Two entry points:
+run a shell can drive this. The first-step tools — `survey.py`, `triage.py`,
+`mzinfo.py` — also take `--evidence -`, which prints their findings as JSON with
+the file offset behind each one, so an agent does not have to parse the prose.
+Two entry points:
 
 | File | For |
 |---|---|
@@ -794,7 +811,12 @@ tools/
     probelib.py              name C library routines by calling them
   gfxdump.py                 render a region as CGA graphics to a PNG, without running it
   placements.py              recover "draw sprite S at column C row R" from the code
-  pipeline.ps1               one command: .EXE in, decompiled C out
+  pipeline.ps1               one command: .EXE in, decompiled C out, held to
+                             the profile it expected
+  profile.py                 the analysis profile, and the handshake that refuses
+                             an export produced under anything else
+  evidence.py                the evidence envelope every --evidence writes, and
+                             the check that refuses a stale functions.json
   mzinfo.py                  MZ structure, segments, packer and overlay detection
   anchors.py                 identify functions from evidence, with no source
   libscan.py                 find the C runtime using the compiler's own .LIB,
@@ -828,10 +850,16 @@ knowledge/
   12-hooking-the-right-thing.md  running a program to find what reading cannot
   13-naming-hand-written-assembly.md  three games with no compiler in them
   14-translated-binaries.md  the 8086 program that is really 6502 code
+  15-adventure-engine-shape.md  recognising 1980s adventure-game engines
+  16-emulator-driven-exploration.md  scripted emulation for adventure engines
+  17-evidence.md             evidence envelopes, the analysis profile, stale results
 signatures/                  C runtime fingerprints: MS C 5.0, MS C 5.1, Watcom
+tests/run-all.ps1            every suite this machine can run; skips say why
 tests/sopwith/               the validation fixture and full case study
 tests/com/                   .COM fixtures, rebuilt byte-identically on every run
 tests/libscan/               entry-point recovery, checked against the MZ header
+tests/evidence/              envelopes, the handshake's logic, stale-result refusal
+tests/handshake/             the profile handshake run through Ghidra itself
 AGENTS.md                    the method, for any agent or human
 SKILL.md                     Claude Code wrapper
 env.example.ps1              copy to env.ps1, point at your own tool copies
@@ -840,6 +868,18 @@ env.example.ps1              copy to env.ps1, point at your own tool copies
 ---
 
 ## Verifying a change
+
+Run every suite this machine can run, and see which it could not:
+
+```powershell
+.\tests\run-all.ps1 -Python C:\path\to\python.exe
+```
+
+One row per suite — PASS, FAIL or SKIP, the seconds it took, and for a skip the
+exact reason: NASM not found, Ghidra not configured, capstone not importable,
+the Sopwith source not given. A skipped suite is never counted as passed. Pass
+`-Python` where several interpreters are installed: the first `python` on PATH
+is not always the one with capstone and unicorn.
 
 Sopwith is the fixture, because its source survives and a rebuild comes with a
 linker map that states exactly where every function is.

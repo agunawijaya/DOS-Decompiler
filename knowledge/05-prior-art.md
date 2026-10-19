@@ -76,6 +76,62 @@ functions to decide equivalence. Spice86 does the general version.
 If a game resists static analysis, or you want a working port rather than a
 readable listing, start there instead.
 
+## rea — an MCP server in front of Ghidra, for the same binaries
+
+<https://github.com/morluto/rea> — "REA: Reverse Engineer Anything". MIT
+licensed (its own code; third-party material keeps its licences).
+
+An MCP server and command line, distributed on npm as `rea-agents`, that
+connects an agent to analysis tools for native binaries, JavaScript and
+Electron apps, .NET assemblies, websites and a long list of other targets.
+Native analysis goes through a Hopper, Ghidra or IDA installation the user
+supplies. Read on 2026-10-19: its README and `docs/ghidra-dos.md`.
+
+**Where it overlaps.** Its Ghidra adapter analyses DOS MZ executables, and
+`.COM` images when the caller selects that interpretation explicitly. It
+imports MZ with `MzLoader`, language `x86:LE:16:Real Mode`, compiler spec
+`default`, at load segment `0x1000` — the values measured independently here
+on Ghidra 12.1.2 (`17-evidence.md`). A `.COM` goes through `BinaryLoader` with
+file offset zero at `1000:0100`. Two of its showcases are DOS-era: a DX-Ball
+sound-pan routine reconstructed in C that "passes 3,205 original-x86 cases and
+reproduces all 63 compiled function bytes", and a bullet-ring calculation from
+the PC-98 game TH04.
+
+One convention differs, and it matters when moving addresses between the two:
+rea returns **linear** addresses (`0x10000`), and this toolkit's
+`functions.json` writes **segment:offset** (`1000:0000`). Same byte.
+
+**Where it stops**, in its own words or by absence from its DOS guide:
+
+- No emulation. "Static decompilation does not execute the target or emulate
+  BIOS, DOS interrupts, device ports, or self-modifying code."
+- No unpacking. A packed file is analysed as its stub; "analyze a separately
+  prepared unpacked copy".
+- No function recovery beyond Ghidra's. A function's body is Ghidra's address
+  set, "not a proof of original source ownership or exhaustive code
+  discovery" — the gap `RecoverFunctions.java` exists for.
+- No C runtime signatures; nothing in its DOS documentation identifies library
+  code.
+
+**What this series borrows**, as ideas, with no code taken:
+
+- every result carrying its evidence, its limitations and what remains unknown
+  (`17-evidence.md`);
+- the analysis settings written down as a profile, with a handshake that
+  refuses results produced under different ones;
+- results tied to the target's size and SHA-256, so a stale one cannot pass
+  for a current one;
+- checking the loaded image against the file instead of trusting the import;
+- a function's extent as inclusive address ranges rather than one size;
+- annotation that reads back what it wrote and rolls back if that fails;
+- exhaustive comparison of a reconstruction against the original binary's own
+  behaviour, the DX-Ball way;
+- one MCP server in front of the tools.
+
+The division of labour that falls out: rea is a general, careful front end to
+a decompiler; this toolkit is narrow and goes further on the one platform,
+because the hard parts of 1980s DOS are upstream and downstream of Ghidra.
+
 ## unDRC — not related
 
 <https://github.com/Utodev/unDRC>

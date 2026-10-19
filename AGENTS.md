@@ -86,8 +86,17 @@ Then triage the executable it points at.
 python tools/triage.py GAME.EXE
 ```
 
-**Never skip this, and report its verdict before promising anything.** Common
-DOS programs that fall outside the toolkit:
+**Never skip this, and report its verdict before promising anything.**
+
+An agent should read `python tools/triage.py GAME.EXE --evidence -` rather than
+the prose: the same findings as JSON, each with the file offset it rests on,
+the verdict in `result`, what the checks cannot see in `limitations`, and the
+questions this file raised in `unknowns`. `survey.py` and `mzinfo.py` take the
+same flag. Report the unknowns along with the verdict; they are the part a
+person reading the prose most often loses. `knowledge/17-evidence.md` has the
+schema.
+
+Common DOS programs that fall outside the toolkit:
 
 - **Packed** executables — LZEXE, PKLITE, EXEPACK, DIET. Decompiling gets you
   the decompressor. Run `tools/unpack.py` first.
@@ -322,7 +331,17 @@ analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
 Or just `tools/pipeline.ps1 -Exe GAME.EXE -OutDir out`, which does all three.
 
 **Run these as three separate invocations.** Chaining two `-postScript` flags in
-one command silently loses the first script's changes.
+one command silently lost the first script's changes on an earlier Ghidra; on
+12.1.2 it did not reproduce, but the separate runs cost nothing.
+
+`pipeline.ps1` writes `profile.json` before import — the loader, language,
+load segment and recovery it expects — and after export compares it with what
+`functions.json` says Ghidra actually did. On any difference it stops with the
+field, the expected value and the observed value. **Do not work around that
+stop.** It means every address and fingerprint in the export was produced under
+settings the rest of the toolkit does not assume; find out why first. If you
+run the three steps by hand, run `python tools/profile.py write` before and
+`python tools/profile.py check` after.
 
 `RecoverFunctions.java` exists because Ghidra's auto-analysis is not enough here.
 Games dispatch through function-pointer tables and install interrupt handlers by
@@ -339,9 +358,15 @@ Do this first, always. It needs no reference source, and what it finds is fact
 rather than inference.
 
 ```
-python tools/anchors.py OUTDIR/functions.json --entry <CS:IP from mzinfo> \
-       --report anchors.txt --names names.json
+python tools/anchors.py OUTDIR/functions.json --exe GAME.EXE \
+       --entry <CS:IP from mzinfo> --report anchors.txt --names names.json
 ```
+
+`--exe` makes it refuse a `functions.json` that was made from a different file.
+`libsig.py`, `match.py`, `modcluster.py` and `emuverify.py` do the same; a
+`functions.json` from before the toolkit recorded its target opens with one
+warning. If a tool refuses, regenerate the export — do not pass a different
+executable to make it agree.
 
 It reports every function carrying identifying evidence — interrupts, I/O ports,
 string references, video constants — and writes names that claim only what was
@@ -498,6 +523,11 @@ inference.**
 
 ## Validating a change to the toolkit
 
+Run `tests/run-all.ps1` before the change and after it, and keep both tables.
+It runs every `tests/*/regress.py` this machine can run and reports the rest as
+skipped with the reason. A skip is not a pass: say which suites did not run,
+and if a change could move what one of them measures, say that too.
+
 Sopwith is the regression fixture. `tests/sopwith/` has the build recipes that
 produce a ground-truth binary plus a linker map, so any change can be scored
 against a known-correct answer:
@@ -544,6 +574,10 @@ not mean nothing got worse.
   (unbounded restart loops, silent progress, shared observation/decision
   sets) and the mini-port method for turning one puzzle into teaching
   material
+- `knowledge/17-evidence.md` — the evidence envelope (`--evidence`), the
+  analysis profile and its handshake, and the refusal of a stale
+  `functions.json`; including the measured fact that Ghidra's `image_base` is
+  not the load segment
 - `tests/sopwith/CASE-STUDY.md` — the whole method worked through, including the
   hypotheses that turned out wrong
 - `tests/com/CASE-STUDY.md` — a 1982 `.COM` game rebuilt byte-for-byte, and the
