@@ -388,6 +388,10 @@ def report(s):
         star = " <== likely the game" if s["main"] and e["path"] == s["main"]["path"] else ""
         A(f"  {e['path']:<28} {e['size']:>9,}  {e.get('verdict', '?')}{star}")
         if e.get("blockers"):
+            # Not deduplicated, unlike triage.py's own report: a file both
+            # EXEPACK checks catch prints "packed with Microsoft EXEPACK"
+            # twice here. Left as it is because this output is pinned byte for
+            # byte; the envelope keeps the line once.
             for b in e["blockers"]:
                 A(f"      blocker: {b}")
         elif e.get("model"):

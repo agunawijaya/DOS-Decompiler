@@ -42,11 +42,20 @@ rather than as matches.
 
 Either map may be a functions.json from the pipeline instead. It is checked
 against the executable beside it on the command line and refused if it was
-made from a different file (tools/evidence.py).
+made from a different file, or if the handshake.json beside it says the
+export drifted from its profile; --accept-profile-drift reads it anyway, and
+says so (tools/evidence.py).
+
+The report goes to stdout; --json writes the full result, matches, ambiguous
+and uninformative functions included. --dgroup-a/--dgroup-b give the data
+segment paragraph when it cannot be read from the map or the relocations,
+--limit profiles only the first N functions of each side, and --quiet drops
+the progress lines on stderr.
 
 Usage:
-    python emuverify.py a.exe a.map b.exe b.map --report out.md
-    python emuverify.py a.exe a.map b.exe b.map --pairs candidates.json
+    python emuverify.py a.exe a.map b.exe b.map
+    python emuverify.py a.exe a.map b.exe b.map --json result.json --quiet
+    python emuverify.py known.exe known.map target.exe out/functions.json
 """
 
 import argparse

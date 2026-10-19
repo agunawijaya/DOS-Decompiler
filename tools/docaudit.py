@@ -18,8 +18,12 @@ It does not know what a number *should* be. It finds the shapes a count takes,
 prints each next to the line it came from, and prints what the symbol file says
 now, so the comparison is one glance instead of a search.
 
+Every symbols.json under the path is found and summarised on its own; there is
+no flag to name one. --kind narrows the listing to one shape of count.
+
     python docaudit.py ../retro-ports/karateka
-    python docaudit.py ../retro-ports --symbols karateka/symbols.json
+    python docaudit.py ../retro-ports --kind routines --kind globals
+    python docaudit.py .                  # this toolkit's own documents
 """
 
 import argparse
