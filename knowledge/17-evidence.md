@@ -1025,7 +1025,18 @@ The mapping is `match.py --json` or `anchors.py --names`; both are
 |---|---|---|
 | `ok` | 0 | the batch was applied, or a dry run found nothing to refuse |
 | `blocked` | 3 | an entry failed validation, the mapping was unreadable, or the script did not run: nothing was written |
-| `blocked` | 1 | a write or readback failed and the batch was rolled back: nothing was kept |
+| `blocked` | 1 | a write or readback failed and the batch was rolled back: nothing was kept, and a read-only pass confirms it |
+| `mismatch` | 4 | rolled back, but the read-only pass found the batch's changes still there |
+
+The abort takes effect only when the writing script ends, so that script can
+never see its own rollback. After one, `applynames.py` runs the script again
+with `readback`, `-readOnly`. That pass writes nothing: it reads every
+entry's name and its PRE, plate and EOL comments into
+`applynames-readback.json`, and each is held to what it was before the batch
+(`result.rollback`: `confirmed`, `checked`, `differences`, `seconds`).
+Measured: 5.3 to 7.7 s for the pass, in four runs on the bodies fixture. With the abort disabled the
+pass reports every difference and the exit is 4, which is how
+`tests/applynames` shows it can fail.
 
 Each entry's outcome is `applied`, `would-apply` (dry run),
 `skipped-below-floor`, `refused` with the reason, or `rolled-back`. The result

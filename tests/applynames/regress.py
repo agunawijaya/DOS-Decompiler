@@ -271,22 +271,27 @@ def _():
     return "plate " + " -> ".join(seen) + ", read back and re-exported"
 
 
-@case("a fault in the readback rolls the whole batch back")
+@case("a fault in the readback rolls the whole batch back, and a read-only pass confirms it")
 def _():
     found = []
     for fault in ("readback", "throw"):
         out = copy_of_base(f"fault-{fault}")
         code, log, res = apply(out, VALID(), fault=fault)
         entries = res["result"]["entries"]
+        rollback = res["result"].get("rollback") or {}
         if code != 1 or res["status"] != "blocked" or res["result"]["phase"] != "rolled-back" \
                 or [e["outcome"] for e in entries[:2]] != ["rolled-back", "rolled-back"]:
-            raise AssertionError(f"{fault}: exit {code}, {res['result']['phase']}, "
-                                 f"{outcomes(res)}")
+            raise AssertionError(f"{fault}: exit {code}, {res['status']}, "
+                                 f"{res['result']['phase']}, {outcomes(res)}; the read-only "
+                                 f"pass: {rollback.get('differences')}")
+        if not rollback.get("confirmed") or rollback.get("checked") != 2:
+            raise AssertionError(f"{fault}: rollback not confirmed: {rollback}")
         names, c = reexport(out)
         untouched(names)
         if "first plate" in c or "identified as" in c:
             raise AssertionError(f"{fault}: a comment survived the rollback")
-        found.append(f"{fault}: {entries[1]['reason'][:60]}")
+        found.append(f"{fault}: {entries[1]['reason'][:50]}, confirmed in "
+                     f"{rollback['seconds']} s")
     return "; ".join(found) + "; re-export shows the original names"
 
 

@@ -33,8 +33,16 @@ Usage:
     python applynames.py names.json out/ --min-score 0.5 --certain 0.8
 
 Writes out/applynames-result.json (or --evidence). Exit codes: 0 applied, or a
-dry run with nothing refused; 1 rolled back, nothing kept; 3 blocked --
-refused before writing, or the script could not run.
+dry run with nothing refused; 1 rolled back, nothing kept, and a read-only
+pass confirms it; 3 blocked -- refused before writing, or the script could
+not run; 4 rolled back, but the read-only pass found the batch's changes
+still there (status mismatch).
+
+A rolled-back batch is confirmed rather than assumed. The abort takes effect
+only when the writing script ends, so that script cannot see it; a second,
+read-only headless run reads every entry back and holds each name and
+comment to what it was before the batch. Each headless run is stopped after
+--timeout seconds (default 900).
 """
 
 import argparse
@@ -42,6 +50,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -94,8 +103,45 @@ def blocked(reason, outdir):
                              limitations=LIMITATIONS)
 
 
+HEADLESS_TIMEOUT = 900     # seconds for one headless run before it is stopped
+
+
+def headless_run(args, timeout):
+    """Run analyzeHeadless; (log, None), or (None, why) when it ran out of time."""
+    try:
+        r = subprocess.run(args, capture_output=True, text=True, errors="replace",
+                           timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return None, (f"the headless run did not finish in {timeout} s and was stopped; "
+                      f"pass a longer timeout if the project is large")
+    return r.stdout + r.stderr, None
+
+
+def confirm_rollback(record, readback):
+    """Every rolled-back entry's name and comments, read back in a later run,
+    against what they were before the batch. Returns the differences."""
+    now = {e["index"]: e for e in readback["entries"]}
+    differences = []
+    for e in record["entries"]:
+        if e["outcome"] != "rolled-back":
+            continue
+        r = now.get(e["index"]) or {}
+        if not r.get("found"):
+            differences.append(f"entry {e['index']} at {e['address']}: no function there now")
+            continue
+        for what, before, after in (
+                ("name", "previous_name", "current_name"),
+                ("PRE comment", "previous_note", "current_note"),
+                ("plate comment", "previous_comment", "current_comment"),
+                ("EOL comment", "previous_inline_comment", "current_inline_comment")):
+            if e.get(before) != r.get(after):
+                differences.append(f"entry {e['index']} at {e['address']}: {what} is "
+                                   f"{r.get(after)!r}, was {e.get(before)!r} before the batch")
+    return differences
+
+
 def run(mapping, outdir, dryrun=False, min_score=None, certain=None, program=None,
-        project=None, project_name="target"):
+        project=None, project_name="target", timeout=HEADLESS_TIMEOUT):
     """Run ApplyNames.java and return (envelope, exit code)."""
     outdir = Path(outdir)
     script, why = headless()
@@ -123,8 +169,9 @@ def run(mapping, outdir, dryrun=False, min_score=None, certain=None, program=Non
         args.append("dryrun")
     # out:DIR, not out=DIR: cmd.exe splits a headless argument at '='.
     args.append(f"out:{outdir.resolve()}")
-    r = subprocess.run(args, capture_output=True, text=True, errors="replace")
-    log = r.stdout + r.stderr
+    log, why = headless_run(args, timeout)
+    if log is None:
+        return blocked(why, outdir), 3
     try:
         record = json.loads(record_path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -132,10 +179,41 @@ def run(mapping, outdir, dryrun=False, min_score=None, certain=None, program=Non
         return blocked(f"ApplyNames.java left no record ({e}); the end of the headless "
                        f"log:\n{tail}", outdir), 3
 
+    # A rollback takes effect only when the writing script ends (measured,
+    # knowledge/04-pitfalls.md), so that script cannot see it. A second,
+    # read-only run reads every entry back and holds it to what it was
+    # before the batch.
+    rollback = None
+    if record["phase"] == "rolled-back":
+        readback_path = outdir / "applynames-readback.json"
+        if readback_path.exists():
+            readback_path.unlink()
+        started = time.perf_counter()
+        log2, why = headless_run(
+            [str(script), str(project), project_name, "-process", program, "-noanalysis",
+             "-readOnly", "-scriptPath", str(SCRIPTS), "-postScript", "ApplyNames.java",
+             str(Path(mapping).resolve()), "readback", f"out:{outdir.resolve()}"], timeout)
+        seconds = time.perf_counter() - started
+        try:
+            readback = json.loads(readback_path.read_text(encoding="utf-8"))
+            differences = confirm_rollback(record, readback)
+            rollback = {"checked": sum(1 for e in record["entries"]
+                                       if e["outcome"] == "rolled-back"),
+                        "confirmed": not differences, "differences": differences,
+                        "readback": str(readback_path)}
+        except (OSError, ValueError, KeyError) as e:
+            tail = "\n".join((log2 or why or "").strip().splitlines()[-12:])
+            rollback = {"confirmed": False, "checked": 0,
+                        "differences": [f"the read-only pass left no readable record ({e}): "
+                                        f"{tail}"], "readback": str(readback_path)}
+        rollback["seconds"] = round(seconds, 1)
+
     entries = record["entries"]
     counts = Counter(e["outcome"] for e in entries)
     phase = record["phase"]
     status = "ok" if phase in ("applied", "dry-run") else "blocked"
+    if rollback is not None and not rollback["confirmed"]:
+        status = "mismatch"   # said rolled back, and a later read disagrees
     items = []
     for e in entries:
         name = e.get("applied_name") or e.get("requested_name")
@@ -149,6 +227,14 @@ def run(mapping, outdir, dryrun=False, min_score=None, certain=None, program=Non
         items.append(item)
     for p in record.get("problems") or []:
         items.append({"kind": "mapping", "level": "blocker", "claim": p})
+    if rollback is not None:
+        items.append({"kind": "rollback",
+                      "level": "info" if rollback["confirmed"] else "mismatch",
+                      "claim": ("rolled back, confirmed by a read-only pass"
+                                if rollback["confirmed"] else
+                                "rolled back, but a read-only pass found the batch's changes"),
+                      "value": {"checked": rollback["checked"],
+                                "differences": rollback["differences"]}})
     result = {
         "phase": phase, "transaction": record["transaction"], "dryrun": record["dryrun"],
         "mapping": record["mapping"], "program": record["program"],
@@ -162,13 +248,19 @@ def run(mapping, outdir, dryrun=False, min_score=None, certain=None, program=Non
             "previous_name", "stored_name", "note", "stored_note", "comment_given",
             "comment", "stored_comment", "inline_comment_given", "inline_comment",
             "stored_inline_comment", "long_routine", "outcome", "reason")} for e in entries],
+        "rollback": rollback,
     }
     target = record.get("target") or {}
     env = evidence.envelope("applynames", {"path": target.get("path"), "size": target.get("size"),
                                            "sha256": target.get("sha256")},
                             status=status, result=result, evidence=items,
                             limitations=LIMITATIONS)
-    code = 0 if status == "ok" else (1 if phase == "rolled-back" else 3)
+    if status == "ok":
+        code = 0
+    elif phase == "rolled-back":
+        code = 1 if rollback["confirmed"] else 4
+    else:
+        code = 3
     return env, code
 
 
@@ -177,8 +269,16 @@ def summary(env):
     if r.get("phase") == "not run":
         return [f"applynames: blocked: {r['reason']}"]
     counts = ", ".join(f"{n} {k}" for k, n in r["counts"].items()) or "no entries"
-    out = [f"applynames: {r['phase']} ({counts}) -- {r['program']}, transaction "
+    phase = r["phase"]
+    rollback = r.get("rollback")
+    if rollback is not None:
+        phase += (f", confirmed by a read-only pass ({rollback['checked']} entries, "
+                  f"{rollback['seconds']} s)" if rollback["confirmed"] else
+                  ", NOT confirmed: a read-only pass found the batch's changes")
+    out = [f"applynames: {phase} ({counts}) -- {r['program']}, transaction "
            f"{r['transaction']}"]
+    for d in (rollback or {}).get("differences") or []:
+        out.append(f"  rollback: {d}")
     for p in r["problems"]:
         out.append(f"  mapping: {p}")
     for e in r["entries"]:
@@ -209,9 +309,11 @@ def main():
     ap.add_argument("--project-name", default="target")
     ap.add_argument("--evidence", help="write the envelope here; default "
                                        "OUTDIR/applynames-result.json")
+    ap.add_argument("--timeout", type=int, default=HEADLESS_TIMEOUT,
+                    help=f"seconds for each headless run (default {HEADLESS_TIMEOUT})")
     args = ap.parse_args()
     env, code = run(args.mapping, args.outdir, args.dryrun, args.min_score, args.certain,
-                    args.program, args.project, args.project_name)
+                    args.program, args.project, args.project_name, args.timeout)
     evidence.write(env, args.evidence or str(Path(args.outdir) / "applynames-result.json"))
     for line in summary(env):
         print(line)

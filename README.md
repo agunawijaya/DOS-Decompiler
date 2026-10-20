@@ -642,8 +642,10 @@ python tools\anchors.py out\functions.json --exe path\to\GAME.EXE `
        --entry 1000:8b46 --report out\anchors.txt --names out\names.json
 
 # 2a. Write them into the project: validated whole first, read back after,
-#     rolled back whole on any failure. --dryrun writes nothing. Exit 0
-#     applied, 1 rolled back, 3 refused; out\applynames-result.json says why.
+#     rolled back whole on any failure, and the rollback confirmed by a
+#     read-only pass. --dryrun writes nothing. Exit 0 applied, 1 rolled back,
+#     3 refused, 4 rolled back but not confirmed; out\applynames-result.json
+#     says why.
 python tools\applynames.py out\names.json out --dryrun
 python tools\applynames.py out\names.json out
 

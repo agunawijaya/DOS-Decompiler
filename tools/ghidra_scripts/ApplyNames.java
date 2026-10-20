@@ -52,6 +52,11 @@
  * Usage (headless; arguments after the mapping in any order):
  *   -postScript ApplyNames.java mapping.json [minScore] [certainScore] [dryrun] [out:DIR]
  *
+ * With `readback` it writes nothing: it records what the function at each
+ * entry's address holds now -- name, plate, PRE and EOL comments -- in
+ * <outdir>/applynames-readback.json. applynames.py runs that -readOnly after
+ * a batch rolled back, to see the rollback rather than infer it.
+ *
  * DOS_DECOMPILER_APPLYNAMES_FAULT=readback|throw makes the last write's
  * readback differ, or its setter throw. It exists so a test can prove the
  * rollback; it announces itself, and is never for real work.
@@ -132,6 +137,12 @@ public class ApplyNames extends GhidraScript {
         Function function;
         String previousName, storedName, expectedQualified;
         String note, storedNote, storedComment, storedInline;
+        // What the entry held before this run wrote anything, and -- in a
+        // readback run -- what it holds now. A rollback is confirmed by the
+        // two agreeing, read in a later run.
+        String previousNote, previousComment, previousInline;
+        String currentName, currentNote, currentComment, currentInline;
+        boolean found;
     }
 
     private final List<Entry> entries = new ArrayList<>();
@@ -141,17 +152,20 @@ public class ApplyNames extends GhidraScript {
     public void run() throws Exception {
         String[] args = getScriptArgs();
         if (args.length < 1) {
-            printerr("usage: ApplyNames.java mapping.json [minScore] [certainScore] [dryrun] [out:DIR]");
+            printerr("usage: ApplyNames.java mapping.json [minScore] [certainScore] [dryrun] "
+                    + "[readback] [out:DIR]");
             return;
         }
         File mappingFile = new File(args[0]);
         double minScore = 0.45, certain = 0.70;
-        boolean dryRun = false;
+        boolean dryRun = false, readback = false;
         File outDir = mappingFile.getAbsoluteFile().getParentFile();
         List<Double> numbers = new ArrayList<>();
         for (int i = 1; i < args.length; i++) {
             if (args[i].equals("dryrun")) {
                 dryRun = true;
+            } else if (args[i].equals("readback")) {
+                readback = true;
             } else if (args[i].startsWith("out:")) {
                 outDir = new File(args[i].substring(4));
             } else {
@@ -173,7 +187,17 @@ public class ApplyNames extends GhidraScript {
 
         String phase;
         String transaction = "none";
-        if (!read(mappingFile)) {
+        String recordName = "applynames-record.json";
+        if (readback) {
+            // Read what each entry's function holds now, and write nothing.
+            // applynames.py runs this, -readOnly, after a rolled-back batch:
+            // the abort takes effect only when the writing script ends, so a
+            // later run is the only place the rollback can be seen.
+            read(mappingFile);
+            readCurrent();
+            phase = "readback";
+            recordName = "applynames-readback.json";
+        } else if (!read(mappingFile)) {
             phase = "refused";
         } else {
             validate(minScore, certain);
@@ -199,7 +223,8 @@ public class ApplyNames extends GhidraScript {
                 phase = transaction.equals("committed") ? "applied" : "rolled-back";
             }
         }
-        record(outDir, mappingFile, phase, transaction, dryRun, minScore, certain, fault);
+        record(outDir, recordName, mappingFile, phase, transaction, dryRun, minScore, certain,
+                fault);
 
         long applied = entries.stream().filter(e -> "applied".equals(e.outcome)).count();
         println(String.format("ApplyNames: %s -- %d applied, %d below floor %.2f, %d refused, "
@@ -208,7 +233,32 @@ public class ApplyNames extends GhidraScript {
                 minScore,
                 entries.stream().filter(e -> "refused".equals(e.outcome)).count(),
                 entries.stream().filter(e -> "rolled-back".equals(e.outcome)).count(),
-                new File(outDir, "applynames-record.json")));
+                new File(outDir, recordName)));
+    }
+
+    /* What the function at each entry's address holds now: its name and the
+     * three comments this script writes. Nothing is validated and nothing
+     * written; an address with no function is recorded as not found. */
+    private void readCurrent() {
+        Listing listing = currentProgram.getListing();
+        for (Entry e : entries) {
+            Address a;
+            try {
+                a = e.address == null ? null : currentProgram.getAddressFactory().getAddress(e.address);
+            } catch (Exception x) {
+                a = null;
+            }
+            Function f = a == null ? null : getFunctionAt(a);
+            e.found = f != null;
+            if (f == null) {
+                continue;
+            }
+            Address entry = f.getEntryPoint();
+            e.currentName = f.getName(true);
+            e.currentNote = listing.getComment(CodeUnit.PRE_COMMENT, entry);
+            e.currentComment = f.getComment();
+            e.currentInline = listing.getComment(CodeUnit.EOL_COMMENT, entry);
+        }
     }
 
     /* The mapping: {"mapping": [{"source", "binary", "score", ...}]}, the
@@ -406,6 +456,15 @@ public class ApplyNames extends GhidraScript {
             }
         }
         Listing listing = currentProgram.getListing();
+        // Every entry's state before the first write, not only the ones the
+        // loop reaches before a failure: a rollback is confirmed against it.
+        for (Entry e : todo) {
+            Address entry = e.function.getEntryPoint();
+            e.previousName = e.function.getName(true);
+            e.previousNote = listing.getComment(CodeUnit.PRE_COMMENT, entry);
+            e.previousComment = e.function.getComment();
+            e.previousInline = listing.getComment(CodeUnit.EOL_COMMENT, entry);
+        }
         int tx = currentProgram.startTransaction("ApplyNames");
         boolean ok = true;
         Entry failed = null;
@@ -416,7 +475,6 @@ public class ApplyNames extends GhidraScript {
                 Function f = e.function;
                 boolean last = i == todo.size() - 1;
                 failed = e;
-                e.previousName = f.getName(true);
                 Namespace ns = f.getParentNamespace();
                 e.expectedQualified = ns == null || ns.isGlobal() ? e.applied
                         : ns.getName(true) + Namespace.DELIMITER + e.applied;
@@ -519,8 +577,9 @@ public class ApplyNames extends GhidraScript {
         return note.toString();
     }
 
-    private void record(File outDir, File mappingFile, String phase, String transaction,
-            boolean dryRun, double minScore, double certain, String fault) throws Exception {
+    private void record(File outDir, String recordName, File mappingFile, String phase,
+            String transaction, boolean dryRun, double minScore, double certain, String fault)
+            throws Exception {
         JsonObject r = new JsonObject();
         r.addProperty("schema", "dos-decompiler/applynames-record/1");
         r.addProperty("script_sha256", LoadImageMap.sourceSha256(getSourceFile()));
@@ -558,6 +617,16 @@ public class ApplyNames extends GhidraScript {
             m.put("long_routine", e.longRoutine);
             m.put("outcome", e.outcome);
             m.put("reason", e.reason);
+            m.put("previous_note", e.previousNote);
+            m.put("previous_comment", e.previousComment);
+            m.put("previous_inline_comment", e.previousInline);
+            if (phase.equals("readback")) {
+                m.put("found", e.found);
+                m.put("current_name", e.currentName);
+                m.put("current_note", e.currentNote);
+                m.put("current_comment", e.currentComment);
+                m.put("current_inline_comment", e.currentInline);
+            }
             JsonObject o = new JsonObject();
             for (Map.Entry<String, Object> kv : m.entrySet()) {
                 Object v = kv.getValue();
@@ -575,7 +644,7 @@ public class ApplyNames extends GhidraScript {
         }
         r.add("entries", list);
         outDir.mkdirs();
-        Files.writeString(new File(outDir, "applynames-record.json").toPath(),
+        Files.writeString(new File(outDir, recordName).toPath(),
                 new GsonBuilder().setPrettyPrinting().serializeNulls().disableHtmlEscaping()
                         .create().toJson(r) + "\n", StandardCharsets.UTF_8);
     }

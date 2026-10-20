@@ -447,8 +447,11 @@ body; the name is legal C and legal for Ghidra; and no two functions end up
 sharing a name, in the mapping or in the program. One failure and nothing is
 written. Then it writes the whole batch in one transaction and reads every
 name and comment back. One difference, or one exception, and the whole batch
-is rolled back. Exit 0 means applied; 1 means rolled back; 3 means refused
-before writing, and the result lists every failing entry and why. Ghidra
+is rolled back, and a second, read-only pass reads every entry back to confirm
+it. Exit 0 means applied; 1 means rolled back, confirmed; 3 means refused
+before writing, and the result lists every failing entry and why; 4 means
+rolled back but the read-only pass still found the batch's changes — stop
+and look. Ghidra
 itself accepts two functions with one name and a name like `FUN_1000_9999`, so
 these checks are the only thing stopping that (`knowledge/04-pitfalls.md`).
 
