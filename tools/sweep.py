@@ -958,8 +958,8 @@ class NodeCandidate:
             raise Blocked(f"--candidate: no file {self.path}")
         node = shutil.which("node")
         if not node:
-            raise Blocked("node is not on PATH; a JavaScript candidate needs Node.js "
-                          "(any version with ES modules, 14 or later)")
+            raise Blocked("node is not on PATH; a JavaScript candidate needs Node.js 16 or "
+                          "later (measured on 22.17.0)")
         self.version = subprocess.run([node, "--version"], capture_output=True,
                                       text=True).stdout.strip()
         # stderr to a file, not a pipe: nothing reads it while the sweep
@@ -1137,8 +1137,11 @@ def differences(original, candidate, compare):
     return [f for f in compare if a.get(f) != b.get(f)]
 
 
-def show(outcome, compare):
-    """One line for a person."""
+def show(outcome, compare, before=None):
+    """One line for a person. `before` is each global's value as the case
+    began: writes are compared as every global's final value, but a global
+    that did not change is left out of the line."""
+    before = before or {}
     if outcome.get("error"):
         return f"raised {outcome['error']}"
     if outcome.get("fault"):
@@ -1159,19 +1162,23 @@ def show(outcome, compare):
         elif f == "carry":
             parts.append(f"carry={x}")
         elif f == "writes":
-            parts.append("writes " + (" ".join(f"{k}={'0x%x' % w if isinstance(w, int) else w}"
-                                               for k, w in x.items()) or "none"))
+            changed = [f"{k}={'0x%x' % w if isinstance(w, int) else w}"
+                       for k, w in x.items() if before.get(k) != w]
+            parts.append("writes " + (" ".join(changed) or "nothing changed"))
         elif f == "calls":
             parts.append("calls " + (" ".join(f"{t}({', '.join(hex(a) for a in args)})"
                                               for t, args in x) or "none"))
     return ", ".join(parts)
 
 
-def record(case, original, candidate, fields, compare):
+def record(case, original, candidate, fields, spec):
+    compare = spec.compare
+    before = {g.name: case.view[g.name] & g.mask() for g in spec.globals}
     return {"case": case.number, "inputs": case.inputs, "fields": fields,
             "original": view(original, compare), "candidate": view(candidate, compare),
             "original_at": original.get("at"), "text": {
-                "original": show(original, compare), "candidate": show(candidate, compare)}}
+                "original": show(original, compare, before),
+                "candidate": show(candidate, compare, before)}}
 
 
 # ---------------------------------------------------------------- coverage
@@ -1325,7 +1332,7 @@ def run_sweep(args, progress=None):
                     if o.get("fault"):
                         fault_kinds[o["fault"]] = fault_kinds.get(o["fault"], 0) + 1
                     continue
-                entry_record = record(case, o, c, fields, compare)
+                entry_record = record(case, o, c, fields, spec)
                 if first is None:
                     first = entry_record
                 for f in fields:
