@@ -74,12 +74,12 @@ def guarded(tool):
     return wrap
 
 
-def paged(env, limit, cursor, *lists):
-    """Page the evidence and every list at the top of the result, plus any
-    deeper ones named."""
+def paged(env, limit, cursor, *lists, whole=()):
+    """Page the evidence and every list at the top of the result but those
+    named in `whole`, plus any deeper ones named."""
     paths = [("evidence",), ("unknowns",)]
     paths += [("result", k) for k, v in (env.get("result") or {}).items()
-              if isinstance(v, list)]
+              if isinstance(v, list) and k not in whole]
     paths += [tuple(p) for p in lists]
     return paging.page(env, paths, limit, cursor)
 
@@ -488,12 +488,24 @@ def c_of(s, entry):
     return out
 
 
+FUNCTION_PARTS = ("c", "asm", "record")
+
+
 @guarded("function")
-def function(session_id, entry=None, name=None, limit=None, cursor=None):
+def function(session_id, entry=None, name=None, parts=None, limit=None, cursor=None):
     """One function: body, origin, its decompiled C alone, its body
-    disassembled, and the calls out and in the export records."""
-    import bodies
-    from capstone import Cs, CS_ARCH_X86, CS_MODE_16
+    disassembled, and the calls out and in the export records.
+
+    `parts` picks which of those to return -- "c" the decompiled C, "asm" the
+    disassembly, "record" everything else the export says about it -- default
+    all three. entry and name come back whatever is asked, so a part is never
+    read without knowing whose it is."""
+    if parts is None:
+        parts = list(FUNCTION_PARTS)
+    if (not isinstance(parts, list) or not parts
+            or any(p not in FUNCTION_PARTS for p in parts)):
+        raise Refused(f"parts {parts!r} is not a list drawn from {list(FUNCTION_PARTS)}",
+                      'pass any of "c", "asm" and "record", or leave parts out for all three')
     s = sessions.get(session_id)
     data = functions_of(s)
     found = [f for f in data.get("functions") or []
@@ -501,6 +513,28 @@ def function(session_id, entry=None, name=None, limit=None, cursor=None):
     if not found:
         raise Refused(f"no function {entry or name}", "list_functions shows the entries")
     f = found[0]
+    result = {"entry": f["entry"], "name": f.get("name"),
+              "parts": [p for p in FUNCTION_PARTS if p in parts]}
+    if "record" in parts:
+        keep = ("size", "origin", "body", "instruction_count", "blocks", "loops",
+                "returns", "calls", "interrupts", "io_ports", "strings", "data_refs",
+                "calling_convention", "return_type", "param_count")
+        result.update({k: f.get(k) for k in keep})
+        result["callers"] = sorted(g["entry"] for g in data["functions"]
+                                   if f["entry"] in (g.get("calls") or []))
+    if "c" in parts:
+        result["c"] = c_of(s, f["entry"])
+    if "asm" in parts:
+        result["disassembly"] = disassembly_of(s, data, f)
+    env = evidence.envelope("function", target_of(s), status="ok", result=result)
+    return paged(env, limit, cursor, ("result", "c"), ("result", "disassembly"),
+                 whole=("parts",))
+
+
+def disassembly_of(s, data, f):
+    """The function's body ranges, disassembled from the loaded image."""
+    import bodies
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_16
     load = int(((data.get("observed_profile") or {}).get("load_segment") or "0x1000"), 16)
     image = bodies.Bytes(str(s.copy), load)
     md = Cs(CS_ARCH_X86, CS_MODE_16)
@@ -510,14 +544,7 @@ def function(session_id, entry=None, name=None, limit=None, cursor=None):
         for insn in md.disasm(image.get(lo, hi), lo - (seg << 4)):
             lines.append(f"{seg:04x}:{insn.address & 0xFFFF:04x}  "
                          f"{insn.bytes.hex():<14} {insn.mnemonic} {insn.op_str}".rstrip())
-    callers = sorted(g["entry"] for g in data["functions"] if f["entry"] in (g.get("calls") or []))
-    keep = ("entry", "name", "size", "origin", "body", "instruction_count", "blocks", "loops",
-            "returns", "calls", "interrupts", "io_ports", "strings", "data_refs",
-            "calling_convention", "return_type", "param_count")
-    env = evidence.envelope("function", target_of(s), status="ok", result={
-        **{k: f.get(k) for k in keep}, "callers": callers,
-        "c": c_of(s, f["entry"]), "disassembly": lines})
-    return paged(env, limit, cursor, ("result", "c"), ("result", "disassembly"))
+    return lines
 
 
 @guarded("coverage")

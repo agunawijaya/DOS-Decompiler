@@ -230,6 +230,21 @@ async def _():
     return "auto and mz refused, com admitted and rebuilt byte-identical; an MZ refused as com"
 
 
+@case("function refuses parts it does not know, before reading anything")
+async def _():
+    for parts in (["c", "source"], []):
+        env, err = await call("function", session_id="nosuchsession", entry="1000:0000",
+                              parts=parts)
+        check(err and env["status"] == "blocked" and "parts" in env["result"]["reason"],
+              f"parts={parts!r}: {env['status']} {env['result']}")
+    # A bare string never reaches the tool: the SDK checks it against the schema.
+    r = await Fix.session.call_tool("function", {"session_id": "nosuchsession",
+                                                 "entry": "1000:0000", "parts": "c"})
+    check(r.is_error and "parts" in r.content[0].text, f"parts='c': {r.content[0].text[:200]}")
+    return ("an unknown part and an empty list refused by the tool, naming parts; a bare "
+            "string by the SDK's schema")
+
+
 @case("relative paths, '..' paths and paths outside the session are refused")
 async def _():
     # games\SWEEP.EXE exists relative to the server's working folder: the
@@ -339,6 +354,19 @@ async def _():
     fr = env["result"]
     check(fr["c"] and fr["c"][0].startswith("/* ----") and len(fr["disassembly"]) == 10
           and fr["origin"], f"function: {len(fr['disassembly'])} instructions, c {fr['c'][:1]}")
+    # parts: exactly the parts asked for, each the same as in the whole answer.
+    env, err = await call("function", session_id=sid, entry=rare, parts=["c"])
+    got = env["result"]
+    check(not err and set(got) == {"entry", "name", "parts", "c"} and got["c"] == fr["c"],
+          f"function parts=['c'] returned {sorted(got)}")
+    paged = {name for name in env["page"]["lists"] if name.startswith("result.")}
+    check(paged == {"result.c"}, f"function parts=['c'] paged {sorted(paged)}")
+    env, err = await call("function", session_id=sid, entry=rare, parts=["asm", "record"])
+    got = env["result"]
+    check(not err and "c" not in got and got["disassembly"] == fr["disassembly"]
+          and got["calls"] == fr["calls"] and got["callers"] == fr["callers"]
+          and got["parts"] == ["asm", "record"],
+          f"function parts=['asm', 'record'] returned {sorted(got)}")
     env, err = await call("coverage", session_id=sid)
     check(not err and env["tool"] == "bodies", f"coverage: {env['status']}")
     env, err = await call("anchors", session_id=sid)

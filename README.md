@@ -819,7 +819,7 @@ interface and `AGENTS.md` stays the method.
 | `unpack`, `comrec` | `unpack.py`, `comrec.py`, writing inside the session |
 | `analyze` | `pipeline.ps1`, with progress by stage; cached by target SHA-256, profile id and a hash of the pipeline's Python |
 | `verify_load_image`, `address_map`, `read_bytes` | `loadimage.py verify` and `map`; bytes as loaded, stopping at uninitialised memory |
-| `list_functions`, `function` | `functions.json`; one function's body, C, disassembly, calls out and in |
+| `list_functions`, `function` | `functions.json`; one function's body, C, disassembly, calls out and in (`parts` picks any of `c`, `asm`, `record`) |
 | `coverage`, `anchors`, `libsig` | `bodies.py`, `anchors.py`, `libsig.py apply` |
 | `apply_names` | `applynames.py` on the session's project; a dry run unless `confirm` |
 | `emuverify`, `sweep` | `emuverify.py`, `emuverify.py sweep` |

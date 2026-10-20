@@ -200,10 +200,12 @@ async def list_functions(session_id: str, origin: str | None = None, name: str |
 
 @server.tool()
 async def function(session_id: str, entry: str | None = None, name: str | None = None,
-                   limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+                   parts: list[str] | None = None, limit: int | None = None,
+                   cursor: str | None = None) -> CallToolResult:
     """One function: its body ranges, origin, decompiled C alone, the
-    disassembly of its body, and its calls out and in."""
-    return await call(op.function, session_id, entry, name, limit, cursor)
+    disassembly of its body, and its calls out and in. parts picks any of
+    "c" (the C), "asm" (the disassembly) and "record" (the rest); default all."""
+    return await call(op.function, session_id, entry, name, parts, limit, cursor)
 
 
 @server.tool()
