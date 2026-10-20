@@ -205,9 +205,19 @@ def _():
             "90 padding, ee ee ee repeated")
 
 
-def synthetic_export(folder, functions, overlaps=()):
+def mapping(block, segment, lo, hi):
+    """A loadimage.json mapping of image offsets lo..hi, inclusive."""
+    return {"block": block, "segment": f"{segment:04x}", "linear_start": LOAD * 16 + lo,
+            "linear_end_inclusive": LOAD * 16 + hi, "length": hi - lo + 1,
+            "file_start": 0x40 + lo, "file_end_inclusive": 0x40 + hi}
+
+
+def synthetic_export(folder, functions, overlaps=(), exe=None, mappings=None):
     """functions.json and loadimage.json shaped like the pipeline's, for the
-    assembled fixture, from (name, entry offset, [(lo, hi)]) triples."""
+    assembled fixture (or `exe`), from (name, entry offset, [(lo, hi)])
+    triples. The mappings are the fixture's code and data blocks unless
+    given."""
+    exe = exe or EXE
     folder.mkdir(parents=True, exist_ok=True)
     records = []
     for name, entry, ranges in functions:
@@ -222,22 +232,17 @@ def synthetic_export(folder, functions, overlaps=()):
                      "total_bytes": total, "span_bytes": span,
                      "non_contiguous": total != span,
                      "contains_entry": any(lo <= entry <= hi for lo, hi in ranges)}})
-    target = evidence.target_identity(EXE)
+    target = evidence.target_identity(exe)
     (folder / "functions.json").write_text(json.dumps({
-        "program": EXE.name, "target": {"path": target["path"], "size": target["size"],
+        "program": exe.name, "target": {"path": target["path"], "size": target["size"],
                                         "sha256": target["sha256"]},
         "functions": records, "body_overlaps": list(overlaps)}), encoding="utf-8")
-    data_start = L("data_start")
-    size = len(image())
+    if mappings is None:
+        data_start, size = L("data_start"), len(image())
+        mappings = [mapping("CODE_0", LOAD, 0, data_start - 1),
+                    mapping("CODE_1", LOAD + data_start // 16, data_start, size - 1)]
     (folder / "loadimage.json").write_text(json.dumps({
-        "status": "verified", "result": {"load_segment": "0x1000", "mappings": [
-            {"block": "CODE_0", "segment": "1000", "linear_start": LOAD * 16,
-             "linear_end_inclusive": LOAD * 16 + data_start - 1, "length": data_start,
-             "file_start": 0x40, "file_end_inclusive": 0x40 + data_start - 1},
-            {"block": "CODE_1", "segment": f"{LOAD + data_start // 16:04x}",
-             "linear_start": LOAD * 16 + data_start,
-             "linear_end_inclusive": LOAD * 16 + size - 1, "length": size - data_start,
-             "file_start": 0x40 + data_start, "file_end_inclusive": 0x40 + size - 1}]}}),
+        "status": "verified", "result": {"load_segment": "0x1000", "mappings": mappings}}),
         encoding="utf-8")
     return folder / "functions.json"
 
@@ -330,6 +335,313 @@ def _():
     if r2.returncode != 3 or "loadimage.json" not in r2.stderr:
         raise AssertionError(f"without loadimage.json: exit {r2.returncode}: {r2.stderr}")
     return "exit 3 both times: no bodies, and no loadimage.json"
+
+
+@case("merge, subtract, describe and classify give the answers worked out by hand")
+def _():
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_16
+    md = Cs(CS_ARCH_X86, CS_MODE_16)
+    # merge: out of order; adjacent ranges joined (4|5, 12|13, 13|14); one
+    # byte apart kept apart (9, 11); one inside another kept whole.
+    got = bodies.merge([(20, 25), (0, 4), (5, 9), (11, 12), (21, 22), (14, 16), (13, 13)])
+    if got != [(0, 9), (11, 16), (20, 25)]:
+        raise AssertionError(f"merge: {got}")
+    # subtract: holes inside, at the edges, before and past the range.
+    got = bodies.subtract([(0, 99)], [(10, 19), (30, 30), (99, 120)])
+    if got != [(0, 9), (20, 29), (31, 98)]:
+        raise AssertionError(f"subtract: {got}")
+    got = bodies.subtract([(200, 210), (300, 301)], [(150, 199), (200, 201), (205, 210),
+                                                     (300, 301)])
+    if got != [(202, 204)]:
+        raise AssertionError(f"subtract at the edges: {got}")
+
+    base = LOAD * 16
+    in_code = lambda linear: base + 0x10 <= linear <= base + 0x20   # noqa: E731
+    seg = LOAD
+    cases = [
+        ("text", b"\x01\x02Hello, world\x00", "80% printable, first string 'Hello, world'"),
+        ("text", b"A" * 40, "100% printable, first string '" + "A" * 40 + "'"),
+        ("text", b"A" * 41, "100% printable, first string '" + "A" * 40 + "...'"),
+        ("text", b"ab\x00cd\x00ef", "75% printable, first string ''"),
+        # Words 0x0010 and 0x0020 land in the code at segment 0x1000; 0x9999 does not.
+        ("pointer table", b"\x10\x00\x20\x00\x99\x99", "3 words, 2 into the code"),
+        ("pointer table", b"\x10\x00\x20\x00\x99\x99\x01", "3 words, 2 into the code"),
+        ("padding", b"\x90\x90\x90", "90 x3"),
+        ("padding", b"\x00\x00\x90", "mostly 00"),
+        ("repeated bytes", b"\xee\xee", "ee x2"),
+        ("looks like code", b"\x40\x40\xc3", "3 instructions, ending ret"),
+        ("other", bytes(range(1, 10)), "01 02 03 04 05 06 07 08 ..."),
+        ("other", bytes(range(1, 9)), "01 02 03 04 05 06 07 08"),
+    ]
+    for kind, data, want in cases:
+        got = bodies.describe(kind, data, seg, in_code, md)
+        if got != want:
+            raise AssertionError(f"describe({kind}, {data.hex()}): {got!r}, not {want!r}")
+
+    # classify: padding split off a routine on both sides, on one side, and
+    # not split off what is not anything.
+    lo = base + 0x30
+    for data, want in (
+            (b"\x90\x90\x40\x40\xc3\x00",
+             [(lo, lo + 1, "padding"), (lo + 2, lo + 4, "looks like code"),
+              (lo + 5, lo + 5, "padding")]),
+            (b"\x00\x00\x40\x40\xc3",
+             [(lo, lo + 1, "padding"), (lo + 2, lo + 4, "looks like code")]),
+            (b"\x01\x02\x03", [(lo, lo + 2, "other")]),
+            (b"\x90\x90\x00\x90\x00", [(lo, lo + 4, "other")]),
+            (b"\x90\x01\x02\x90", [(lo, lo + 3, "other")]),
+            (b"\x10\x00\x12\x00\x14\x00", [(lo, lo + 5, "pointer table")])):
+        got = bodies.classify(lo, lo + len(data) - 1, data, seg, in_code, md, 3)
+        if got != want:
+            raise AssertionError(f"classify({data.hex()}): {got}, not {want}")
+    # The table above is one only at segment 0x1000: at 0x0000 its words
+    # land nowhere.
+    if bodies.kind_of(b"\x10\x00\x12\x00\x14\x00", 0, 0, in_code, md, 3) == "pointer table":
+        raise AssertionError("kind_of: a table at the wrong segment")
+    return "merge, subtract, 12 descriptions and 6 classifications as worked out"
+
+
+@case("subtract, kind_of, classify and describe at their edges, worked out by hand")
+def _():
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_16
+    md = Cs(CS_ARCH_X86, CS_MODE_16)
+    # A hole ending on the range's first byte, one starting before it, and one
+    # leaving only the last byte.
+    for ranges, holes, want in (([(10, 20)], [(5, 10)], [(11, 20)]),
+                                ([(10, 20)], [(5, 12)], [(13, 20)]),
+                                ([(10, 20)], [(10, 19)], [(20, 20)])):
+        got = bodies.subtract(ranges, holes)
+        if got != want:
+            raise AssertionError(f"subtract({ranges}, {holes}): {got}, not {want}")
+
+    base = LOAD * 16
+    in_code = lambda linear: base + 0x10 <= linear <= base + 0x20       # noqa: E731
+    # Words 0x10, 0x12, 0x14 from segment 0x1001 land at 0x10020, 0x10022 and
+    # 0x10024: added to the segment's base, not or-ed into it.
+    exact = lambda linear: linear in (0x10020, 0x10022, 0x10024)       # noqa: E731
+    table = b"\x10\x00\x12\x00\x14\x00"
+    for data, segment, test, want in (
+            (b"\xc3\xc3\xc3", LOAD, in_code, "looks like code"),   # ret ret ret, one value
+            (b"AAAA", LOAD, in_code, "text"),                       # text, one value
+            (b"\xee\xee", LOAD, in_code, "repeated bytes"),         # two of one byte
+            (table, 0x1001, exact, "pointer table")):
+        got = bodies.kind_of(data, 0, segment, test, md, 3)
+        if got != want:
+            raise AssertionError(f"kind_of({data.hex()}, {segment:#x}): {got}, not {want}")
+
+    # classify at an address whose low bits are set, so lo + a is not lo | a.
+    lo = base + 0x33
+    for data, want in (
+            # The whole run decodes: nop nop inc inc ret. Not split.
+            (b"\x90\x90\x40\x40\xc3", [(lo, lo + 4, "looks like code")]),
+            # Text whole, padding and all.
+            (b"\x00Hello\x00", [(lo, lo + 6, "text")]),
+            # Nothing whole; text inside the padding.
+            (b"\x00\x00\x00Hi!!\x00\x00\x00",
+             [(lo, lo + 2, "padding"), (lo + 3, lo + 6, "text"), (lo + 7, lo + 9, "padding")]),
+            # One byte of padding, then a routine.
+            (b"\x00\x40\x40\xc3", [(lo, lo, "padding"), (lo + 1, lo + 3, "looks like code")]),
+            # 300 bytes, all of them 90 or 00 but not one kind: nothing to split.
+            (b"\x90\x00" * 150, [(lo, lo + 299, "other")]),
+            # 290 of them, then text: split, with nothing after it.
+            (b"\x90\x00" * 145 + b"Hello", [(lo, lo + 289, "padding"),
+                                            (lo + 290, lo + 294, "text")])):
+        got = bodies.classify(lo, lo + len(data) - 1, data, LOAD, in_code, md, 3)
+        if got != want:
+            raise AssertionError(f"classify({data[:12].hex()}...): {got}, not {want}")
+
+    # describe at the edges of printable, of a word, of a run's length.
+    high = lambda linear: base + 0x110 <= linear <= base + 0x120        # noqa: E731
+    for kind, data, segment, test, want in (
+            ("text", b"ABCD\x1f\x7e\x7f\x80", LOAD, in_code,
+             "62% printable, first string 'ABCD'"),
+            ("text", b"Hello\x00World", LOAD, in_code, "90% printable, first string 'Hello'"),
+            ("pointer table", b"\x10\x01\x20\x01\x99\x99", LOAD, high, "3 words, 2 into the code"),
+            ("pointer table", table, 0x1001, exact, "3 words, 3 into the code"),
+            ("padding", b"\x90" * 300, LOAD, in_code, "90 x300"),
+            ("other", b"\x01\x02\x03", LOAD, in_code, "01 02 03")):
+        got = bodies.describe(kind, data, segment, test, md)
+        if got != want:
+            raise AssertionError(f"describe({kind}, {data[:12].hex()}): {got!r}, not {want!r}")
+    return "3 subtractions, 4 kinds, 6 classifications and 6 descriptions at their edges"
+
+
+# bodies.py's whole answer -- every result field, evidence item, unknown and
+# limitation -- on three synthetic exports, held to expected-analyse.json.
+# Run with --update-expected after a deliberate change, and read the diff.
+EXPECTED_ANALYSE = HERE / "expected-analyse.json"
+
+
+def edit_json(path, fn):
+    data = json.loads(path.read_text(encoding="utf-8"))
+    fn(data)
+    path.write_text(json.dumps(data), encoding="utf-8")
+
+
+def analyse_written_down(env):
+    view = {k: env[k] for k in ("status", "result", "evidence", "unknowns", "limitations")}
+    text = json.dumps(view, sort_keys=True)
+    text = text.replace(json.dumps(str(WORK))[1:-1], "<work>").replace("\\\\", "/")
+    return json.loads(text)
+
+
+@case("bodies.py's whole answer on twelve synthetic exports reads as written down")
+def _():
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_16
+    want = expected_bodies()
+    funcs = [(n, L(n), r) for n, r in want.items()]
+    got = {}
+
+    # The labels' bodies, one adrift, an overlap and a tail call recorded.
+    path = synthetic_export(WORK / "analyse" / "labels",
+                            funcs + [("adrift", L("main"), [(L("pointed_a"), L("pointed_a"))])],
+                            overlaps=[{"start": a(L("shared_tail")), "end": a(L("jumper") - 1),
+                                       "start_linear": f"0x{LOAD * 16 + L('shared_tail'):x}",
+                                       "end_linear": f"0x{LOAD * 16 + L('jumper') - 1:x}",
+                                       "bytes": L("jumper") - L("shared_tail"),
+                                       "functions": [{"entry": a(L("left")), "claim": "jump"},
+                                                     {"entry": a(L("right")), "claim": "jump"},
+                                                     {"entry": a(L("shared_tail")),
+                                                      "claim": "body"}]}])
+    edit_json(path, lambda d: d.update(tail_calls=[{"caller": a(L("tailer")),
+                                                    "target": a(L("middle"))}]))
+    got["labels"] = bodies.analyse(path)
+
+    # The code in two blocks, the second at a segment of its own: what lies
+    # in it is addressed from that segment.
+    split = (L("banner") // 16) * 16
+    path = synthetic_export(WORK / "analyse" / "two-blocks", funcs)
+
+    def two_blocks(d):
+        code, data = d["result"]["mappings"]
+        first = dict(code, linear_end_inclusive=LOAD * 16 + split - 1, length=split,
+                     file_end_inclusive=0x40 + split - 1)
+        second = dict(code, block="CODE_1", segment=f"{LOAD + split // 16:04x}",
+                      linear_start=LOAD * 16 + split, length=code["length"] - split,
+                      file_start=0x40 + split)
+        d["result"]["mappings"] = [first, second, dict(data, block="CODE_2")]
+    edit_json(path.parent / "loadimage.json", two_blocks)
+    got["two blocks"] = bodies.analyse(path)
+
+    # The orphan routine claimed but for its last three instructions, under
+    # a load image that did not verify: three are enough by default.
+    md = Cs(CS_ARCH_X86, CS_MODE_16)
+    routine = image()[L("orphan"):L(".found") + 1]
+    starts = [L("orphan") + i.address for i in md.disasm(routine, 0)]
+    path = synthetic_export(WORK / "analyse" / "three", funcs + [
+        ("orphan", L("orphan"), [(L("orphan"), starts[-3] - 1)])])
+    edit_json(path.parent / "loadimage.json", lambda d: d.update(status="mismatch"))
+    got["three instructions, load image unverified"] = bodies.analyse(path)
+
+    # Blocks that touch a body by one byte at either end, a gap between two,
+    # and a block below the image that holds no function.
+    S, F, D = L("main"), L("banner") - 1, L("data_start")
+    size = len(image())
+    some = [(n, L(n), r) for n, r in want.items() if n not in ("start", "lonely", "tailer")]
+    path = synthetic_export(WORK / "analyse" / "edges", some, mappings=[
+        mapping("LOW", LOAD - 1, -0x10, -1),
+        mapping("CODE_0", LOAD, 0, S),                  # ends on main's first byte
+        mapping("CODE_1", LOAD, S + 1, F - 2),          # then one byte unmapped
+        mapping("CODE_2", LOAD + F // 16, F, D - 1),    # starts on fallen's last byte
+        mapping("DATA", LOAD + D // 16, D, size - 1)])
+    got["blocks touching a body by one byte, and a gap"] = bodies.analyse(path)
+
+    # A gap just past lonely's first byte: lonely is claimed on both sides of
+    # it, and tailer lies wholly after it.
+    X = L("lonely") + 1
+    path = synthetic_export(WORK / "analyse" / "gap", funcs, mappings=[
+        mapping("CODE_0", LOAD, 0, X - 1), mapping("CODE_1", LOAD, X + 1, D - 1),
+        mapping("DATA", LOAD + D // 16, D, size - 1)])
+    got["a gap inside a body"] = bodies.analyse(path)
+
+    # A gap inside the banner, which no function claims: lonely and tailer
+    # lie wholly after it.
+    Y = L("banner") + 2
+    path = synthetic_export(WORK / "analyse" / "gap-unclaimed", funcs, mappings=[
+        mapping("CODE_0", LOAD, 0, Y - 1), mapping("CODE_1", LOAD, Y + 1, D - 1),
+        mapping("DATA", LOAD + D // 16, D, size - 1)])
+    got["a gap in unclaimed bytes, functions after it"] = bodies.analyse(path)
+
+    # An unclaimed run that starts on the last byte of a block with a segment
+    # of its own: the run is addressed from that segment.
+    B = L("banner")
+    path = synthetic_export(WORK / "analyse" / "last-byte", funcs, mappings=[
+        mapping("CODE_0", 0x0F00, 0, B), mapping("CODE_1", LOAD, B + 1, D - 1),
+        mapping("DATA", LOAD + D // 16, D, size - 1)])
+    got["a run starting on a block's last byte"] = bodies.analyse(path)
+
+    # The switch table's targets each the last byte of a claimed run, with
+    # an unclaimed byte after each: still a pointer table into the code.
+    targets = sorted(int.from_bytes(image()[L(".table") + i:L(".table") + i + 2], "little")
+                     for i in (0, 2, 4))
+    if not L(".case0") <= targets[0] < targets[1] - 1 < targets[2] - 2 < L("pointed_a") - 4:
+        raise AssertionError(f"the table's targets {targets} are not where this case needs them")
+    cut = dict(want)
+    cut["switcher"] = [(L("switcher"), L(".table") - 1), (L(".case0"), targets[0])]
+    cut["case_1"] = [(targets[0] + 2, targets[1])]
+    cut["case_2"] = [(targets[1] + 2, targets[2])]
+    cut["case_rest"] = [(targets[2] + 2, L("pointed_a") - 1)]
+    path = synthetic_export(WORK / "analyse" / "targets",
+                            [(n, r[0][0] if n.startswith("case_") else L(n), r)
+                             for n, r in cut.items()])
+    got["table targets on bodies' last bytes"] = bodies.analyse(path)
+
+    # Past 64 KB (fixtures/longrun.asm): a body, then a run, longer than the
+    # linear address it starts at.
+    nasm = os.environ.get("NASM") or shutil.which("nasm")
+    long_exe = WORK / "LONGRUN.EXE"
+    subprocess.run([nasm, "-f", "bin", "-o", str(long_exe), str(HERE / "fixtures" / "longrun.asm")],
+                   check=True, capture_output=True)
+    long_size = len(long_exe.read_bytes()) - 0x40
+    whole = [mapping("CODE_0", LOAD, 0, long_size - 1)]
+    got["a body longer than its start"] = bodies.analyse(synthetic_export(
+        WORK / "analyse" / "long-body", [("big", 0, [(0, 0x10100)])], exe=long_exe,
+        mappings=whole))
+    got["a run longer than its start"] = bodies.analyse(synthetic_export(
+        WORK / "analyse" / "long-run", [("head", 0, [(0, 0x1F)]),
+                                        ("tail", long_size - 0x20,
+                                         [(long_size - 0x20, long_size - 1)])],
+        exe=long_exe, mappings=whole))
+
+    # No function inside any block: there is no code to measure.
+    got["no function inside any block"] = bodies.analyse(synthetic_export(
+        WORK / "analyse" / "outside", [("away", 0x20000, [(0x20000, 0x2000F)])]))
+
+    # A load image record without a status says nothing verified it.
+    path = synthetic_export(WORK / "analyse" / "no-status", funcs)
+    edit_json(path.parent / "loadimage.json", lambda d: d.pop("status"))
+    got["a load image record without a status"] = bodies.analyse(path)
+
+    got = {name: analyse_written_down(env) for name, env in got.items()}
+    if "--update-expected" in sys.argv:
+        EXPECTED_ANALYSE.write_text(json.dumps(got, indent=1, sort_keys=True) + "\n",
+                                    encoding="utf-8")
+        return f"wrote {len(got)} answers to {EXPECTED_ANALYSE.name}; read the diff"
+    written = json.loads(EXPECTED_ANALYSE.read_text(encoding="utf-8"))
+    for name in written:
+        for key in ("status", "result", "evidence", "unknowns", "limitations"):
+            if got[name][key] != written[name][key]:
+                g, w = got[name][key], written[name][key]
+                if isinstance(w, dict):
+                    diff = [k for k in sorted(set(g) | set(w)) if g.get(k) != w.get(k)]
+                    raise AssertionError(f"{name}: result fields {diff} differ, e.g. "
+                                         f"{diff[0]}: {g.get(diff[0])!r} not {w.get(diff[0])!r}")
+                raise AssertionError(f"{name}: {key} {json.dumps(g)[:600]} written down "
+                                     f"{json.dumps(w)[:600]}")
+    if set(got) != set(written):
+        raise AssertionError(f"answers {sorted(set(got) ^ set(written))} differ in name")
+
+    # A handshake beside the export that says it drifted: refused, by default.
+    (path.parent / "handshake.json").write_text(json.dumps(
+        {"status": "mismatch", "result": {}, "evidence": []}), encoding="utf-8")
+    try:
+        bodies.analyse(path)
+    except SystemExit as e:
+        if "did not pass its profile handshake" not in str(e):
+            raise AssertionError(f"refused for another reason: {e}")
+    else:
+        raise AssertionError("a drifted export was read without --accept-profile-drift")
+    return f"{len(written)} answers as written down; a drifted export refused by default"
 
 
 # ---------------------------------------------------------------- Ghidra

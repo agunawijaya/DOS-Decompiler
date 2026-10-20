@@ -1,0 +1,2190 @@
+{
+ "a body longer than its start": {
+  "evidence": [
+   {
+    "claim": "65,793 of 66,048 code bytes claimed by some function's body",
+    "id": "ev-89261a38-ab7caba2",
+    "kind": "code-claimed",
+    "value": 99.6
+   },
+   {
+    "claim": "255 unclaimed bytes, pointer table",
+    "detail": "127 words, 127 into the code",
+    "id": "ev-89261a38-f9e5b965",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0101",
+     "end": "1000:01ff"
+    },
+    "value": "pointer table"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 65793,
+   "claimed_percent": 99.6,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 66048,
+      "end": "1000:01ff",
+      "segment": "1000",
+      "start": "1000:0000"
+     }
+    ],
+    "bytes": 66048
+   },
+   "entry_outside_body": [],
+   "functions": 1,
+   "functions_json": "<work>/analyse/long-body/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 0,
+   "min_instructions": 3,
+   "non_contiguous": [],
+   "origins": {
+    "ghidra-analysis": 1
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 255,
+     "detail": "127 words, 127 into the code",
+     "end": "1000:01ff",
+     "end_linear": "0x201ff",
+     "kind": "pointer table",
+     "start": "1000:0101",
+     "start_linear": "0x20101"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "pointer table": 255
+   },
+   "unclaimed_bytes": 255
+  },
+  "status": "ok",
+  "unknowns": []
+ },
+ "a gap in unclaimed bytes, functions after it": {
+  "evidence": [
+   {
+    "claim": "220 of 255 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-3b868e45",
+    "kind": "code-claimed",
+    "value": 86.3
+   },
+   {
+    "claim": "chunky is 2 ranges",
+    "id": "ev-0d081a65-99307031",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:0070"
+    },
+    "value": {
+     "span_bytes": 26,
+     "total_bytes": 18
+    }
+   },
+   {
+    "claim": "switcher is 2 ranges",
+    "id": "ev-0d081a65-13f89442",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:008a"
+    },
+    "value": {
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   },
+   {
+    "claim": "6 unclaimed bytes, pointer table",
+    "detail": "3 words, 3 into the code",
+    "id": "ev-0d081a65-29744112",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0099",
+     "end": "1000:009e"
+    },
+    "value": "pointer table"
+   },
+   {
+    "claim": "2 unclaimed bytes, other",
+    "detail": "42 4f",
+    "id": "ev-0d081a65-764a74f2",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00d0",
+     "end": "1000:00d1"
+    },
+    "value": "other"
+   },
+   {
+    "claim": "3 unclaimed bytes, other",
+    "detail": "49 45 53",
+    "id": "ev-0d081a65-f1477fdc",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00d3",
+     "end": "1000:00d5"
+    },
+    "value": "other"
+   },
+   {
+    "claim": "2 unclaimed bytes, padding",
+    "detail": "90 x2",
+    "id": "ev-0d081a65-f7febefe",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00e8",
+     "end": "1000:00e9"
+    },
+    "value": "padding"
+   },
+   {
+    "claim": "14 unclaimed bytes, looks like code",
+    "detail": "7 instructions, ending ret",
+    "id": "ev-0d081a65-6ee50cf2",
+    "kind": "unclaimed",
+    "level": "warn",
+    "location": {
+     "address": "1000:00ea",
+     "end": "1000:00f7"
+    },
+    "value": "looks like code"
+   },
+   {
+    "claim": "8 unclaimed bytes, padding",
+    "detail": "00 x8",
+    "id": "ev-0d081a65-69e709a5",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00f8",
+     "end": "1000:00ff"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 220,
+   "claimed_percent": 86.3,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 210,
+      "end": "1000:00d1",
+      "segment": "1000",
+      "start": "1000:0000"
+     },
+     {
+      "block": "CODE_1",
+      "bytes": 45,
+      "end": "1000:00ff",
+      "segment": "1000",
+      "start": "1000:00d3"
+     }
+    ],
+    "bytes": 255
+   },
+   "entry_outside_body": [],
+   "functions": 16,
+   "functions_json": "<work>/analyse/gap-unclaimed/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 1,
+   "min_instructions": 3,
+   "non_contiguous": [
+    {
+     "entry": "1000:0070",
+     "name": "chunky",
+     "ranges": 2,
+     "span_bytes": 26,
+     "total_bytes": 18
+    },
+    {
+     "entry": "1000:008a",
+     "name": "switcher",
+     "ranges": 2,
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   ],
+   "origins": {
+    "ghidra-analysis": 16
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 6,
+     "detail": "3 words, 3 into the code",
+     "end": "1000:009e",
+     "end_linear": "0x1009e",
+     "kind": "pointer table",
+     "start": "1000:0099",
+     "start_linear": "0x10099"
+    },
+    {
+     "bytes": 2,
+     "detail": "42 4f",
+     "end": "1000:00d1",
+     "end_linear": "0x100d1",
+     "kind": "other",
+     "start": "1000:00d0",
+     "start_linear": "0x100d0"
+    },
+    {
+     "bytes": 3,
+     "detail": "49 45 53",
+     "end": "1000:00d5",
+     "end_linear": "0x100d5",
+     "kind": "other",
+     "start": "1000:00d3",
+     "start_linear": "0x100d3"
+    },
+    {
+     "bytes": 2,
+     "detail": "90 x2",
+     "end": "1000:00e9",
+     "end_linear": "0x100e9",
+     "kind": "padding",
+     "start": "1000:00e8",
+     "start_linear": "0x100e8"
+    },
+    {
+     "bytes": 14,
+     "detail": "7 instructions, ending ret",
+     "end": "1000:00f7",
+     "end_linear": "0x100f7",
+     "kind": "looks like code",
+     "start": "1000:00ea",
+     "start_linear": "0x100ea"
+    },
+    {
+     "bytes": 8,
+     "detail": "00 x8",
+     "end": "1000:00ff",
+     "end_linear": "0x100ff",
+     "kind": "padding",
+     "start": "1000:00f8",
+     "start_linear": "0x100f8"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "looks like code": 14,
+    "other": 5,
+    "padding": 10,
+    "pointer table": 6
+   },
+   "unclaimed_bytes": 35
+  },
+  "status": "ok",
+  "unknowns": [
+   "is 1000:00ea..1000:00f7 (14 bytes) code that nothing reaches? It decodes cleanly: 7 instructions, ending ret."
+  ]
+ },
+ "a gap inside a body": {
+  "evidence": [
+   {
+    "claim": "219 of 255 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-ffa9e73f",
+    "kind": "code-claimed",
+    "value": 85.9
+   },
+   {
+    "claim": "chunky is 2 ranges",
+    "id": "ev-0d081a65-99307031",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:0070"
+    },
+    "value": {
+     "span_bytes": 26,
+     "total_bytes": 18
+    }
+   },
+   {
+    "claim": "switcher is 2 ranges",
+    "id": "ev-0d081a65-13f89442",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:008a"
+    },
+    "value": {
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   },
+   {
+    "claim": "6 unclaimed bytes, pointer table",
+    "detail": "3 words, 3 into the code",
+    "id": "ev-0d081a65-29744112",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0099",
+     "end": "1000:009e"
+    },
+    "value": "pointer table"
+   },
+   {
+    "claim": "6 unclaimed bytes, text",
+    "detail": "100% printable, first string 'BODIES'",
+    "id": "ev-0d081a65-5784cb2c",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00d0",
+     "end": "1000:00d5"
+    },
+    "value": "text"
+   },
+   {
+    "claim": "2 unclaimed bytes, padding",
+    "detail": "90 x2",
+    "id": "ev-0d081a65-f7febefe",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00e8",
+     "end": "1000:00e9"
+    },
+    "value": "padding"
+   },
+   {
+    "claim": "14 unclaimed bytes, looks like code",
+    "detail": "7 instructions, ending ret",
+    "id": "ev-0d081a65-6ee50cf2",
+    "kind": "unclaimed",
+    "level": "warn",
+    "location": {
+     "address": "1000:00ea",
+     "end": "1000:00f7"
+    },
+    "value": "looks like code"
+   },
+   {
+    "claim": "8 unclaimed bytes, padding",
+    "detail": "00 x8",
+    "id": "ev-0d081a65-69e709a5",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00f8",
+     "end": "1000:00ff"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 219,
+   "claimed_percent": 85.9,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 215,
+      "end": "1000:00d6",
+      "segment": "1000",
+      "start": "1000:0000"
+     },
+     {
+      "block": "CODE_1",
+      "bytes": 40,
+      "end": "1000:00ff",
+      "segment": "1000",
+      "start": "1000:00d8"
+     }
+    ],
+    "bytes": 255
+   },
+   "entry_outside_body": [],
+   "functions": 16,
+   "functions_json": "<work>/analyse/gap/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 1,
+   "min_instructions": 3,
+   "non_contiguous": [
+    {
+     "entry": "1000:0070",
+     "name": "chunky",
+     "ranges": 2,
+     "span_bytes": 26,
+     "total_bytes": 18
+    },
+    {
+     "entry": "1000:008a",
+     "name": "switcher",
+     "ranges": 2,
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   ],
+   "origins": {
+    "ghidra-analysis": 16
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 6,
+     "detail": "3 words, 3 into the code",
+     "end": "1000:009e",
+     "end_linear": "0x1009e",
+     "kind": "pointer table",
+     "start": "1000:0099",
+     "start_linear": "0x10099"
+    },
+    {
+     "bytes": 6,
+     "detail": "100% printable, first string 'BODIES'",
+     "end": "1000:00d5",
+     "end_linear": "0x100d5",
+     "kind": "text",
+     "start": "1000:00d0",
+     "start_linear": "0x100d0"
+    },
+    {
+     "bytes": 2,
+     "detail": "90 x2",
+     "end": "1000:00e9",
+     "end_linear": "0x100e9",
+     "kind": "padding",
+     "start": "1000:00e8",
+     "start_linear": "0x100e8"
+    },
+    {
+     "bytes": 14,
+     "detail": "7 instructions, ending ret",
+     "end": "1000:00f7",
+     "end_linear": "0x100f7",
+     "kind": "looks like code",
+     "start": "1000:00ea",
+     "start_linear": "0x100ea"
+    },
+    {
+     "bytes": 8,
+     "detail": "00 x8",
+     "end": "1000:00ff",
+     "end_linear": "0x100ff",
+     "kind": "padding",
+     "start": "1000:00f8",
+     "start_linear": "0x100f8"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "looks like code": 14,
+    "padding": 10,
+    "pointer table": 6,
+    "text": 6
+   },
+   "unclaimed_bytes": 36
+  },
+  "status": "ok",
+  "unknowns": [
+   "is 1000:00ea..1000:00f7 (14 bytes) code that nothing reaches? It decodes cleanly: 7 instructions, ending ret."
+  ]
+ },
+ "a load image record without a status": {
+  "evidence": [
+   {
+    "claim": "220 of 256 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-a29a8ef4",
+    "kind": "code-claimed",
+    "value": 85.9
+   },
+   {
+    "claim": "chunky is 2 ranges",
+    "id": "ev-0d081a65-99307031",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:0070"
+    },
+    "value": {
+     "span_bytes": 26,
+     "total_bytes": 18
+    }
+   },
+   {
+    "claim": "switcher is 2 ranges",
+    "id": "ev-0d081a65-13f89442",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:008a"
+    },
+    "value": {
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   },
+   {
+    "claim": "6 unclaimed bytes, pointer table",
+    "detail": "3 words, 3 into the code",
+    "id": "ev-0d081a65-29744112",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0099",
+     "end": "1000:009e"
+    },
+    "value": "pointer table"
+   },
+   {
+    "claim": "6 unclaimed bytes, text",
+    "detail": "100% printable, first string 'BODIES'",
+    "id": "ev-0d081a65-5784cb2c",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00d0",
+     "end": "1000:00d5"
+    },
+    "value": "text"
+   },
+   {
+    "claim": "2 unclaimed bytes, padding",
+    "detail": "90 x2",
+    "id": "ev-0d081a65-f7febefe",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00e8",
+     "end": "1000:00e9"
+    },
+    "value": "padding"
+   },
+   {
+    "claim": "14 unclaimed bytes, looks like code",
+    "detail": "7 instructions, ending ret",
+    "id": "ev-0d081a65-6ee50cf2",
+    "kind": "unclaimed",
+    "level": "warn",
+    "location": {
+     "address": "1000:00ea",
+     "end": "1000:00f7"
+    },
+    "value": "looks like code"
+   },
+   {
+    "claim": "8 unclaimed bytes, padding",
+    "detail": "00 x8",
+    "id": "ev-0d081a65-69e709a5",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00f8",
+     "end": "1000:00ff"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified.",
+   "The load image did not verify (None), so the bytes read from the file may not be the program Ghidra analysed."
+  ],
+  "result": {
+   "claimed_bytes": 220,
+   "claimed_percent": 85.9,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 256,
+      "end": "1000:00ff",
+      "segment": "1000",
+      "start": "1000:0000"
+     }
+    ],
+    "bytes": 256
+   },
+   "entry_outside_body": [],
+   "functions": 16,
+   "functions_json": "<work>/analyse/no-status/functions.json",
+   "load_image": null,
+   "looks_like_code": 1,
+   "min_instructions": 3,
+   "non_contiguous": [
+    {
+     "entry": "1000:0070",
+     "name": "chunky",
+     "ranges": 2,
+     "span_bytes": 26,
+     "total_bytes": 18
+    },
+    {
+     "entry": "1000:008a",
+     "name": "switcher",
+     "ranges": 2,
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   ],
+   "origins": {
+    "ghidra-analysis": 16
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 6,
+     "detail": "3 words, 3 into the code",
+     "end": "1000:009e",
+     "end_linear": "0x1009e",
+     "kind": "pointer table",
+     "start": "1000:0099",
+     "start_linear": "0x10099"
+    },
+    {
+     "bytes": 6,
+     "detail": "100% printable, first string 'BODIES'",
+     "end": "1000:00d5",
+     "end_linear": "0x100d5",
+     "kind": "text",
+     "start": "1000:00d0",
+     "start_linear": "0x100d0"
+    },
+    {
+     "bytes": 2,
+     "detail": "90 x2",
+     "end": "1000:00e9",
+     "end_linear": "0x100e9",
+     "kind": "padding",
+     "start": "1000:00e8",
+     "start_linear": "0x100e8"
+    },
+    {
+     "bytes": 14,
+     "detail": "7 instructions, ending ret",
+     "end": "1000:00f7",
+     "end_linear": "0x100f7",
+     "kind": "looks like code",
+     "start": "1000:00ea",
+     "start_linear": "0x100ea"
+    },
+    {
+     "bytes": 8,
+     "detail": "00 x8",
+     "end": "1000:00ff",
+     "end_linear": "0x100ff",
+     "kind": "padding",
+     "start": "1000:00f8",
+     "start_linear": "0x100f8"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "looks like code": 14,
+    "padding": 10,
+    "pointer table": 6,
+    "text": 6
+   },
+   "unclaimed_bytes": 36
+  },
+  "status": "ok",
+  "unknowns": [
+   "is 1000:00ea..1000:00f7 (14 bytes) code that nothing reaches? It decodes cleanly: 7 instructions, ending ret."
+  ]
+ },
+ "a run longer than its start": {
+  "evidence": [
+   {
+    "claim": "64 of 66,048 code bytes claimed by some function's body",
+    "id": "ev-89261a38-a926aad2",
+    "kind": "code-claimed",
+    "value": 0.1
+   },
+   {
+    "claim": "65760 unclaimed bytes, padding",
+    "detail": "mostly 90",
+    "id": "ev-89261a38-7d4855b6",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0020",
+     "end": "1000:00ff"
+    },
+    "value": "padding"
+   },
+   {
+    "claim": "13 unclaimed bytes, text",
+    "detail": "100% printable, first string 'LONG RUN TEXT'",
+    "id": "ev-89261a38-4eb685b8",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0100",
+     "end": "1000:010c"
+    },
+    "value": "text"
+   },
+   {
+    "claim": "211 unclaimed bytes, padding",
+    "detail": "mostly 90",
+    "id": "ev-89261a38-08d07151",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:010d",
+     "end": "1000:01df"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 64,
+   "claimed_percent": 0.1,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 66048,
+      "end": "1000:01ff",
+      "segment": "1000",
+      "start": "1000:0000"
+     }
+    ],
+    "bytes": 66048
+   },
+   "entry_outside_body": [],
+   "functions": 2,
+   "functions_json": "<work>/analyse/long-run/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 0,
+   "min_instructions": 3,
+   "non_contiguous": [],
+   "origins": {
+    "ghidra-analysis": 2
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 65760,
+     "detail": "mostly 90",
+     "end": "1000:00ff",
+     "end_linear": "0x200ff",
+     "kind": "padding",
+     "start": "1000:0020",
+     "start_linear": "0x10020"
+    },
+    {
+     "bytes": 13,
+     "detail": "100% printable, first string 'LONG RUN TEXT'",
+     "end": "1000:010c",
+     "end_linear": "0x2010c",
+     "kind": "text",
+     "start": "1000:0100",
+     "start_linear": "0x20100"
+    },
+    {
+     "bytes": 211,
+     "detail": "mostly 90",
+     "end": "1000:01df",
+     "end_linear": "0x201df",
+     "kind": "padding",
+     "start": "1000:010d",
+     "start_linear": "0x2010d"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "padding": 65971,
+    "text": 13
+   },
+   "unclaimed_bytes": 65984
+  },
+  "status": "ok",
+  "unknowns": []
+ },
+ "a run starting on a block's last byte": {
+  "evidence": [
+   {
+    "claim": "220 of 256 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-a29a8ef4",
+    "kind": "code-claimed",
+    "value": 85.9
+   },
+   {
+    "claim": "chunky is 2 ranges",
+    "id": "ev-0d081a65-99307031",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:0070"
+    },
+    "value": {
+     "span_bytes": 26,
+     "total_bytes": 18
+    }
+   },
+   {
+    "claim": "switcher is 2 ranges",
+    "id": "ev-0d081a65-13f89442",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:008a"
+    },
+    "value": {
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   },
+   {
+    "claim": "6 unclaimed bytes, other",
+    "detail": "9f 00 a4 00 a9 00",
+    "id": "ev-0d081a65-d6d73e45",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "0f00:1099",
+     "end": "0f00:109e"
+    },
+    "value": "other"
+   },
+   {
+    "claim": "6 unclaimed bytes, text",
+    "detail": "100% printable, first string 'BODIES'",
+    "id": "ev-0d081a65-6ac98b7e",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "0f00:10d0",
+     "end": "0f00:10d5"
+    },
+    "value": "text"
+   },
+   {
+    "claim": "2 unclaimed bytes, padding",
+    "detail": "90 x2",
+    "id": "ev-0d081a65-f7febefe",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00e8",
+     "end": "1000:00e9"
+    },
+    "value": "padding"
+   },
+   {
+    "claim": "14 unclaimed bytes, looks like code",
+    "detail": "7 instructions, ending ret",
+    "id": "ev-0d081a65-6ee50cf2",
+    "kind": "unclaimed",
+    "level": "warn",
+    "location": {
+     "address": "1000:00ea",
+     "end": "1000:00f7"
+    },
+    "value": "looks like code"
+   },
+   {
+    "claim": "8 unclaimed bytes, padding",
+    "detail": "00 x8",
+    "id": "ev-0d081a65-69e709a5",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00f8",
+     "end": "1000:00ff"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 220,
+   "claimed_percent": 85.9,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 209,
+      "end": "0f00:10d0",
+      "segment": "0f00",
+      "start": "0f00:1000"
+     },
+     {
+      "block": "CODE_1",
+      "bytes": 47,
+      "end": "1000:00ff",
+      "segment": "1000",
+      "start": "1000:00d1"
+     }
+    ],
+    "bytes": 256
+   },
+   "entry_outside_body": [],
+   "functions": 16,
+   "functions_json": "<work>/analyse/last-byte/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 1,
+   "min_instructions": 3,
+   "non_contiguous": [
+    {
+     "entry": "1000:0070",
+     "name": "chunky",
+     "ranges": 2,
+     "span_bytes": 26,
+     "total_bytes": 18
+    },
+    {
+     "entry": "1000:008a",
+     "name": "switcher",
+     "ranges": 2,
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   ],
+   "origins": {
+    "ghidra-analysis": 16
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 6,
+     "detail": "9f 00 a4 00 a9 00",
+     "end": "0f00:109e",
+     "end_linear": "0x1009e",
+     "kind": "other",
+     "start": "0f00:1099",
+     "start_linear": "0x10099"
+    },
+    {
+     "bytes": 6,
+     "detail": "100% printable, first string 'BODIES'",
+     "end": "0f00:10d5",
+     "end_linear": "0x100d5",
+     "kind": "text",
+     "start": "0f00:10d0",
+     "start_linear": "0x100d0"
+    },
+    {
+     "bytes": 2,
+     "detail": "90 x2",
+     "end": "1000:00e9",
+     "end_linear": "0x100e9",
+     "kind": "padding",
+     "start": "1000:00e8",
+     "start_linear": "0x100e8"
+    },
+    {
+     "bytes": 14,
+     "detail": "7 instructions, ending ret",
+     "end": "1000:00f7",
+     "end_linear": "0x100f7",
+     "kind": "looks like code",
+     "start": "1000:00ea",
+     "start_linear": "0x100ea"
+    },
+    {
+     "bytes": 8,
+     "detail": "00 x8",
+     "end": "1000:00ff",
+     "end_linear": "0x100ff",
+     "kind": "padding",
+     "start": "1000:00f8",
+     "start_linear": "0x100f8"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "looks like code": 14,
+    "other": 6,
+    "padding": 10,
+    "text": 6
+   },
+   "unclaimed_bytes": 36
+  },
+  "status": "ok",
+  "unknowns": [
+   "is 1000:00ea..1000:00f7 (14 bytes) code that nothing reaches? It decodes cleanly: 7 instructions, ending ret."
+  ]
+ },
+ "blocks touching a body by one byte, and a gap": {
+  "evidence": [
+   {
+    "claim": "180 of 255 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-abdf06f5",
+    "kind": "code-claimed",
+    "value": 70.6
+   },
+   {
+    "claim": "chunky is 2 ranges",
+    "id": "ev-0d081a65-99307031",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:0070"
+    },
+    "value": {
+     "span_bytes": 26,
+     "total_bytes": 18
+    }
+   },
+   {
+    "claim": "switcher is 2 ranges",
+    "id": "ev-0d081a65-13f89442",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:008a"
+    },
+    "value": {
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   },
+   {
+    "claim": "21 unclaimed bytes, other",
+    "detail": "b8 10 10 8e d8 bb 10 10 ...",
+    "id": "ev-0d081a65-b09ca4b2",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:0014"
+    },
+    "value": "other"
+   },
+   {
+    "claim": "6 unclaimed bytes, pointer table",
+    "detail": "3 words, 3 into the code",
+    "id": "ev-0d081a65-29744112",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0099",
+     "end": "1000:009e"
+    },
+    "value": "pointer table"
+   },
+   {
+    "claim": "40 unclaimed bytes, looks like code",
+    "detail": "25 instructions, ending ret",
+    "id": "ev-0d081a65-3211ddb4",
+    "kind": "unclaimed",
+    "level": "warn",
+    "location": {
+     "address": "100c:0010",
+     "end": "100c:0037"
+    },
+    "value": "looks like code"
+   },
+   {
+    "claim": "8 unclaimed bytes, padding",
+    "detail": "00 x8",
+    "id": "ev-0d081a65-e76e89e6",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "100c:0038",
+     "end": "100c:003f"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 180,
+   "claimed_percent": 70.6,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 22,
+      "end": "1000:0015",
+      "segment": "1000",
+      "start": "1000:0000"
+     },
+     {
+      "block": "CODE_1",
+      "bytes": 184,
+      "end": "1000:00cd",
+      "segment": "1000",
+      "start": "1000:0016"
+     },
+     {
+      "block": "CODE_2",
+      "bytes": 49,
+      "end": "100c:003f",
+      "segment": "100c",
+      "start": "100c:000f"
+     }
+    ],
+    "bytes": 255
+   },
+   "entry_outside_body": [],
+   "functions": 13,
+   "functions_json": "<work>/analyse/edges/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 1,
+   "min_instructions": 3,
+   "non_contiguous": [
+    {
+     "entry": "1000:0070",
+     "name": "chunky",
+     "ranges": 2,
+     "span_bytes": 26,
+     "total_bytes": 18
+    },
+    {
+     "entry": "1000:008a",
+     "name": "switcher",
+     "ranges": 2,
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   ],
+   "origins": {
+    "ghidra-analysis": 13
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 21,
+     "detail": "b8 10 10 8e d8 bb 10 10 ...",
+     "end": "1000:0014",
+     "end_linear": "0x10014",
+     "kind": "other",
+     "start": "1000:0000",
+     "start_linear": "0x10000"
+    },
+    {
+     "bytes": 6,
+     "detail": "3 words, 3 into the code",
+     "end": "1000:009e",
+     "end_linear": "0x1009e",
+     "kind": "pointer table",
+     "start": "1000:0099",
+     "start_linear": "0x10099"
+    },
+    {
+     "bytes": 40,
+     "detail": "25 instructions, ending ret",
+     "end": "100c:0037",
+     "end_linear": "0x100f7",
+     "kind": "looks like code",
+     "start": "100c:0010",
+     "start_linear": "0x100d0"
+    },
+    {
+     "bytes": 8,
+     "detail": "00 x8",
+     "end": "100c:003f",
+     "end_linear": "0x100ff",
+     "kind": "padding",
+     "start": "100c:0038",
+     "start_linear": "0x100f8"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "looks like code": 40,
+    "other": 21,
+    "padding": 8,
+    "pointer table": 6
+   },
+   "unclaimed_bytes": 75
+  },
+  "status": "ok",
+  "unknowns": [
+   "is 100c:0010..100c:0037 (40 bytes) code that nothing reaches? It decodes cleanly: 25 instructions, ending ret."
+  ]
+ },
+ "labels": {
+  "evidence": [
+   {
+    "claim": "220 of 256 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-a29a8ef4",
+    "kind": "code-claimed",
+    "value": 85.9
+   },
+   {
+    "claim": "chunky is 2 ranges",
+    "id": "ev-0d081a65-99307031",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:0070"
+    },
+    "value": {
+     "span_bytes": 26,
+     "total_bytes": 18
+    }
+   },
+   {
+    "claim": "switcher is 2 ranges",
+    "id": "ev-0d081a65-13f89442",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:008a"
+    },
+    "value": {
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   },
+   {
+    "claim": "4 bytes claimed by 3 functions",
+    "id": "ev-0d081a65-7e6d3902",
+    "kind": "body-overlap",
+    "level": "warn",
+    "location": {
+     "address": "1000:005a",
+     "end": "1000:005d"
+    },
+    "value": [
+     "1000:004a jump",
+     "1000:0052 jump",
+     "1000:005a body"
+    ]
+   },
+   {
+    "claim": "adrift's body does not contain its entry",
+    "id": "ev-0d081a65-b7a480a4",
+    "kind": "entry-outside-body",
+    "level": "warn",
+    "location": {
+     "address": "1000:0015"
+    }
+   },
+   {
+    "claim": "6 unclaimed bytes, pointer table",
+    "detail": "3 words, 3 into the code",
+    "id": "ev-0d081a65-29744112",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0099",
+     "end": "1000:009e"
+    },
+    "value": "pointer table"
+   },
+   {
+    "claim": "6 unclaimed bytes, text",
+    "detail": "100% printable, first string 'BODIES'",
+    "id": "ev-0d081a65-5784cb2c",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00d0",
+     "end": "1000:00d5"
+    },
+    "value": "text"
+   },
+   {
+    "claim": "2 unclaimed bytes, padding",
+    "detail": "90 x2",
+    "id": "ev-0d081a65-f7febefe",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00e8",
+     "end": "1000:00e9"
+    },
+    "value": "padding"
+   },
+   {
+    "claim": "14 unclaimed bytes, looks like code",
+    "detail": "7 instructions, ending ret",
+    "id": "ev-0d081a65-6ee50cf2",
+    "kind": "unclaimed",
+    "level": "warn",
+    "location": {
+     "address": "1000:00ea",
+     "end": "1000:00f7"
+    },
+    "value": "looks like code"
+   },
+   {
+    "claim": "8 unclaimed bytes, padding",
+    "detail": "00 x8",
+    "id": "ev-0d081a65-69e709a5",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00f8",
+     "end": "1000:00ff"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 220,
+   "claimed_percent": 85.9,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 256,
+      "end": "1000:00ff",
+      "segment": "1000",
+      "start": "1000:0000"
+     }
+    ],
+    "bytes": 256
+   },
+   "entry_outside_body": [
+    {
+     "entry": "1000:0015",
+     "name": "adrift"
+    }
+   ],
+   "functions": 17,
+   "functions_json": "<work>/analyse/labels/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 1,
+   "min_instructions": 3,
+   "non_contiguous": [
+    {
+     "entry": "1000:0070",
+     "name": "chunky",
+     "ranges": 2,
+     "span_bytes": 26,
+     "total_bytes": 18
+    },
+    {
+     "entry": "1000:008a",
+     "name": "switcher",
+     "ranges": 2,
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   ],
+   "origins": {
+    "ghidra-analysis": 17
+   },
+   "overlap_bytes": 4,
+   "overlaps": 1,
+   "tail_calls": 1,
+   "unclaimed": [
+    {
+     "bytes": 6,
+     "detail": "3 words, 3 into the code",
+     "end": "1000:009e",
+     "end_linear": "0x1009e",
+     "kind": "pointer table",
+     "start": "1000:0099",
+     "start_linear": "0x10099"
+    },
+    {
+     "bytes": 6,
+     "detail": "100% printable, first string 'BODIES'",
+     "end": "1000:00d5",
+     "end_linear": "0x100d5",
+     "kind": "text",
+     "start": "1000:00d0",
+     "start_linear": "0x100d0"
+    },
+    {
+     "bytes": 2,
+     "detail": "90 x2",
+     "end": "1000:00e9",
+     "end_linear": "0x100e9",
+     "kind": "padding",
+     "start": "1000:00e8",
+     "start_linear": "0x100e8"
+    },
+    {
+     "bytes": 14,
+     "detail": "7 instructions, ending ret",
+     "end": "1000:00f7",
+     "end_linear": "0x100f7",
+     "kind": "looks like code",
+     "start": "1000:00ea",
+     "start_linear": "0x100ea"
+    },
+    {
+     "bytes": 8,
+     "detail": "00 x8",
+     "end": "1000:00ff",
+     "end_linear": "0x100ff",
+     "kind": "padding",
+     "start": "1000:00f8",
+     "start_linear": "0x100f8"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "looks like code": 14,
+    "padding": 10,
+    "pointer table": 6,
+    "text": 6
+   },
+   "unclaimed_bytes": 36
+  },
+  "status": "ok",
+  "unknowns": [
+   "is 1000:00ea..1000:00f7 (14 bytes) code that nothing reaches? It decodes cleanly: 7 instructions, ending ret."
+  ]
+ },
+ "no function inside any block": {
+  "evidence": [
+   {
+    "claim": "0 of 0 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-2be4d4f0",
+    "kind": "code-claimed",
+    "value": 0.0
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 0,
+   "claimed_percent": 0.0,
+   "code": {
+    "blocks": [],
+    "bytes": 0
+   },
+   "entry_outside_body": [],
+   "functions": 1,
+   "functions_json": "<work>/analyse/outside/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 0,
+   "min_instructions": 3,
+   "non_contiguous": [],
+   "origins": {
+    "ghidra-analysis": 1
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [],
+   "unclaimed_by_kind": {},
+   "unclaimed_bytes": 0
+  },
+  "status": "ok",
+  "unknowns": []
+ },
+ "table targets on bodies' last bytes": {
+  "evidence": [
+   {
+    "claim": "217 of 256 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-c5efd64d",
+    "kind": "code-claimed",
+    "value": 84.8
+   },
+   {
+    "claim": "chunky is 2 ranges",
+    "id": "ev-0d081a65-99307031",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:0070"
+    },
+    "value": {
+     "span_bytes": 26,
+     "total_bytes": 18
+    }
+   },
+   {
+    "claim": "switcher is 2 ranges",
+    "id": "ev-0d081a65-633fef10",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:008a"
+    },
+    "value": {
+     "span_bytes": 22,
+     "total_bytes": 16
+    }
+   },
+   {
+    "claim": "6 unclaimed bytes, pointer table",
+    "detail": "3 words, 3 into the code",
+    "id": "ev-0d081a65-29744112",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0099",
+     "end": "1000:009e"
+    },
+    "value": "pointer table"
+   },
+   {
+    "claim": "1 unclaimed bytes, other",
+    "detail": "0a",
+    "id": "ev-0d081a65-73472f28",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00a0",
+     "end": "1000:00a0"
+    },
+    "value": "other"
+   },
+   {
+    "claim": "1 unclaimed bytes, other",
+    "detail": "0b",
+    "id": "ev-0d081a65-803415c2",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00a5",
+     "end": "1000:00a5"
+    },
+    "value": "other"
+   },
+   {
+    "claim": "1 unclaimed bytes, other",
+    "detail": "0c",
+    "id": "ev-0d081a65-cae0ea0b",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00aa",
+     "end": "1000:00aa"
+    },
+    "value": "other"
+   },
+   {
+    "claim": "6 unclaimed bytes, text",
+    "detail": "100% printable, first string 'BODIES'",
+    "id": "ev-0d081a65-5784cb2c",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00d0",
+     "end": "1000:00d5"
+    },
+    "value": "text"
+   },
+   {
+    "claim": "2 unclaimed bytes, padding",
+    "detail": "90 x2",
+    "id": "ev-0d081a65-f7febefe",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00e8",
+     "end": "1000:00e9"
+    },
+    "value": "padding"
+   },
+   {
+    "claim": "14 unclaimed bytes, looks like code",
+    "detail": "7 instructions, ending ret",
+    "id": "ev-0d081a65-6ee50cf2",
+    "kind": "unclaimed",
+    "level": "warn",
+    "location": {
+     "address": "1000:00ea",
+     "end": "1000:00f7"
+    },
+    "value": "looks like code"
+   },
+   {
+    "claim": "8 unclaimed bytes, padding",
+    "detail": "00 x8",
+    "id": "ev-0d081a65-69e709a5",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00f8",
+     "end": "1000:00ff"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 217,
+   "claimed_percent": 84.8,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 256,
+      "end": "1000:00ff",
+      "segment": "1000",
+      "start": "1000:0000"
+     }
+    ],
+    "bytes": 256
+   },
+   "entry_outside_body": [],
+   "functions": 19,
+   "functions_json": "<work>/analyse/targets/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 1,
+   "min_instructions": 3,
+   "non_contiguous": [
+    {
+     "entry": "1000:0070",
+     "name": "chunky",
+     "ranges": 2,
+     "span_bytes": 26,
+     "total_bytes": 18
+    },
+    {
+     "entry": "1000:008a",
+     "name": "switcher",
+     "ranges": 2,
+     "span_bytes": 22,
+     "total_bytes": 16
+    }
+   ],
+   "origins": {
+    "ghidra-analysis": 19
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 6,
+     "detail": "3 words, 3 into the code",
+     "end": "1000:009e",
+     "end_linear": "0x1009e",
+     "kind": "pointer table",
+     "start": "1000:0099",
+     "start_linear": "0x10099"
+    },
+    {
+     "bytes": 1,
+     "detail": "0a",
+     "end": "1000:00a0",
+     "end_linear": "0x100a0",
+     "kind": "other",
+     "start": "1000:00a0",
+     "start_linear": "0x100a0"
+    },
+    {
+     "bytes": 1,
+     "detail": "0b",
+     "end": "1000:00a5",
+     "end_linear": "0x100a5",
+     "kind": "other",
+     "start": "1000:00a5",
+     "start_linear": "0x100a5"
+    },
+    {
+     "bytes": 1,
+     "detail": "0c",
+     "end": "1000:00aa",
+     "end_linear": "0x100aa",
+     "kind": "other",
+     "start": "1000:00aa",
+     "start_linear": "0x100aa"
+    },
+    {
+     "bytes": 6,
+     "detail": "100% printable, first string 'BODIES'",
+     "end": "1000:00d5",
+     "end_linear": "0x100d5",
+     "kind": "text",
+     "start": "1000:00d0",
+     "start_linear": "0x100d0"
+    },
+    {
+     "bytes": 2,
+     "detail": "90 x2",
+     "end": "1000:00e9",
+     "end_linear": "0x100e9",
+     "kind": "padding",
+     "start": "1000:00e8",
+     "start_linear": "0x100e8"
+    },
+    {
+     "bytes": 14,
+     "detail": "7 instructions, ending ret",
+     "end": "1000:00f7",
+     "end_linear": "0x100f7",
+     "kind": "looks like code",
+     "start": "1000:00ea",
+     "start_linear": "0x100ea"
+    },
+    {
+     "bytes": 8,
+     "detail": "00 x8",
+     "end": "1000:00ff",
+     "end_linear": "0x100ff",
+     "kind": "padding",
+     "start": "1000:00f8",
+     "start_linear": "0x100f8"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "looks like code": 14,
+    "other": 3,
+    "padding": 10,
+    "pointer table": 6,
+    "text": 6
+   },
+   "unclaimed_bytes": 39
+  },
+  "status": "ok",
+  "unknowns": [
+   "is 1000:00ea..1000:00f7 (14 bytes) code that nothing reaches? It decodes cleanly: 7 instructions, ending ret."
+  ]
+ },
+ "three instructions, load image unverified": {
+  "evidence": [
+   {
+    "claim": "229 of 256 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-22c2572b",
+    "kind": "code-claimed",
+    "value": 89.5
+   },
+   {
+    "claim": "chunky is 2 ranges",
+    "id": "ev-0d081a65-99307031",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:0070"
+    },
+    "value": {
+     "span_bytes": 26,
+     "total_bytes": 18
+    }
+   },
+   {
+    "claim": "switcher is 2 ranges",
+    "id": "ev-0d081a65-13f89442",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:008a"
+    },
+    "value": {
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   },
+   {
+    "claim": "6 unclaimed bytes, pointer table",
+    "detail": "3 words, 3 into the code",
+    "id": "ev-0d081a65-29744112",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0099",
+     "end": "1000:009e"
+    },
+    "value": "pointer table"
+   },
+   {
+    "claim": "6 unclaimed bytes, text",
+    "detail": "100% printable, first string 'BODIES'",
+    "id": "ev-0d081a65-5784cb2c",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00d0",
+     "end": "1000:00d5"
+    },
+    "value": "text"
+   },
+   {
+    "claim": "2 unclaimed bytes, padding",
+    "detail": "90 x2",
+    "id": "ev-0d081a65-f7febefe",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00e8",
+     "end": "1000:00e9"
+    },
+    "value": "padding"
+   },
+   {
+    "claim": "5 unclaimed bytes, looks like code",
+    "detail": "3 instructions, ending ret",
+    "id": "ev-0d081a65-83df5fc0",
+    "kind": "unclaimed",
+    "level": "warn",
+    "location": {
+     "address": "1000:00f3",
+     "end": "1000:00f7"
+    },
+    "value": "looks like code"
+   },
+   {
+    "claim": "8 unclaimed bytes, padding",
+    "detail": "00 x8",
+    "id": "ev-0d081a65-69e709a5",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:00f8",
+     "end": "1000:00ff"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified.",
+   "The load image did not verify (mismatch), so the bytes read from the file may not be the program Ghidra analysed."
+  ],
+  "result": {
+   "claimed_bytes": 229,
+   "claimed_percent": 89.5,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 256,
+      "end": "1000:00ff",
+      "segment": "1000",
+      "start": "1000:0000"
+     }
+    ],
+    "bytes": 256
+   },
+   "entry_outside_body": [],
+   "functions": 17,
+   "functions_json": "<work>/analyse/three/functions.json",
+   "load_image": "mismatch",
+   "looks_like_code": 1,
+   "min_instructions": 3,
+   "non_contiguous": [
+    {
+     "entry": "1000:0070",
+     "name": "chunky",
+     "ranges": 2,
+     "span_bytes": 26,
+     "total_bytes": 18
+    },
+    {
+     "entry": "1000:008a",
+     "name": "switcher",
+     "ranges": 2,
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   ],
+   "origins": {
+    "ghidra-analysis": 17
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 6,
+     "detail": "3 words, 3 into the code",
+     "end": "1000:009e",
+     "end_linear": "0x1009e",
+     "kind": "pointer table",
+     "start": "1000:0099",
+     "start_linear": "0x10099"
+    },
+    {
+     "bytes": 6,
+     "detail": "100% printable, first string 'BODIES'",
+     "end": "1000:00d5",
+     "end_linear": "0x100d5",
+     "kind": "text",
+     "start": "1000:00d0",
+     "start_linear": "0x100d0"
+    },
+    {
+     "bytes": 2,
+     "detail": "90 x2",
+     "end": "1000:00e9",
+     "end_linear": "0x100e9",
+     "kind": "padding",
+     "start": "1000:00e8",
+     "start_linear": "0x100e8"
+    },
+    {
+     "bytes": 5,
+     "detail": "3 instructions, ending ret",
+     "end": "1000:00f7",
+     "end_linear": "0x100f7",
+     "kind": "looks like code",
+     "start": "1000:00f3",
+     "start_linear": "0x100f3"
+    },
+    {
+     "bytes": 8,
+     "detail": "00 x8",
+     "end": "1000:00ff",
+     "end_linear": "0x100ff",
+     "kind": "padding",
+     "start": "1000:00f8",
+     "start_linear": "0x100f8"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "looks like code": 5,
+    "padding": 10,
+    "pointer table": 6,
+    "text": 6
+   },
+   "unclaimed_bytes": 27
+  },
+  "status": "ok",
+  "unknowns": [
+   "is 1000:00f3..1000:00f7 (5 bytes) code that nothing reaches? It decodes cleanly: 3 instructions, ending ret."
+  ]
+ },
+ "two blocks": {
+  "evidence": [
+   {
+    "claim": "220 of 256 code bytes claimed by some function's body",
+    "id": "ev-0d081a65-a29a8ef4",
+    "kind": "code-claimed",
+    "value": 85.9
+   },
+   {
+    "claim": "chunky is 2 ranges",
+    "id": "ev-0d081a65-99307031",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:0070"
+    },
+    "value": {
+     "span_bytes": 26,
+     "total_bytes": 18
+    }
+   },
+   {
+    "claim": "switcher is 2 ranges",
+    "id": "ev-0d081a65-13f89442",
+    "kind": "non-contiguous-body",
+    "location": {
+     "address": "1000:008a"
+    },
+    "value": {
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   },
+   {
+    "claim": "6 unclaimed bytes, pointer table",
+    "detail": "3 words, 3 into the code",
+    "id": "ev-0d081a65-29744112",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "1000:0099",
+     "end": "1000:009e"
+    },
+    "value": "pointer table"
+   },
+   {
+    "claim": "6 unclaimed bytes, text",
+    "detail": "100% printable, first string 'BODIES'",
+    "id": "ev-0d081a65-dc648f50",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "100d:0000",
+     "end": "100d:0005"
+    },
+    "value": "text"
+   },
+   {
+    "claim": "2 unclaimed bytes, padding",
+    "detail": "90 x2",
+    "id": "ev-0d081a65-e9deaa2e",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "100d:0018",
+     "end": "100d:0019"
+    },
+    "value": "padding"
+   },
+   {
+    "claim": "14 unclaimed bytes, looks like code",
+    "detail": "7 instructions, ending ret",
+    "id": "ev-0d081a65-100c6184",
+    "kind": "unclaimed",
+    "level": "warn",
+    "location": {
+     "address": "100d:001a",
+     "end": "100d:0027"
+    },
+    "value": "looks like code"
+   },
+   {
+    "claim": "8 unclaimed bytes, padding",
+    "detail": "00 x8",
+    "id": "ev-0d081a65-d143bb8c",
+    "kind": "unclaimed",
+    "level": "info",
+    "location": {
+     "address": "100d:0028",
+     "end": "100d:002f"
+    },
+    "value": "padding"
+   }
+  ],
+  "limitations": [
+   "A body is the set of addresses Ghidra 12.1.2 assigned to the function, which never overlaps another body (measured). Code a function runs inside another function's body is listed in body_overlaps, and counted once here, as claimed by the function whose body it is.",
+   "The code is the blocks that hold at least one function's body. A block with code and no function is not counted; data inside a block that holds functions is, and is what the unclaimed list classifies.",
+   "Unclaimed bytes are classified by how they look, with comrec.py's rules (residue.py). 'Looks like code' means it decodes cleanly and ends in a return or jump, not that anything runs it.",
+   "Bytes are read from the file with DOS's fixups applied. They are the program Ghidra analysed only when the load image verified."
+  ],
+  "result": {
+   "claimed_bytes": 220,
+   "claimed_percent": 85.9,
+   "code": {
+    "blocks": [
+     {
+      "block": "CODE_0",
+      "bytes": 208,
+      "end": "1000:00cf",
+      "segment": "1000",
+      "start": "1000:0000"
+     },
+     {
+      "block": "CODE_1",
+      "bytes": 48,
+      "end": "100d:002f",
+      "segment": "100d",
+      "start": "100d:0000"
+     }
+    ],
+    "bytes": 256
+   },
+   "entry_outside_body": [],
+   "functions": 16,
+   "functions_json": "<work>/analyse/two-blocks/functions.json",
+   "load_image": "verified",
+   "looks_like_code": 1,
+   "min_instructions": 3,
+   "non_contiguous": [
+    {
+     "entry": "1000:0070",
+     "name": "chunky",
+     "ranges": 2,
+     "span_bytes": 26,
+     "total_bytes": 18
+    },
+    {
+     "entry": "1000:008a",
+     "name": "switcher",
+     "ranges": 2,
+     "span_bytes": 36,
+     "total_bytes": 30
+    }
+   ],
+   "origins": {
+    "ghidra-analysis": 16
+   },
+   "overlap_bytes": 0,
+   "overlaps": 0,
+   "tail_calls": null,
+   "unclaimed": [
+    {
+     "bytes": 6,
+     "detail": "3 words, 3 into the code",
+     "end": "1000:009e",
+     "end_linear": "0x1009e",
+     "kind": "pointer table",
+     "start": "1000:0099",
+     "start_linear": "0x10099"
+    },
+    {
+     "bytes": 6,
+     "detail": "100% printable, first string 'BODIES'",
+     "end": "100d:0005",
+     "end_linear": "0x100d5",
+     "kind": "text",
+     "start": "100d:0000",
+     "start_linear": "0x100d0"
+    },
+    {
+     "bytes": 2,
+     "detail": "90 x2",
+     "end": "100d:0019",
+     "end_linear": "0x100e9",
+     "kind": "padding",
+     "start": "100d:0018",
+     "start_linear": "0x100e8"
+    },
+    {
+     "bytes": 14,
+     "detail": "7 instructions, ending ret",
+     "end": "100d:0027",
+     "end_linear": "0x100f7",
+     "kind": "looks like code",
+     "start": "100d:001a",
+     "start_linear": "0x100ea"
+    },
+    {
+     "bytes": 8,
+     "detail": "00 x8",
+     "end": "100d:002f",
+     "end_linear": "0x100ff",
+     "kind": "padding",
+     "start": "100d:0028",
+     "start_linear": "0x100f8"
+    }
+   ],
+   "unclaimed_by_kind": {
+    "looks like code": 14,
+    "padding": 10,
+    "pointer table": 6,
+    "text": 6
+   },
+   "unclaimed_bytes": 36
+  },
+  "status": "ok",
+  "unknowns": [
+   "is 100d:001a..100d:0027 (14 bytes) code that nothing reaches? It decodes cleanly: 7 instructions, ending ret."
+  ]
+ }
+}
