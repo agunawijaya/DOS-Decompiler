@@ -569,6 +569,94 @@ def ghidra_ready():
     return None
 
 
+@case("the comparison's pieces and coverage give the answers worked out by hand")
+def _():
+    from types import SimpleNamespace
+    import sweep
+    case_ = SimpleNamespace(number=7, view={"g": 5, "h": 0xFFFF}, inputs={"x": 1})
+    spec = SimpleNamespace(globals=[sweep.Global("g", 0x10, 0x10, 2, False, None, None),
+                                    sweep.Global("h", 0x12, 0x12, 2, False, None, None)],
+                           compare=["writes"])
+
+    def refused(why, fn, *args):
+        try:
+            fn(*args)
+        except sweep.ContractError as e:
+            if why not in str(e):
+                raise AssertionError(f"{fn.__name__}{args[:1]} refused, but: {e}")
+            return
+        except Exception as e:
+            raise AssertionError(f"{fn.__name__}{args[:1]} raised {e!r}, not a contract error")
+        raise AssertionError(f"{fn.__name__}{args[:1]} broke the contract and was taken")
+    # Not numbers, and no answer: the contract refuses them, each for its reason.
+    refused("ax is True, not a number", sweep.value_of, True, 0xFFFF, "ax", case_)
+    refused("ax is '12', not a number", sweep.value_of, "12", 0xFFFF, "ax", case_)
+    refused("returned True; return a number", sweep.candidate_outcome, {"result": True}, spec, case_)
+    refused("returned None; return a number", sweep.candidate_outcome, {"result": None}, spec, case_)
+    # dx:ax as a candidate returns it is 32 bits wide; a byte write is 8, at
+    # the address its hex name gives.
+    for given, want in ((0x89ABCDEF, 0x89ABCDEF), (0x189ABCDEF, 0x89ABCDEF)):
+        got = sweep.candidate_outcome({"result": {"dx:ax": given}}, spec, case_)["dx:ax"]
+        if got != want:
+            raise AssertionError(f"dx:ax {given:#x} came back as {got:#x}")
+    got = sweep.candidate_outcome({"result": {"writes": {"0x0123": 0x1FF}}}, spec,
+                                  case_)["writes"]
+    if got != {"g": 5, "h": 0xFFFF, "0x0123": 0xFF}:
+        raise AssertionError(f"writes {got}")
+    # The original's dx:ax: as given, else made from DX and AX, else nothing.
+    for outcome, want in (({"fault": None, "dx:ax": 0x12345678}, 0x12345678),
+                          ({"fault": None, "ax": 0x1234, "dx": 0xABCD}, 0xABCD1234),
+                          ({"fault": None, "ax": 0x1234}, None),
+                          ({"fault": None, "dx": 0xABCD}, None)):
+        got = sweep.view(outcome, ["dx:ax"])
+        if got != {"fault": None, "dx:ax": want}:
+            raise AssertionError(f"view({outcome}): {got}")
+    # A record says what changed, judged against each global as the case
+    # began; h holds 0xffff throughout.
+    original = {"fault": None, "writes": {"g": 5, "h": 0xFFFF}}
+    candidate = {"fault": None, "writes": {"g": 6, "h": 0xFFFF}}
+    got = sweep.record(case_, original, candidate, ["writes"], spec)
+    want = {"case": 7, "inputs": {"x": 1}, "fields": ["writes"],
+            "original": {"fault": None, "writes": {"g": 5, "h": 0xFFFF}},
+            "candidate": {"fault": None, "writes": {"g": 6, "h": 0xFFFF}}, "original_at": None,
+            "text": {"original": "writes nothing changed", "candidate": "writes g=0x6"}}
+    if got != want:
+        raise AssertionError(f"record {got}")
+
+    # Coverage. CS is 0x4001, so the body's offsets are taken from 0x40010,
+    # and the load segment 0x2000 makes it 5001 as reported. Two ranges:
+    # inc ax / mov al, 1 / nop / nop / ret / nop at 5001:0010, and mov ax,
+    # 0x1234 / nop / ret at 5001:0023 -- three bytes at an address that is 3
+    # mod 4, so a + size - 1 differs from a ^ size - 1, a | size - 1 and the
+    # rest. Only the first inc ax and the second nop ran: nine instructions,
+    # two run, 22.2%. And 25 addresses outside the body ran.
+    cs = sweep.IMAGE_SEG + 0x3001
+    first = bytes([0x40, 0xB0, 0x01, 0x90, 0x90, 0xC3, 0x90])
+    second = bytes([0xB8, 0x34, 0x12, 0x90, 0xC3])
+    lo1, lo2 = (cs << 4) + 0x10, (cs << 4) + 0x23
+    image = bytearray(lo2 - sweep.IMAGE_BASE + 0x10)
+    image[lo1 - sweep.IMAGE_BASE:lo1 - sweep.IMAGE_BASE + len(first)] = first
+    image[lo2 - sweep.IMAGE_BASE:lo2 - sweep.IMAGE_BASE + len(second)] = second
+    program = SimpleNamespace(image=bytes(image), cs=cs, load_segment=0x2000)
+    executed = {lo1, lo1 + 4} | {(cs << 4) + 0x100 + i for i in range(25)}
+    got = sweep.coverage(program, [(lo1, lo1 + len(first) - 1), (lo2, lo2 + len(second) - 1)],
+                         executed)
+    want = {"available": True, "instructions": 9, "exercised": 2, "percent": 22.2,
+            "unreached": [{"start": "5001:0011", "end": "5001:0013", "instructions": 2},
+                          {"start": "5001:0015", "end": "5001:0016", "instructions": 2},
+                          {"start": "5001:0023", "end": "5001:0027", "instructions": 3}],
+            "executed_outside_body": 25,
+            "outside_body": [f"5001:{0x100 + i:04x}" for i in range(20)]}
+    if got != want:
+        raise AssertionError(f"coverage {got}")
+    got = sweep.coverage(program, [], set())
+    if got != {"available": True, "instructions": 0, "exercised": 0, "percent": 0.0,
+               "unreached": [], "executed_outside_body": 0, "outside_body": []}:
+        raise AssertionError(f"coverage of nothing {got}")
+    return ("the contract's refusals; dx:ax and byte writes at their widths; a record's "
+            "text; coverage over two ranges, by hand")
+
+
 @case("the same coverage against the body Ghidra gives rare and muldiv", needs=("ghidra",))
 def _():
     folder = WORK / "pipeline"
