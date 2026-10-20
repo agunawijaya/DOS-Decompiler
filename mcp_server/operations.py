@@ -315,6 +315,7 @@ def analyze(session_id, skip_recovery=False, timeout=PIPELINE_TIMEOUT, progress=
              {"kind": "functions", "claim": f"{count} functions exported", "value": count}]
     return evidence.envelope("analyze", target_of(s), status="ok" if verified else "mismatch",
                              result={"session_id": s.id, "cache": cache, "profile_id": pid,
+                                     "cache_key": sessions.cache_dir(s.sha256, pid).name,
                                      "seconds": round(time.perf_counter() - started, 1),
                                      "functions": count, "handshake": handshake.get("status"),
                                      "load_image": load.get("status"),

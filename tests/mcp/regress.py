@@ -111,6 +111,46 @@ async def _():
     return r.stderr.strip().splitlines()[0][:100]
 
 
+@case("the cache key covers the Python the pipeline runs, and not the line endings")
+async def _():
+    # Read here, not through the protocol: the key is the server's own business.
+    sys.path.insert(0, str(SERVER.parent))
+    import sessions
+    tools = ROOT / "tools"
+    # Every tool pipeline.ps1 runs, and every toolkit module those import.
+    ran = set(re.findall(r"Join-Path \$toolDir '(\w+\.py)'",
+                         (tools / "pipeline.ps1").read_text(encoding="utf-8")))
+    needed, todo = set(), list(ran)
+    while todo:
+        name = todo.pop()
+        if name in needed:
+            continue
+        needed.add(name)
+        for mod in re.findall(r"^\s*import (\w+)", (tools / name).read_text(encoding="utf-8"),
+                              re.M):
+            if (tools / f"{mod}.py").exists():
+                todo.append(f"{mod}.py")
+    check(needed == set(sessions.PIPELINE_PYTHON),
+          f"pipeline.ps1 runs {sorted(needed)}; the key covers {sorted(sessions.PIPELINE_PYTHON)}")
+    copy = Fix.work / "keytools"
+    copy.mkdir()
+    for name in sessions.PIPELINE_PYTHON:
+        shutil.copy(tools / name, copy / name)
+    base = sessions.pipeline_python_sha256(tools)
+    check(sessions.pipeline_python_sha256(copy) == base, "a copy hashed differently")
+    data = (copy / "loadimage.py").read_bytes()
+    (copy / "loadimage.py").write_bytes(data.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    check(sessions.pipeline_python_sha256(copy) == base, "CRLF moved the key")
+    (copy / "loadimage.py").write_bytes(data + b"\n# one more line\n")
+    moved = sessions.pipeline_python_sha256(copy)
+    check(moved != base, "an edit to loadimage.py did not move the key")
+    a = sessions.cache_dir("ab" * 32, "cd" * 32, base).name
+    b = sessions.cache_dir("ab" * 32, "cd" * 32, moved).name
+    check(a != b and a.endswith(base[:12]), f"cache folders {a}, {b}")
+    return (f"covers {', '.join(sorted(needed))}; CRLF keeps it, an edit to loadimage.py "
+            f"moves it: {base[:12]} -> {moved[:12]}")
+
+
 @case("every tool in the table is listed, with an input schema")
 async def _():
     tools = {t.name: t for t in (await Fix.session.list_tools()).tools}

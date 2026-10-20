@@ -817,7 +817,7 @@ interface and `AGENTS.md` stays the method.
 | `survey`, `triage` | `survey.py`, `triage.py` |
 | `open_binary`, `close_binary`, `list_sessions` | sessions: the target copied into a session folder; the original is never written |
 | `unpack`, `comrec` | `unpack.py`, `comrec.py`, writing inside the session |
-| `analyze` | `pipeline.ps1`, with progress by stage; cached by target SHA-256 and profile id |
+| `analyze` | `pipeline.ps1`, with progress by stage; cached by target SHA-256, profile id and a hash of the pipeline's Python |
 | `verify_load_image`, `address_map`, `read_bytes` | `loadimage.py verify` and `map`; bytes as loaded, stopping at uninitialised memory |
 | `list_functions`, `function` | `functions.json`; one function's body, C, disassembly, calls out and in |
 | `coverage`, `anchors`, `libsig` | `bodies.py`, `anchors.py`, `libsig.py apply` |
