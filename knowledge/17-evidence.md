@@ -1007,7 +1007,9 @@ The mapping is `match.py --json` or `anchors.py --names`; both are
    must be a function's entry. A byte inside a body is refused with the
    function it is inside, e.g. `inside the body of FUN_1000_004a (entry
    1000:004a), not a function entry`. The name must be a C identifier, not a C
-   keyword (period extensions such as `far` and `interrupt` included),
+   keyword (period extensions such as `far` and `interrupt` included), not
+   one Turbo C reserves (its register pseudovariables `_AX` ... `_FLAGS`,
+   upper case, and its segment modifiers `_cs` `_ds` `_es` `_ss`),
    accepted by Ghidra's `SymbolUtilities.validateName`, and not of the form
    Ghidra makes up for an address. No two functions may end up with one name,
    whether from two entries of the mapping or from an entry and a function or

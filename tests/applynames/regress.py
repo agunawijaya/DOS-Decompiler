@@ -232,6 +232,22 @@ def _():
     return "; ".join(r.split(":")[0] for r in reasons)
 
 
+@case("Turbo C's register pseudovariables and segment modifiers are refused")
+def _():
+    # Upper case for the registers, lower case for the segment modifiers:
+    # the cases Turbo C itself reserves. Ghidra accepts every one of them.
+    out = copy_of_base("turboc")
+    reserved = ["_AX", "_FLAGS", "_CS", "_ds", "_AL"]
+    code, log, res = apply(out, {"mapping": [
+        {"source": n, "binary": at(lab), "score": 0.9}
+        for n, lab in zip(reserved, ("left", "right", "chunky", "middle", "switcher"))]})
+    reasons = [e["reason"] for e in res["result"]["entries"]]
+    if code != 3 or any(not r.startswith("reserved by Turbo C") for r in reasons):
+        raise AssertionError(f"exit {code}: {reasons}")
+    untouched(reexport(out)[0])
+    return f"{', '.join(reserved)}: each 'reserved by Turbo C', nothing written"
+
+
 @case("a comment is set by a string, cleared by \"\", and left alone when omitted")
 def _():
     out = copy_of_base("comments")

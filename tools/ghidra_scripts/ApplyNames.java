@@ -110,6 +110,17 @@ public class ApplyNames extends GhidraScript {
             "while", "inline", "restrict", "far", "near", "huge", "cdecl", "pascal",
             "fortran", "interrupt", "asm"));
 
+    /* Names Turbo C reserves for itself. Its register pseudovariables are
+     * upper case: assigning to _AX compiles to `mov ax, ...`, so a function
+     * called _AX is a name the source could never have held. Its segment
+     * modifiers are lower case: _cs, _ds, _es and _ss qualify a pointer, as
+     * near and far do. */
+    private static final Set<String> TURBO_C_RESERVED = new HashSet<>(Arrays.asList(
+            "_AX", "_BX", "_CX", "_DX", "_SI", "_DI", "_BP", "_SP",
+            "_AH", "_AL", "_BH", "_BL", "_CH", "_CL", "_DH", "_DL",
+            "_CS", "_DS", "_ES", "_SS", "_FLAGS",
+            "_cs", "_ds", "_es", "_ss"));
+
     /** One mapping entry and everything that happens to it. */
     private static final class Entry {
         int index;
@@ -365,6 +376,9 @@ public class ApplyNames extends GhidraScript {
         }
         if (C_KEYWORDS.contains(name)) {
             return "a C keyword: " + name;
+        }
+        if (TURBO_C_RESERVED.contains(name)) {
+            return "reserved by Turbo C (a register pseudovariable or a segment modifier): " + name;
         }
         try {
             SymbolUtilities.validateName(name);
