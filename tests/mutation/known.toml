@@ -1,0 +1,840 @@
+# Survivors of tests/mutation/mutate.py that have been looked at and are not
+# test gaps. Every other survivor is one: a change to the code that no test
+# notices.
+#
+#   kind = "equivalent"    the mutated code behaves exactly as the original,
+#                          for every input the code can be given; `why` says
+#                          why in one sentence.
+#   kind = "code-problem"  the survivor shows the code itself is wrong or does
+#                          nothing; listed for a decision, not fixed here.
+#
+# `signature` is what mutate.py prints beside the survivor: a hash of the
+# module, the operator and the lines the mutation removes and adds, so it
+# still matches when unrelated code above it moves. `mutant` is the changed
+# line, for a person reading this file.
+
+[[survivor]]
+target = "evidence"
+signature = "75387291096922dc"
+kind = "equivalent"
+mutant = "f.read(1 % 20)"
+why = "The size of each read in the hashing loop changes how many reads it takes, never the digest: every variant reads a positive number of bytes until the file ends."
+
+[[survivor]]
+target = "evidence"
+signature = "7126c183ce974fa0"
+kind = "equivalent"
+mutant = "f.read(1 | 20)"
+why = "The size of each read in the hashing loop changes how many reads it takes, never the digest: every variant reads a positive number of bytes until the file ends."
+
+[[survivor]]
+target = "evidence"
+signature = "ab722cbd00629a5a"
+kind = "equivalent"
+mutant = "f.read(1 ** 20)"
+why = "The size of each read in the hashing loop changes how many reads it takes, never the digest: every variant reads a positive number of bytes until the file ends."
+
+[[survivor]]
+target = "evidence"
+signature = "d767e4db47faf08e"
+kind = "equivalent"
+mutant = "f.read(2 << 20)"
+why = "The size of each read in the hashing loop changes how many reads it takes, never the digest: every variant reads a positive number of bytes until the file ends."
+
+[[survivor]]
+target = "evidence"
+signature = "55c2c0dd13ff14db"
+kind = "equivalent"
+mutant = "f.read(1 + 20)"
+why = "The size of each read in the hashing loop changes how many reads it takes, never the digest: every variant reads a positive number of bytes until the file ends."
+
+[[survivor]]
+target = "evidence"
+signature = "9b5e1a6d423ac966"
+kind = "equivalent"
+mutant = "f.read(1 << 21)"
+why = "The size of each read in the hashing loop changes how many reads it takes, never the digest: every variant reads a positive number of bytes until the file ends."
+
+[[survivor]]
+target = "evidence"
+signature = "85667e0f085b56f8"
+kind = "equivalent"
+mutant = "f.read(1 * 20)"
+why = "The size of each read in the hashing loop changes how many reads it takes, never the digest: every variant reads a positive number of bytes until the file ends."
+
+[[survivor]]
+target = "evidence"
+signature = "32ce0a1c1609def1"
+kind = "equivalent"
+mutant = "f.read(1 << 19)"
+why = "The size of each read in the hashing loop changes how many reads it takes, never the digest: every variant reads a positive number of bytes until the file ends."
+
+[[survivor]]
+target = "evidence"
+signature = "61d68a5a57990a05"
+kind = "equivalent"
+mutant = "f.read(1 ^ 20)"
+why = "The size of each read in the hashing loop changes how many reads it takes, never the digest: every variant reads a positive number of bytes until the file ends."
+
+[[survivor]]
+target = "evidence"
+signature = "34cadea66773afc2"
+kind = "equivalent"
+mutant = "timeout=21"
+why = "The timeout on a git call matters only to a git that takes between 19 and 21 seconds to answer, which none does; it is a limit, not a result."
+
+[[survivor]]
+target = "evidence"
+signature = "f51b772ea0c8e3ff"
+kind = "equivalent"
+mutant = "timeout=19"
+why = "The timeout on a git call matters only to a git that takes between 19 and 21 seconds to answer, which none does; it is a limit, not a result."
+
+[[survivor]]
+target = "evidence"
+signature = "45445d93e4455503"
+kind = "equivalent"
+mutant = "if code > 0 or not head:"
+why = "A git rev-parse that fails prints nothing on stdout (measured: in a folder outside a repository, and in a repository with no commit), so `not head` alone decides and the exit-code test changes nothing."
+
+[[survivor]]
+target = "evidence"
+signature = "ba39709c2173e6cf"
+kind = "equivalent"
+mutant = "if code < 0 or not head:"
+why = "A git rev-parse that fails prints nothing on stdout (measured: in a folder outside a repository, and in a repository with no commit), so `not head` alone decides and the exit-code test changes nothing."
+
+[[survivor]]
+target = "evidence"
+signature = "b884bacf781a166d"
+kind = "equivalent"
+mutant = "if code != 0 and not head:"
+why = "A git rev-parse that fails prints nothing on stdout (measured: in a folder outside a repository, and in a repository with no commit), so `not head` alone decides and the exit-code test changes nothing."
+
+[[survivor]]
+target = "evidence"
+signature = "d41fdd70e869abef"
+kind = "equivalent"
+mutant = "\"-dirty\" if code <= 0 and changes"
+why = "A git status that fails prints nothing on stdout, so `changes` alone decides and the exit-code test adds nothing, short of git killed by a signal partway through its output (the only way to a negative code)."
+
+[[survivor]]
+target = "evidence"
+signature = "7ca6d460281f7389"
+kind = "equivalent"
+mutant = "\"-dirty\" if code >= 0 and changes"
+why = "A git status that fails prints nothing on stdout, so `changes` alone decides and the exit-code test adds nothing, short of git killed by a signal partway through its output (the only way to a negative code)."
+
+[[survivor]]
+target = "evidence"
+signature = "0beb84104eb82e83"
+kind = "equivalent"
+mutant = "canonical: allow_nan=True"
+why = "_check_numbers runs first and refuses NaN and infinity anywhere in the object, so json.dumps never sees one and its allow_nan flag is never consulted."
+
+[[survivor]]
+target = "evidence"
+signature = "e68da23d546cb395"
+kind = "equivalent"
+mutant = "dumps: allow_nan=True"
+why = "_check_numbers runs first and refuses NaN and infinity anywhere in the object, so json.dumps never sees one and its allow_nan flag is never consulted."
+
+[[survivor]]
+target = "evidence"
+signature = "2a6c22883d617ffd"
+kind = "equivalent"
+mutant = "elif status <= \"blocked\":"
+why = "Only the refused statuses reach this branch when the export was not rewritten, mismatch and blocked, and mismatch sorts after blocked, so <= picks exactly the record == did."
+
+[[survivor]]
+target = "evidence"
+signature = "1e3f0c4f4700357f"
+kind = "equivalent"
+mutant = "if i.get(\"level\") >= \"mismatch\""
+why = "A handshake record's items are written by analysis_profile.py with level info or mismatch only, and info sorts before mismatch, so >= selects exactly the items == did."
+
+[[survivor]]
+target = "evidence"
+signature = "2a94584cf4387a34"
+kind = "equivalent"
+mutant = "record.get(\"status\") >= \"verified\""
+why = "No evidence status sorts after verified (ok, verified, mismatch, unsupported, blocked, error), so >= is true exactly when == is."
+
+[[survivor]]
+target = "sweep"
+signature = "3f83afa34547d6fa"
+kind = "equivalent"
+mutant = "(dx << 16) + ax"
+why = "AX is a 16-bit word and DX << 16 has its low 16 bits clear, so adding or exclusive-oring them gives the same number as or-ing."
+
+[[survivor]]
+target = "sweep"
+signature = "5d1868ec85006ae2"
+kind = "equivalent"
+mutant = "(dx << 16) ^ ax"
+why = "AX is a 16-bit word and DX << 16 has its low 16 bits clear, so adding or exclusive-oring them gives the same number as or-ing."
+
+[[survivor]]
+target = "sweep"
+signature = "5f8bad3ad7c0cfa6"
+kind = "equivalent"
+mutant = "insns + [(None, 1)]"
+why = "The size of the end marker is never read: the loop only closes the open run when the address is None."
+
+[[survivor]]
+target = "sweep"
+signature = "f3832b191c71e4a9"
+kind = "equivalent"
+mutant = "insns + [(None, -1)]"
+why = "The size of the end marker is never read: the loop only closes the open run when the address is None."
+
+[[survivor]]
+target = "sweep"
+signature = "a0e9e6a7d1dfbe9e"
+kind = "equivalent"
+mutant = "run[1] + 1 >= a"
+why = "The instructions come from sorted, non-overlapping body ranges, so an address is never below the run before it, and >= holds exactly when == does."
+
+[[survivor]]
+target = "sweep"
+signature = "21ee29e3a7e32182"
+kind = "equivalent"
+mutant = "linear % (program.cs << 4)"
+why = "Every address passed in is in the routine's code segment, at most 0xffff above CS * 16, and CS * 16 is at least 0x10000, so the remainder equals the difference."
+
+[[survivor]]
+target = "evidence"
+signature = "1666270c968be5a2"
+kind = "equivalent"
+mutant = "(target_sha256 or \"0\" * 9)[:8]"
+why = "Nine zeros cut to eight are the same eight zeros as eight zeros are."
+
+[[survivor]]
+target = "evidence"
+signature = "af22488777527d0d"
+kind = "equivalent"
+mutant = "base if n <= 1 else f\"{base}-{n}\""
+why = "n is one more than a count that starts at 0, so it is never below 1 and n <= 1 holds exactly when n == 1."
+
+[[survivor]]
+target = "bodies"
+signature = "794cc1311813d61e"
+kind = "equivalent"
+mutant = "if name == \"other\" and len(set(data)) <= 1:"
+why = "kind_of is never given an empty run (classify passes a whole run, and a core only when a < b), so the set of its bytes has one member exactly when it has at most one."
+
+[[survivor]]
+target = "bodies"
+signature = "1f97145212cf91ec"
+kind = "equivalent"
+mutant = "if name is \"other\" and len(set(data)) == 1:"
+why = "Kind names that look like identifiers (other, text) are interned by CPython, so both sides are one object and `is` holds exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "c4b49a40bdb56ea9"
+kind = "equivalent"
+mutant = "if data[ -1] in PADDING_BYTES:"
+why = "This branch is reached only when every byte of the run has the same value, so the last byte is the first."
+
+[[survivor]]
+target = "bodies"
+signature = "abd6f70e62ff4e02"
+kind = "equivalent"
+mutant = "offset = (lo - (segment % 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "0488a2df6af8c342"
+kind = "equivalent"
+mutant = "offset = (lo >> (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "024cb5816cee8b58"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) & 65536"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "2d77f68bacd4afc8"
+kind = "equivalent"
+mutant = "offset = (lo - (segment ^ 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "99e2b1caf9c0debc"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) - 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "e75d401d7a447beb"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) * 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "5aac1e3d7b727606"
+kind = "equivalent"
+mutant = "offset = (lo - (segment ** 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "1939f83db2baf5e8"
+kind = "equivalent"
+mutant = "offset = (lo * (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "d4103c8170c23e18"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) >> 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "05b5bf1121c1c78d"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 3)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "8e278da235af2a77"
+kind = "equivalent"
+mutant = "offset = (lo | (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "abb04db7be39fbb9"
+kind = "equivalent"
+mutant = "offset = (lo & (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "409107c44bbeff58"
+kind = "equivalent"
+mutant = "offset = (lo - (segment * 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "e85c3f60d2b84493"
+kind = "equivalent"
+mutant = "offset = (lo ** (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "f69a60e68ce7e425"
+kind = "equivalent"
+mutant = "offset = (lo - (segment - 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "3d4a80c4d3ec66c7"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) & 65534"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "5da034916f2d3694"
+kind = "equivalent"
+mutant = "offset = (lo ^ (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "da053c0ab0a32be7"
+kind = "equivalent"
+mutant = "offset = (lo - (segment | 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "20a2d16b32712249"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 5)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "16b7425ba15955b1"
+kind = "equivalent"
+mutant = "offset = (lo << (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "bbb2e942da3bbce2"
+kind = "equivalent"
+mutant = "offset = (lo - (segment + 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "70cb07f4f556edb7"
+kind = "equivalent"
+mutant = "offset = (lo - (segment >> 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "f11da6f9ddb61335"
+kind = "equivalent"
+mutant = "offset = (lo + (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "62134cf3331eac15"
+kind = "equivalent"
+mutant = "offset = (lo // (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "3f42d01ff4ee70be"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) << 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "e6339df60077b4c9"
+kind = "equivalent"
+mutant = "offset = (lo % (segment << 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "f73e103f6a66c657"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) // 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "3f0b67c632aa1d12"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) + 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "e94710ee47168d4c"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) ** 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "7870cb4f68ff0ce6"
+kind = "equivalent"
+mutant = "offset = (lo - (segment // 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "49dc017c87f85394"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) % 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "49d5aa9536292241"
+kind = "equivalent"
+mutant = "offset = (lo - (segment & 4)) & 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "fa71950b26bfabde"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) | 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "162aef827a00641b"
+kind = "equivalent"
+mutant = "offset = (lo - (segment << 4)) ^ 0xFFFF"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "1ea8d4364ffaea71"
+kind = "equivalent"
+mutant = "if whole is not \"other\":"
+why = "Kind names that look like identifiers (other, text) are interned by CPython, so both sides are one object and `is` holds exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "0709887c768df703"
+kind = "equivalent"
+mutant = "while a != b and data[a] in PADDING_BYTES:"
+why = "a only grows from 0 and stops at b, so it is never past b and a != b holds exactly when a < b."
+
+[[survivor]]
+target = "bodies"
+signature = "5908ab8a1e68569d"
+kind = "equivalent"
+mutant = "while b != a and data[b - 1] in PADDING_BYTES:"
+why = "b only shrinks from len(data) and stops at a, so it is never below a and b != a holds exactly when b > a."
+
+[[survivor]]
+target = "bodies"
+signature = "04c18862e8ad9560"
+kind = "equivalent"
+mutant = "if a >= b or (a, b) == (0, len(data)):"
+why = "a is never past b, so a >= b holds exactly when a == b."
+
+[[survivor]]
+target = "bodies"
+signature = "d69921fafb9526d7"
+kind = "equivalent"
+mutant = "if a == b or (a, b) is (0, len(data)):"
+why = "Without the shortcut, a run with no padding to strip has the whole run as its core, which kind_of classifies exactly as it did the whole, so the run comes back whole as before."
+
+[[survivor]]
+target = "bodies"
+signature = "0b9ff3e57025bcfb"
+kind = "equivalent"
+mutant = "if a == b or (a, b) == ( -1, len(data)):"
+why = "a is never negative, so the test never holds; and a run with nothing to strip has the whole run as its core, classified as before, so it comes back whole either way."
+
+[[survivor]]
+target = "bodies"
+signature = "4da843523aa57016"
+kind = "equivalent"
+mutant = "core = kind_of(data[a:b], offset << a, segment, in_code, md, min_instructions)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "54e2ba07a64c7aba"
+kind = "equivalent"
+mutant = "core = kind_of(data[a:b], offset ** a, segment, in_code, md, min_instructions)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "e1afd06fbdd34878"
+kind = "equivalent"
+mutant = "core = kind_of(data[a:b], offset ^ a, segment, in_code, md, min_instructions)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "03345c545dc085bc"
+kind = "equivalent"
+mutant = "core = kind_of(data[a:b], offset - a, segment, in_code, md, min_instructions)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "1751ae0182b64174"
+kind = "equivalent"
+mutant = "core = kind_of(data[a:b], offset | a, segment, in_code, md, min_instructions)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "d73335bfec558c68"
+kind = "equivalent"
+mutant = "core = kind_of(data[a:b], offset >> a, segment, in_code, md, min_instructions)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "47d3033289a57729"
+kind = "equivalent"
+mutant = "core = kind_of(data[a:b], offset * a, segment, in_code, md, min_instructions)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "a69fae1772b81cab"
+kind = "equivalent"
+mutant = "core = kind_of(data[a:b], offset & a, segment, in_code, md, min_instructions)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "44caea586bdc3987"
+kind = "equivalent"
+mutant = "if core is \"other\":"
+why = "Kind names that look like identifiers (other, text) are interned by CPython, so both sides are one object and `is` holds exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "fdbc1c0af778a04e"
+kind = "equivalent"
+mutant = "if b != len(data):"
+why = "b is never past len(data), so b != len(data) holds exactly when b < len(data)."
+
+[[survivor]]
+target = "bodies"
+signature = "1fb3f2c256a3ee97"
+kind = "equivalent"
+mutant = "if kind is \"text\":"
+why = "Kind names that look like identifiers (other, text) are interned by CPython, so both sides are one object and `is` holds exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "14e9219817fdaf7f"
+kind = "equivalent"
+mutant = "if kind >= \"text\":"
+why = "No kind name sorts after text (looks like code, other, padding, pointer table, repeated bytes, text), so >= holds exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "1e9d4dee8a280464"
+kind = "equivalent"
+mutant = "words = [data[i] | (data[i | 1] << 8) for i in range(0, len(data) - 1, 2)]"
+why = "i steps by 2 from 0, so it is even and i | 1 is i + 1."
+
+[[survivor]]
+target = "bodies"
+signature = "4e448a0d1db0d8bb"
+kind = "equivalent"
+mutant = "words = [data[i] | (data[i ^ 1] << 8) for i in range(0, len(data) - 1, 2)]"
+why = "i steps by 2 from 0, so it is even and i ^ 1 is i + 1."
+
+[[survivor]]
+target = "bodies"
+signature = "5dd985e0ccadf514"
+kind = "equivalent"
+mutant = "words = [data[i] ^ (data[i + 1] << 8) for i in range(0, len(data) - 1, 2)]"
+why = "A byte and a byte shifted left by 8 share no bit, so adding or exclusive-oring them is or-ing them."
+
+[[survivor]]
+target = "bodies"
+signature = "9f7a92af3c02cd5c"
+kind = "equivalent"
+mutant = "words = [data[i] + (data[i + 1] << 8) for i in range(0, len(data) - 1, 2)]"
+why = "A byte and a byte shifted left by 8 share no bit, so adding or exclusive-oring them is or-ing them."
+
+[[survivor]]
+target = "bodies"
+signature = "6d0bb7c947479722"
+kind = "equivalent"
+mutant = "common, n = Counter(data).most_common(1)[ -1]"
+why = "most_common(1) is a list of one, so its last element is its first."
+
+[[survivor]]
+target = "bodies"
+signature = "0e3f5ec8a0e09187"
+kind = "equivalent"
+mutant = "common, n = Counter(data).most_common( 2)[0]"
+why = "The first of the two most common values is the most common value."
+
+[[survivor]]
+target = "bodies"
+signature = "2f20061a10d0e1e1"
+kind = "equivalent"
+mutant = "return f\"{common:02x} x{n}\" if n >= len(data) else f\"mostly {common:02x}\""
+why = "A value's count is never more than the run's length, so n >= len(data) holds exactly when n == len(data)."
+
+[[survivor]]
+target = "bodies"
+signature = "2a91285534a3c119"
+kind = "equivalent"
+mutant = "if kind <= \"looks like code\":"
+why = "Only looks like code and other reach this test, and other sorts after looks like code, so <= holds exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "6ad5f3814a59f324"
+kind = "equivalent"
+mutant = "insns = residue.decode_run(md, data, -1)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "0e27dff6454b9992"
+kind = "equivalent"
+mutant = "insns = residue.decode_run(md, data, 1)"
+why = "The address a run is decoded at changes only the targets capstone writes into its branch operands; whether each instruction decodes, is plausible and ends the run is the same at any address, so no classification changes."
+
+[[survivor]]
+target = "bodies"
+signature = "8e1b7d4bd9e675a5"
+kind = "equivalent"
+mutant = "if m[\"linear_start\"] is not linear <= m[\"linear_end_inclusive\"]:"
+why = "The blocks are in address order, so the first whose end is at or past an address is the one that holds it, whether or not its start is compared."
+
+[[survivor]]
+target = "bodies"
+signature = "45ff75ec17bc77dc"
+kind = "equivalent"
+mutant = "code_like = [u for u in unclaimed if u[\"kind\"] is \"looks like code\"]"
+why = "The kind name comes from this module's own literal, which CPython's compiler stores once per module, so both sides are one object and `is` holds exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "4989ae737d1ab522"
+kind = "equivalent"
+mutant = "code_like = [u for u in unclaimed if u[\"kind\"] <= \"looks like code\"]"
+why = "No kind name sorts before looks like code, so <= holds exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "7ce6a01d1525efad"
+kind = "equivalent"
+mutant = "items += [{\"kind\": \"unclaimed\", \"level\": \"warn\" if u[\"kind\"] <= \"looks like code\" else \"info\","
+why = "No kind name sorts before looks like code, so <= holds exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "6d822a402b449253"
+kind = "equivalent"
+mutant = "items += [{\"kind\": \"unclaimed\", \"level\": \"warn\" if u[\"kind\"] is \"looks like code\" else \"info\","
+why = "The kind name comes from this module's own literal, which CPython's compiler stores once per module, so both sides are one object and `is` holds exactly when == does."
+
+[[survivor]]
+target = "loadimage"
+signature = "b82a9e0274fe4a1b"
+kind = "equivalent"
+mutant = "w = want[i] if i != len(want) else None"
+why = "The loop returns at the first index where the runs differ, which is at the latest the end of the shorter, so i never passes len(want) and != holds exactly when < does."
+
+[[survivor]]
+target = "loadimage"
+signature = "115b6bb2880742d9"
+kind = "equivalent"
+mutant = "g = got[i] if i != len(got) else None"
+why = "The loop returns at the first index where the runs differ, which is at the latest the end of the shorter, so i never passes len(got) and != holds exactly when < does."
+
+[[survivor]]
+target = "loadimage"
+signature = "a5ffc53fbef0f5d6"
+kind = "equivalent"
+mutant = "if w is not g:"
+why = "Bytes are 0..255, which CPython keeps as one object each, and None is one object, so `is not` holds exactly when != does."
+
+[[survivor]]
+target = "loadimage"
+signature = "99843d3286dd3e48"
+kind = "equivalent"
+mutant = "if w is not g or not filled[i]:"
+why = "Bytes are 0..255, which CPython keeps as one object each, and None is one object, so `is not` holds exactly when != does."
+
+[[survivor]]
+target = "loadimage"
+signature = "2c568b629c48b31d"
+kind = "equivalent"
+mutant = "first_difference=None if original is None or original is data else"
+why = "When the copy equals the file, first_difference finds no difference and returns None, the same as the shortcut does."
+
+[[survivor]]
+target = "loadimage"
+signature = "e7faf3736dbfe7f5"
+kind = "equivalent"
+mutant = "None if modified is None or modified is exp.relocated_file else"
+why = "When the copy equals the file, first_difference finds no difference and returns None, the same as the shortcut does."
+
+[[survivor]]
+target = "loadimage"
+signature = "ba11e4f2e234c880"
+kind = "equivalent"
+mutant = "elif lo != at:"
+why = "A mapping starting before `at` is caught by the overlap test above it, so this test sees only lo >= at, where != holds exactly when > does."
+
+[[survivor]]
+target = "loadimage"
+signature = "b824d5f908f496bc"
+kind = "equivalent"
+mutant = "filled[i - hdr] = 2"
+why = "filled is only ever read as true or false, and 2 is as true as 1."
+
+[[survivor]]
+target = "loadimage"
+signature = "fed4de599333b5a3"
+kind = "equivalent"
+mutant = "first = first_difference(exp.relocated[i:i + 2],"
+why = "The byte at i is the one that differs, so a slice from i of two bytes has its first difference at its first byte, as a slice of one does."
+
+[[survivor]]
+target = "loadimage"
+signature = "89284e8e4a757943"
+kind = "equivalent"
+mutant = "loaded[i:i + 2] if filled[i] else b\"\","
+why = "The byte at i is the one that differs, so a slice from i of two bytes has its first difference at its first byte, as a slice of one does."
+
+[[survivor]]
+target = "loadimage"
+signature = "1c92cf92462d9b3c"
+kind = "equivalent"
+mutant = "def _relocation_checks(c, exp, obs, restored=(), trusted=True):"
+why = "_relocation_checks is called only from compare, which always passes trusted, so the default is never read."
+
+[[survivor]]
+target = "loadimage"
+signature = "149dd1e6ae943209"
+kind = "equivalent"
+mutant = "for x in set(want) & set(got) if want[x] is not got[x]}"
+why = "The counts are relocation entries per word, a few at most, and CPython keeps the integers up to 256 as one object each, so `is not` holds exactly when != does."
+
+[[survivor]]
+target = "loadimage"
+signature = "b3d51f432deb2181"
+kind = "equivalent"
+mutant = "{name(x): n for x, n in sorted(want.items()) if n != 1} or \"one entry each\","
+why = "Every count in want is at least 1, so n != 1 holds exactly when n > 1."
+
+[[survivor]]
+target = "loadimage"
+signature = "c4b00b2ae4a97356"
+kind = "equivalent"
+mutant = "if r[\"status\"] > \"APPLIED\" and r[\"offset\"] not in excused]"
+why = "No status Ghidra writes sorts before APPLIED (APPLIED, APPLIED_OTHER, FAILURE, PARTIAL, SKIPPED, UNKNOWN, UNSUPPORTED), so > holds exactly when != does."
+
+[[survivor]]
+target = "loadimage"
+signature = "82a2f72c85ada556"
+kind = "equivalent"
+mutant = "return out[0] ^ (out[1] << 8)"
+why = "The low byte and the high byte shifted left by 8 share no bit, so exclusive-oring them is or-ing them."
+
+[[survivor]]
+target = "loadimage"
+signature = "8a78a124a73b87d1"
+kind = "equivalent"
+mutant = "return out[0] + (out[1] << 8)"
+why = "The low byte and the high byte shifted left by 8 share no bit, so adding them is or-ing them."
+
+[[survivor]]
+target = "loadimage"
+signature = "89545c4aa265d065"
+kind = "code-problem"
+mutant = "mapping_failures = 1"
+why = "mapping_failures is counted in compare and never read: what it counts reaches the result through each mapping's digest check instead. Dead code, listed rather than removed."
+
+[[survivor]]
+target = "loadimage"
+signature = "7439743f8cd050e2"
+kind = "code-problem"
+mutant = "mapping_failures = -1"
+why = "mapping_failures is counted in compare and never read: what it counts reaches the result through each mapping's digest check instead. Dead code, listed rather than removed."
+
+[[survivor]]
+target = "loadimage"
+signature = "4370435eee1207c8"
+kind = "code-problem"
+mutant = "mapping_failures +=  ok"
+why = "mapping_failures is counted in compare and never read: what it counts reaches the result through each mapping's digest check instead. Dead code, listed rather than removed."

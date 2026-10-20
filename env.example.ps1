@@ -54,3 +54,8 @@ $env:DOSBOX = 'C:\DOSBox-X\dosbox-x.exe'
 
 # radare2, used only as a second opinion when Ghidra looks wrong
 $env:RADARE2 = 'C:\Applications\radare2\radare2-6.1.8-w64\bin\radare2.exe'
+
+# cosmic-ray, used only by the mutation tests (tests\mutation\run.ps1). Best in
+# a virtual environment of its own: python -m venv C:\Applications\cosmic-ray,
+# then C:\Applications\cosmic-ray\Scripts\pip install cosmic-ray
+$env:COSMIC_RAY = 'C:\Applications\cosmic-ray\Scripts\cosmic-ray.exe'

@@ -263,6 +263,48 @@ dynamic program only; the reported score is the unpinned similarity.
 The symptom is recognisable: a run where many matches share an identical top
 score is reporting a constant, not a measurement.
 
+## Testing the tests
+
+Measured by mutation testing (`tests/mutation/`) in prompt 07: the code that
+decides `verified` against `mismatch` was changed in small ways, one change at
+a time, and each suite run against it. Before any new test, 1,658 of 2,708
+changes were noticed (61.2%).
+
+**A test that compares the code's output with the same code's output cannot
+fail.** The evidence suite checked that each envelope was canonical by
+comparing it with `evidence.dumps` of itself. A change to `dumps` changed both
+sides, and four changes to the form files are written in (unsorted keys,
+non-ASCII, another indent) went unnoticed. Write the rule out in the test, as
+the `profile_id` test already did. The same suite never made an id without a
+target, or two items one id apart, and 34 changes to those went unnoticed.
+
+**An exit code cannot tell a mismatch from a crash.** `analysis_profile.py
+check` exits 1 on a drift, and Python exits 1 on an uncaught exception. Eleven
+changes that turned the drift message into a `TypeError` passed every test,
+because the record was written before the message and the test looked at the
+exit code and the record. Check the message, and that there is no traceback.
+
+**The tests that need Ghidra carry most of the comparison code.** Without
+Ghidra the load-image suite left 415 of 1,049 changes to the comparison
+unnoticed, and the bodies suite 366 of 857: the cases that exercised them ran
+the pipeline. Synthetic dumps and exports, with every check's answer written
+down (`tests/loadimage/expected-checks.json`,
+`tests/bodies/expected-analyse.json`), now cover them without Ghidra.
+
+**cosmic-ray's baseline does not run under the HTTP distributor.** Asked for a
+baseline with no worker listening, it reported success in 3.4 seconds without
+running a test. `tests/mutation/mutate.py` runs the unmutated suite itself.
+
+**cosmic-ray splits the test command the POSIX way.** On Windows a path with
+backslashes loses them. Pass forward slashes.
+
+**mutmut cannot see these tests.** It decides which tests reach a mutant by
+recording calls inside the pytest process, and names mutants by their package
+path (`tools.analysis_profile`); the toolkit imports its modules flat
+(`analysis_profile`) and the suites run tools as command lines. On the
+handshake it made 371 mutants and found a test for none of them, with or
+without a shim that imported the modules under mutmut's names.
+
 ## Driving a program under emulation
 
 **A queue of keystrokes vanishes in one screen.** The Oregon Trail consumed 88

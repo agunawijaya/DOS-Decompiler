@@ -267,6 +267,7 @@ Write-Host "$($rows.Count) suites: $passed passed, $failed failed, $skipped skip
 if ($skipped) {
     Write-Host 'Skipped suites were not run. They are not evidence that anything works.'
 }
+Write-Host 'Not run here, because it is slow: tests\mutation\run.ps1, which checks that these tests can fail (tests\mutation\README.md).'
 
 if ($failedOutput) {
     Write-Host ''

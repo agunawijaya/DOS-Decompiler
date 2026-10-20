@@ -374,6 +374,7 @@ Copy-Item env.example.ps1 env.ps1     # then edit the paths
 | [radare2](https://rada.re/) | second opinion when Ghidra looks wrong | `RADARE2` | optional |
 | [Node.js](https://nodejs.org/) 16+ | running a JavaScript port as a sweep candidate (measured on 22.17.0) | `node` on `PATH` | for JavaScript candidates |
 | [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) 2.x (`pip install mcp`) | the MCP server in `mcp_server/`; needs Python 3.11+ (measured with 2.3.0) | the `PYTHON` the server runs under | for the MCP server |
+| [cosmic-ray](https://cosmic-ray.readthedocs.io/) (`pip install cosmic-ray`, in a virtual environment of its own) | the mutation tests in `tests/mutation/`, which check that the tests can fail (measured with 8.7.0) | `COSMIC_RAY`, else `cosmic-ray` on `PATH` | for mutation testing |
 
 ```bash
 pip install capstone unicorn
@@ -1064,6 +1065,8 @@ tests/bodies/                function bodies, origins, shared code, and what
 tests/sweep/                 sweeps against Python, JavaScript and a rebuild;
                              wrong candidates caught at the planted input
 tests/mcp/                   the MCP server over stdio, through the SDK's client
+tests/mutation/              mutation testing of the comparison code: can the
+                             tests fail? Slow, so not in run-all.ps1
 AGENTS.md                    the method, for any agent or human
 SKILL.md                     Claude Code wrapper
 env.example.ps1              copy to env.ps1, point at your own tool copies
@@ -1084,6 +1087,29 @@ exact reason: NASM not found, Ghidra not configured, capstone not importable,
 the Sopwith source not given. A skipped suite is never counted as passed. Pass
 `-Python` where several interpreters are installed: the first `python` on PATH
 is not always the one with capstone and unicorn.
+
+### Can the tests fail?
+
+A test that passes whatever the code does is counted as evidence and is not.
+For the code that decides `verified` against `mismatch` — the evidence
+envelope, the load-image comparison, `bodies.py`'s classification, the sweep's
+comparison and coverage, the profile handshake — `tests/mutation/run.ps1`
+changes the code in small ways with [cosmic-ray](https://cosmic-ray.readthedocs.io/)
+and checks that some test notices each change:
+
+```powershell
+.\tests\mutation\run.ps1 -CosmicRay C:\path\to\cosmic-ray.exe
+```
+
+Those five take about an hour with 24 workers, and the three others in
+`tests/mutation/scope.toml` (placements, comrec's proof, triage's verdict)
+twelve minutes more, so it is not part of `run-all.ps1`;
+`tests/mutation/README.md` has the times, the scores and how to read the
+output. A change
+no test notices is a *survivor*: a gap in the tests, a change that makes no
+difference (listed, with the reason, in `tests/mutation/known.toml`), or code
+that does nothing. The tests that need Ghidra are out of its reach; each was
+shown able to fail once, by hand, with an injected fault.
 
 Sopwith is the fixture, because its source survives and a rebuild comes with a
 linker map that states exactly where every function is.

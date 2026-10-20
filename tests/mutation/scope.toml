@@ -1,0 +1,84 @@
+# What tests/mutation/mutate.py mutates, and the tests each change must fail.
+#
+# One [[target]] per module or set of functions. `functions` names top-level
+# functions or classes ("Class.method" for one method); left out, the whole
+# module is mutated. `test` is the command after the interpreter, run from the
+# root of a copy of the tree; it must exit 0 on the unmutated code. Ghidra is
+# not needed: suites whose Ghidra half skips without GHIDRA_HOME are run that
+# way, and that half is shown able to fail by hand instead (README.md).
+#
+# The first five decide `verified` against `mismatch`, and are the scope
+# README.md gives times for. The rest follow, in the order they were added.
+
+# The evidence envelope: canonical JSON, ids, target identity, and the
+# readers' refusal of a stale or drifted functions.json.
+[[target]]
+name = "evidence"
+module = "tools/evidence.py"
+test = ["tests/evidence/regress.py"]
+
+# The load-image comparison: what Ghidra's program holds against what the
+# file and its header say it should.
+[[target]]
+name = "loadimage"
+module = "tools/loadimage.py"
+functions = ["first_difference", "Checks", "expected_script_hashes", "restored_ranges",
+             "compare", "_segment_for", "_after_correction", "_relocation_checks",
+             "_memory_word", "_corrector_checks", "verify"]
+test = ["tests/loadimage/regress.py"]
+
+# Function bodies as address ranges, and the classification of what no
+# function claims.
+[[target]]
+name = "bodies"
+module = "tools/bodies.py"
+functions = ["merge", "subtract", "body_ranges", "looks_like_code", "kind_of", "classify",
+             "describe", "analyse"]
+test = ["tests/bodies/regress.py"]
+
+# The sweep (emuverify.py sweep): comparing the original's outcome with the
+# candidate's, the record of a divergence, and coverage of the body.
+[[target]]
+name = "sweep"
+module = "tools/sweep.py"
+functions = ["value_of", "calls_of", "candidate_outcome", "view", "differences", "record",
+             "coverage"]
+test = ["tests/sweep/regress.py"]
+
+# The profile handshake: profile ids, the comparison of expected against
+# observed, and the record it writes.
+[[target]]
+name = "handshake"
+module = "tools/analysis_profile.py"
+functions = ["profile_id", "with_id", "_get", "_set", "apply_forced_drift", "write",
+             "compare", "check", "_show", "_record"]
+test = ["tests/evidence/regress.py", "--only", "profile_id", "--only", "handshake",
+        "--only", "drift", "--only", "CRLF", "--only", "observed_profile"]
+
+# ---- after the must-cover five, as time allowed, in this order.
+
+# placements.py, whole: "draw sprite S at column C, row R" recovered from
+# the calls a build routine makes.
+[[target]]
+name = "placements"
+module = "tools/placements.py"
+test = ["tests/placements/regress.py"]
+
+# comrec.py's proof: assembling the rebuild, reading NASM's listing, finding
+# the first byte that differs, and the round trip that ends byte-identical.
+[[target]]
+name = "comrec"
+module = "tools/comrec.py"
+functions = ["Reconstructor.assemble", "Reconstructor.parse_listing",
+             "Reconstructor.first_mismatch", "Reconstructor.owning_instruction",
+             "Reconstructor.run"]
+test = ["tests/com/regress.py"]
+
+# triage.py's verdict: the checks that set in_scope and confidence, and the
+# line that says what to do.
+[[target]]
+name = "triage"
+module = "tools/triage.py"
+functions = ["analyse", "verdict_line"]
+test = ["tests/evidence/regress.py", "--only", "triage", "--only", "packer",
+        "--only", "open question", "--only", "not there"]

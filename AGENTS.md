@@ -696,6 +696,20 @@ order and 0.83 with an inferred one, recall 0.52, emulation precision 1.0 with
 at least 100 matches. Below any of those, the change made things worse. Do not
 ship it.
 
+**A test has to be able to fail.** After changing the code that decides
+`verified` against `mismatch` — `tools/evidence.py`, the load-image comparison,
+`bodies.py`'s classification, the sweep's comparison and coverage, the profile
+handshake — run `tests/mutation/run.ps1` on that target (`-Only`). It changes
+the code in small ways and lists each change no test noticed. Answer every new
+survivor with a test that kills it; a survivor goes in
+`tests/mutation/known.toml` only when the changed code behaves identically,
+with the reason in one sentence. Two kinds of test were found unable to fail
+this way: one that compares the code's output with the same code's output
+(an envelope against `evidence.dumps` of itself), and one that checks only an
+exit code — a mismatch exits 1, and so does a traceback. Check the message
+too. A test that needs Ghidra is out of the mutation tool's reach: inject a
+fault by hand once, see the test fail, and put it back.
+
 **Measure; do not reason.** Three confident predictions in this repo's history
 were contradicted by measurement: module segmentation made identification worse,
 iterative refinement of the module order changed nothing, and *more* emulator
