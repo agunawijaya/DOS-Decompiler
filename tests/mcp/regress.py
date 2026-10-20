@@ -202,6 +202,61 @@ async def _():
     return f"8 of 32 bytes, stopped at minalloc; file 0x49 = 1000:0009; {folder.name} deleted"
 
 
+@case("a server starting up deletes the sessions of servers no longer running")
+async def _():
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+    sys.path.insert(0, str(SERVER.parent))
+    import sessions
+    # A session records the server that opened it.
+    sid, folder = await open_mz()
+    env, _ = await call("list_sessions")
+    me = env["result"]["server"]
+    record = json.loads((folder / "session.json").read_text(encoding="utf-8"))
+    check(record.get("server") == me and me["pid"] != os.getpid() and me["started"],
+          f"the session records {record.get('server')}; the server is {me}")
+    await call("close_binary", session_id=sid)
+    # A work folder as servers that came and went leave it. This process
+    # stands in for a server still running.
+    work = Fix.work / "stale"
+    gone = int(subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"],
+                              capture_output=True, text=True, check=True).stdout)
+    alive = {"pid": os.getpid(), "started": sessions.process_started(os.getpid())}
+    planted = {"exited": {"pid": gone, "started": 1},
+               "reusedpid": {"pid": alive["pid"], "started": alive["started"] + 1},
+               "running": alive,
+               "noserver": None}
+    for name, server in planted.items():
+        (work / name).mkdir(parents=True)
+        record = {"id": name, "folder": str(work / name), "format": "mz", "original": {},
+                  "copy": ""}
+        if server:
+            record["server"] = server
+        (work / name / "session.json").write_text(json.dumps(record), encoding="utf-8")
+    (work / "notasession").mkdir()     # its record's id is not its folder's name
+    (work / "notasession" / "session.json").write_text(
+        json.dumps({"id": "other", "server": {"pid": gone, "started": 1}}), encoding="utf-8")
+    (work / "_cache").mkdir()
+    log = Fix.work / "stale-stderr.log"
+    params = StdioServerParameters(command=sys.executable, args=[str(SERVER)], cwd=str(Fix.work),
+                                   env=dict(os.environ, DOSDEC_WORK=str(work),
+                                            PYTHON=sys.executable))
+    with open(log, "w", encoding="utf-8") as errlog:
+        async with stdio_client(params, errlog=errlog) as streams:
+            async with ClientSession(streams[0], streams[1]) as other:
+                await other.initialize()
+                said = (await other.call_tool("list_sessions", {})).structured_content
+    said = said["result"]["removed_at_start"]
+    left = sorted(p.name for p in work.iterdir())
+    line = (log.read_text(encoding="utf-8").strip().splitlines() or [""])[0]
+    check(said["count"] == 2 and sorted(said["sessions"]) == ["exited", "reusedpid"]
+          and said["kept_without_server"] == ["noserver"], f"removed_at_start: {said}")
+    check(left == ["_cache", "noserver", "notasession", "running"], f"left: {left}")
+    check("removed 2 session folder" in line and "noserver" in line, f"stderr: {line}")
+    return ("an exited server's session and a reused pid's removed; a running server's, "
+            "one recording no server, a mismatched record and the cache kept")
+
+
 @case("survey a folder: an envelope that names both fixtures in it")
 async def _():
     env, err = await call("survey", folder=str(Fix.sweep_exe.parent))

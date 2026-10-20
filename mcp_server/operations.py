@@ -174,12 +174,33 @@ def close_binary(session_id):
         "session_id": s.id, "deleted": str(s.folder), "exists_after": False})
 
 
+# What the server found when it started: the session folders it deleted
+# because their server was no longer running, and those it could not judge.
+STARTUP = {"removed": [], "unknown": []}
+
+
+def start():
+    """Run once as the server starts: delete stale sessions; one line saying
+    what was done."""
+    removed, unknown = sessions.remove_stale()
+    STARTUP.update(removed=removed, unknown=unknown)
+    line = (f"dos-decompiler MCP server: removed {len(removed)} session folder(s) left by "
+            f"servers no longer running, in {sessions.work_root()}")
+    if unknown:
+        line += f"; kept {len(unknown)} that record no server: {', '.join(unknown)}"
+    return line
+
+
 @guarded("list_sessions")
 def list_sessions(limit=None, cursor=None):
     found = [{"session_id": s.id, "format": s.format, "original": str(s.original),
               "sha256": s.sha256, "analysed": s.analysed()} for s in sessions.all_sessions()]
-    env = evidence.envelope("list_sessions", None, status="ok",
-                            result={"work": str(sessions.work_root()), "sessions": found})
+    env = evidence.envelope("list_sessions", None, status="ok", result={
+        "work": str(sessions.work_root()), "sessions": found,
+        "server": sessions.this_server(),
+        "removed_at_start": {"count": len(STARTUP["removed"]),
+                             "sessions": list(STARTUP["removed"]),
+                             "kept_without_server": list(STARTUP["unknown"])}})
     return paged(env, limit, cursor)
 
 

@@ -834,6 +834,10 @@ that contains `..` or resolves somewhere else is refused. The server writes
 only inside the session, or to a `keep_to` folder you name, never beside the
 original. A `.COM` is admitted only with `format="com"`. Every result is one
 page of at most 64,000 bytes, and a long list comes with a cursor for the next.
+Each session records the server process that opened it. A server starting up
+deletes the session folders whose server is no longer running -- what a client
+that stops without closing its sessions leaves behind -- and says how many on
+stderr and in `list_sessions`.
 
 Register it with Claude Code. The server takes the same environment as the
 command line, so pass it the values `env.ps1` sets:

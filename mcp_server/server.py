@@ -20,7 +20,8 @@ What it keeps
 -------------
 open_binary copies a target into a session folder under DOSDEC_WORK (default
 %LOCALAPPDATA%\\dos-decompiler\\sessions) and every tool reads the copy; the
-original is never opened for writing. close_binary deletes the folder.
+original is never opened for writing. close_binary deletes the folder, and a
+server starting up deletes the folders whose server is no longer running.
 Analysis is cached by the target's SHA-256, the analysis profile's id and a
 hash of the Python the pipeline runs, so a second session on the same bytes
 does not run Ghidra again. See sessions.py.
@@ -317,4 +318,5 @@ for page in sorted((ROOT / "knowledge").glob("*.md")):
 
 
 if __name__ == "__main__":
+    sys.stderr.write(op.start() + "\n")
     server.run("stdio")

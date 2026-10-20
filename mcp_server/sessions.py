@@ -6,7 +6,9 @@ path, size, SHA-256. Every later tool reads the copy; the original is opened
 once, to read it, and never for writing. Session folders live under
 DOSDEC_WORK, default %LOCALAPPDATA%\\dos-decompiler\\sessions, one folder per
 session id, and close_binary deletes the folder -- the copy, the session's
-Ghidra project, everything a tool wrote there.
+Ghidra project, everything a tool wrote there. A session records the server
+process that opened it, and a server starting up deletes the folders of
+servers no longer running: a client that stopped without closing them.
 
 Analysis is cached across sessions by the target's SHA-256, the analysis
 profile's id (tools/analysis_profile.py) and a hash of the Python the pipeline
@@ -79,7 +81,7 @@ def admit(path, fmt):
         raise Refused(f"the copy of {path} does not hash as the original did; the file "
                       f"changed while it was read", "open it again when nothing is writing it")
     record = {"id": session_id, "folder": str(folder), "format": fmt,
-              "original": identity, "copy": str(copy)}
+              "original": identity, "copy": str(copy), "server": this_server()}
     (folder / "session.json").write_text(json.dumps(record, indent=1), encoding="utf-8")
     return Session(record)
 
@@ -108,6 +110,97 @@ def all_sessions():
 def close(session):
     shutil.rmtree(session.folder, ignore_errors=True)
     return not session.folder.exists()
+
+
+# ---------------------------------------------------------------- stale sessions
+
+# A session is closed by close_binary. A client that stops without closing
+# leaves its folder -- a copy of the target, and after analyze a Ghidra
+# project -- for nobody. Each session records the server that opened it, by
+# process id and that process's start time (a process id is reused once its
+# process ends; the pair is not), and a server starting up deletes the
+# folders whose server is no longer running.
+
+def process_started(pid):
+    """Whether process `pid` is running: None if it is not, else its start
+    time as the system counts it, or 0 when the system will not say."""
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.OpenProcess.restype = wintypes.HANDLE
+        k32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        k32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+        k32.GetProcessTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
+        k32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        handle = k32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            # ERROR_INVALID_PARAMETER: no such process. Anything else (access
+            # denied) means one exists that this user may not look at.
+            return None if ctypes.get_last_error() == 87 else 0
+        try:
+            code = wintypes.DWORD()
+            if k32.GetExitCodeProcess(handle, ctypes.byref(code)) and code.value != 259:
+                return None                            # exited; not STILL_ACTIVE
+            times = [wintypes.FILETIME() for _ in range(4)]
+            if not k32.GetProcessTimes(handle, *(ctypes.byref(t) for t in times)):
+                return 0
+            return (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+        finally:
+            k32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return None
+    except PermissionError:
+        return 0
+    try:                                               # Linux: field 22 of stat
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        return int(stat[stat.rindex(")") + 2:].split()[19])
+    except (OSError, ValueError, IndexError):
+        return 0
+
+
+def this_server():
+    return {"pid": os.getpid(), "started": process_started(os.getpid())}
+
+
+def server_running(server):
+    """Whether the server a session records is still running. A start time
+    the system would not give, now or then, counts as the same process."""
+    now = process_started(server["pid"])
+    if now is None:
+        return False
+    then = server.get("started")
+    return not (now and then and now != then)
+
+
+def remove_stale():
+    """Delete every session folder whose server is no longer running.
+
+    Returns (removed, unknown): the session ids deleted, and those kept
+    because their record names no server (opened before servers recorded
+    themselves) and so cannot be judged. Only a folder holding a session.json
+    whose id is the folder's own name is ever touched."""
+    removed, unknown = [], []
+    for record_path in sorted(work_root().glob("*/session.json")):
+        folder = record_path.parent
+        try:
+            record = json.loads(record_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not folder.name.isalnum() or record.get("id") != folder.name:
+            continue
+        server = record.get("server")
+        if not isinstance(server, dict) or not isinstance(server.get("pid"), int):
+            unknown.append(folder.name)
+            continue
+        if server_running(server):
+            continue
+        shutil.rmtree(folder, ignore_errors=True)
+        if not folder.exists():
+            removed.append(folder.name)
+    return removed, unknown
 
 
 # ---------------------------------------------------------------- the cache
