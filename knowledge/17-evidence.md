@@ -686,6 +686,11 @@ initialised byte, file offset to address to file offset.
 
 ### In the pipeline
 
+This run predates prompt 06, which moved the corrector into the import run:
+now the `CorrectMzLoad` line appears under stage 2, and stage 3 prints only
+`corrected during the import (N s for both); the record is ...`. The rest
+reads the same.
+
 ```
 [3/6] Correct the load
   correcting what the loader is known to get wrong

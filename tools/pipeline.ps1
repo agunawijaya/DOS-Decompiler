@@ -6,13 +6,15 @@
     Drop a game's .EXE in, get back a structural report, a Ghidra project with
     recovered functions, decompiled C, and a per-function fingerprint file.
 
-    The Ghidra stages are deliberately separate invocations. Chaining
+    The Ghidra stages are separate invocations, with one exception. Chaining
     -postScript flags in one headless run was once recorded as discarding the
     first script's changes; on Ghidra 12.1.2 (2026-10-19) that did not
-    reproduce, but separate runs are known to work and cost little.
+    reproduce, but separate runs are known to work and cost little. The
+    exception is the corrector, which runs as a -postScript of the import:
+    measured byte-identical either way, and one Ghidra start shorter.
 
-    The order is import, correct, verify, analyse and recover, export. Import
-    runs without analysis. CorrectMzLoad.java then puts right the two loads
+    The order is import and correct, verify, analyse and recover, export.
+    Import runs without analysis. CorrectMzLoad.java puts right the two loads
     Ghidra 12.1.2 is measured to get wrong -- a full last page it drops, a
     duplicated relocation it applies once -- and records each correction in
     load-corrections.json. Then the load is checked against the file:
@@ -153,26 +155,36 @@ if ($LASTEXITCODE -ne 0) { throw "analysis_profile.py could not write $profileJs
 # Imported without analysis. Auto-analysis reads the program's bytes, and
 # they are not to be trusted until the load has been corrected and verified;
 # it runs in stage 5 instead, on the program stage 4 verified.
-Invoke-Headless -HeadlessArgs @($projDir, $projName, '-import', $exeItem.FullName, '-overwrite',
-                  '-noanalysis') 'importing'
-
+#
 # Ghidra 12.1.2's MZ loader is measured to get two kinds of file wrong: a
 # full last page is dropped, and a duplicated relocation takes effect once.
-# Put those right, and nothing else; stage 4 then checks the result against
-# the file without believing anything the corrector says it did.
+# CorrectMzLoad.java puts those right, and nothing else; stage 4 then checks
+# the result against the file without believing anything the corrector says
+# it did. It runs as a -postScript of the import itself, which saves one
+# Ghidra start. Measured in prompt 06 on seven fixture builds -- a full last
+# page, a duplicated relocation and both among them, each corrected -- and two
+# real games: the load-image dump, the export and load-corrections.json came
+# out byte-identical either way, and the run 4.9 to 9.9 s shorter on all but
+# the largest fixture, where the import itself dominates.
 $correctionsJson = Join-Path $OutDir 'load-corrections.json'
 Remove-Item -LiteralPath $correctionsJson -ErrorAction SilentlyContinue
+$importArgs = @($projDir, $projName, '-import', $exeItem.FullName, '-overwrite', '-noanalysis')
+$correctTimer = [Diagnostics.Stopwatch]::StartNew()
 if (-not $NoLoadCorrection) {
-    Write-Host "`n[3/6] Correct the load" -ForegroundColor Cyan
-    $correctTimer = [Diagnostics.Stopwatch]::StartNew()
     $expectedJson = Join-Path $OutDir 'loadimage-expected.json'
     & $python (Join-Path $toolDir 'loadimage.py') expected $exeItem.FullName `
         --profile $profileJson --evidence $expectedJson | Out-Null
-    Invoke-Headless -HeadlessArgs @($projDir, $projName, '-process', $exeItem.Name, '-noanalysis',
-                      '-scriptPath', $scripts, '-postScript', 'CorrectMzLoad.java',
-                      $expectedJson, $OutDir) 'correcting what the loader is known to get wrong'
-    $correctTimer.Stop()
-    Write-Host ("    corrected in {0:N1} s; the record is {1}" -f $correctTimer.Elapsed.TotalSeconds, $correctionsJson) -ForegroundColor DarkGray
+    $importArgs += @('-scriptPath', $scripts, '-postScript', 'CorrectMzLoad.java',
+                     $expectedJson, $OutDir)
+    Invoke-Headless -HeadlessArgs $importArgs 'importing, and correcting what the loader is known to get wrong'
+} else {
+    Invoke-Headless -HeadlessArgs $importArgs 'importing'
+}
+$correctTimer.Stop()
+
+if (-not $NoLoadCorrection) {
+    Write-Host "`n[3/6] Correct the load" -ForegroundColor Cyan
+    Write-Host ("    corrected during the import ({0:N1} s for both); the record is {1}" -f $correctTimer.Elapsed.TotalSeconds, $correctionsJson) -ForegroundColor DarkGray
 } else {
     Write-Host "`n[3/6] Load correction skipped (-NoLoadCorrection): verifying Ghidra's own load" -ForegroundColor DarkYellow
 }
