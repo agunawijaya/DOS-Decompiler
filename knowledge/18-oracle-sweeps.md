@@ -285,8 +285,9 @@ Before this, a candidate that looped on one input stopped the sweep for good:
 measured, the code before the timeout was still waiting at case 17 after 60
 seconds. The timeout costs nothing measurable. Old and new code alternating
 over five rounds of the 65,536-case `rare` sweep gave best times of 3.83 s
-against 3.84 s for Python (+0.3%) and 4.40 s against 4.40 s for JavaScript;
-the run-to-run spread was about 7%.
+against 3.84 s for Python (+0.3%) and 4.40 s against 4.40 s for JavaScript.
+The runs themselves spread far wider than that difference: the old code's
+five Python runs took 3.83 to 4.80 s, and its JavaScript runs 4.40 to 5.60 s.
 
 **Writes are compared as their effect.** That is the final value of every
 declared global, and every other byte of DGROUP the original changed, below

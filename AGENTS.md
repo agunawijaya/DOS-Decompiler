@@ -25,6 +25,16 @@ rather than fail.
 - Tool locations come from environment variables. `env.example.ps1` documents
   them; copy it to `env.ps1` and source it. Every script fails with a clear
   message rather than a wrong default if one is missing.
+- **When the `dos-decompiler` MCP server is available, prefer its tools.**
+  `mcp_server/server.py` wraps the tools below and returns each result as an
+  evidence envelope, one page at a time: `triage`, `open_binary`, `analyze`,
+  `list_functions`, `function`, `coverage`, `anchors`, `apply_names`, `sweep`
+  and the rest. They call the same functions the command line does, so the
+  method in this file is unchanged. Only the way of running a step changes.
+  The command line is the fallback. The server works on a copy of the target
+  in a session folder and never writes beside the original. Its `apply_names`
+  is a dry run unless asked to write with `confirm`. README.md has the
+  registration command.
 
 ## What to tell the user before starting
 
@@ -328,8 +338,7 @@ means something is hiding.
 
 ```
 python tools/loadimage.py expected GAME.EXE --evidence expected.json
-analyzeHeadless <proj_dir> <proj> -import GAME.EXE -overwrite -noanalysis
-analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
+analyzeHeadless <proj_dir> <proj> -import GAME.EXE -overwrite -noanalysis \
     -scriptPath tools/ghidra_scripts -postScript CorrectMzLoad.java expected.json OUTDIR
 analyzeHeadless <proj_dir> <proj> -process GAME.EXE
 analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
@@ -343,12 +352,18 @@ these and checks the load between the correction and the analysis (below).
 Import without analysis, and analyse only after correcting: auto-analysis reads
 the program's bytes, and until then some of them may be missing.
 
-**Run these as separate invocations.** Chaining two `-postScript` flags
-in one command was recorded, on an earlier setup whose Ghidra version was not
-written down, as silently losing the first script's changes. On 2026-10-19 it
-did not reproduce on Ghidra 12.1.2: chained on `-import` and on `-process`, the
-export saw every function recovery added (`knowledge/04-pitfalls.md`). Keep the
-separate invocations anyway; they are known to work and cost little. Analysis
+**Run these as separate invocations, except the corrector.** Chaining two
+`-postScript` flags in one command was recorded, on an earlier setup whose
+Ghidra version was not written down, as silently losing the first script's
+changes. On 2026-10-19 it did not reproduce on Ghidra 12.1.2: chained on
+`-import` and on `-process`, the export saw every function recovery added
+(`knowledge/04-pitfalls.md`). Keep the separate invocations anyway; they are
+known to work and cost little. The corrector is the measured exception: run
+as a `-postScript` of the import, the load-image dump and the export came out
+byte-identical to running it separately — on seven fixture builds, among them
+a full last page, a duplicated relocation and both, and on two real games —
+and the pipeline starts Ghidra once fewer.
+Analysis
 and recovery in particular stay apart: run together, on a real game, the export
 came out with one function more and 11 other records changed, because Ghidra
 then analyses what the script creates (`knowledge/17-evidence.md`).

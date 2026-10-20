@@ -373,6 +373,7 @@ Copy-Item env.example.ps1 env.ps1     # then edit the paths
 | [DOSBox-X](https://dosbox-x.com/) | running period toolchains and the games | `DOSBOX` | optional |
 | [radare2](https://rada.re/) | second opinion when Ghidra looks wrong | `RADARE2` | optional |
 | [Node.js](https://nodejs.org/) 16+ | running a JavaScript port as a sweep candidate (measured on 22.17.0) | `node` on `PATH` | for JavaScript candidates |
+| [MCP Python SDK](https://github.com/modelcontextprotocol/python-sdk) 2.x (`pip install mcp`) | the MCP server in `mcp_server/`; needs Python 3.11+ (measured with 2.3.0) | the `PYTHON` the server runs under | for the MCP server |
 
 ```bash
 pip install capstone unicorn
@@ -469,26 +470,32 @@ $ ./tools/pipeline.ps1 -Exe games/SOPWITH.EXE -OutDir out
 The Sopwith lines come from a run made before the load correction, the
 load-image check and the profile handshake existed, when import and analysis
 were one stage. Sopwith has not been through the pipeline since, so nothing
-here says how it fares under any of them. Stages 3 and 4 on the
-`tests/loadimage` fixture whose last page Ghidra drops read:
+here says how it fares under any of them. Stages 2 to 4 on `bigpage.asm`,
+the `tests/loadimage` fixture whose last page Ghidra drops, read:
 
 ```console
-[3/6] Correct the load
-  correcting what the loader is known to get wrong
+[2/6] Import
+  importing, and correcting what the loader is known to get wrong
     CorrectMzLoad: 1 correction(s) -> out\load-corrections.json
-    corrected in 4.9 s; the record is out\load-corrections.json
+    Import succeeded
+
+[3/6] Correct the load
+    corrected during the import (5.8 s for both); the record is out\load-corrections.json
 
 [4/6] Verify the load image
   dumping what Ghidra loaded
-    DumpLoadImage: 6 blocks, 4 relocations, 1 entry point(s) -> out\loadimage-observed
-    load image: verified after 1 correction (see load-corrections.json), 31 checks agree
-    checked in 5.5 s; the record is out\loadimage.json
+    DumpLoadImage: 3 blocks, 0 relocations, 1 entry point(s) -> out\loadimage-observed
+    load image: verified after 1 correction (see load-corrections.json), 25 checks agree
+    checked in 5.7 s; the record is out\loadimage.json
 ```
 
 On six real games of 51,904 to 171,917 bytes every load verified with 0
 corrections and 27 to 33 checks. Correcting took 5.0 to 5.6 s per game, and
 verifying 5.2 to 6.5 s (measured in prompt 02, before the corrector's three
-provenance checks were added).
+provenance checks were added, when it ran in a Ghidra start of its own).
+Since prompt 06 it runs as a `-postScript` of the import. That saved 4.9 to
+9.9 s per run on six of seven targets measured, and the dump and the export
+came out byte-identical either way.
 
 ```console
 $ ls out
@@ -794,6 +801,73 @@ $env:PATH = "C:\Projects\DOS-Decompiler\tools;$env:PATH"
 python survey.py game
 ```
 
+### The MCP server
+
+`mcp_server/server.py` puts the tools behind one [MCP](https://modelcontextprotocol.io/)
+server, so Claude Code, Codex, Cursor or any other MCP client calls them and
+gets structured results back: every tool returns the evidence envelope of
+[`knowledge/17-evidence.md`](knowledge/17-evidence.md), with what was found,
+where each observation was made, what the method cannot see and what it
+could not settle. It calls the same Python functions the command line does
+and does no analysis of its own. The command line stays the primary
+interface and `AGENTS.md` stays the method.
+
+| Tool | Wraps |
+|---|---|
+| `survey`, `triage` | `survey.py`, `triage.py` |
+| `open_binary`, `close_binary`, `list_sessions` | sessions: the target copied into a session folder; the original is never written |
+| `unpack`, `comrec` | `unpack.py`, `comrec.py`, writing inside the session |
+| `analyze` | `pipeline.ps1`, with progress by stage; cached by target SHA-256 and profile id |
+| `verify_load_image`, `address_map`, `read_bytes` | `loadimage.py verify` and `map`; bytes as loaded, stopping at uninitialised memory |
+| `list_functions`, `function` | `functions.json`; one function's body, C, disassembly, calls out and in |
+| `coverage`, `anchors`, `libsig` | `bodies.py`, `anchors.py`, `libsig.py apply` |
+| `apply_names` | `applynames.py` on the session's project; a dry run unless `confirm` |
+| `emuverify`, `sweep` | `emuverify.py`, `emuverify.py sweep` |
+
+It also offers two prompts, `standard_workflow` and `extended_workflow`, which
+tell the agent to read `AGENTS.md` and to triage first, and exposes `AGENTS.md`
+and every `knowledge/` file as resources.
+
+Sessions live under `DOSDEC_WORK` (default
+`%LOCALAPPDATA%\dos-decompiler\sessions`). Paths must be absolute, and a path
+that contains `..` or resolves somewhere else is refused. The server writes
+only inside the session, or to a `keep_to` folder you name, never beside the
+original. A `.COM` is admitted only with `format="com"`. Every result is one
+page of at most 64,000 bytes, and a long list comes with a cursor for the next.
+
+Register it with Claude Code. The server takes the same environment as the
+command line, so pass it the values `env.ps1` sets:
+
+```powershell
+claude mcp add dos-decompiler --scope user `
+  -e GHIDRA_HOME=C:\path\to\ghidra -e JAVA_HOME=C:\path\to\jdk `
+  -e NASM=C:\path\to\nasm.exe -e PYTHON=C:\path\to\python.exe `
+  -- C:\path\to\python.exe C:\Projects\DOS-Decompiler\mcp_server\server.py
+```
+
+A client configured by file takes the same as JSON (`.mcp.json` in a project
+for Claude Code; `mcp.json` for Cursor):
+
+```json
+{
+  "mcpServers": {
+    "dos-decompiler": {
+      "command": "C:\\path\\to\\python.exe",
+      "args": ["C:\\Projects\\DOS-Decompiler\\mcp_server\\server.py"],
+      "env": {
+        "GHIDRA_HOME": "C:\\path\\to\\ghidra",
+        "JAVA_HOME": "C:\\path\\to\\jdk",
+        "NASM": "C:\\path\\to\\nasm.exe",
+        "PYTHON": "C:\\path\\to\\python.exe"
+      }
+    }
+  }
+}
+```
+
+The Python must be the one with capstone, unicorn and the `mcp` package.
+`pwsh` and `node` are found on `PATH`.
+
 ### Entry points
 
 Every tool is plain Python or PowerShell with `--help`, so any agent that can
@@ -938,6 +1012,13 @@ tools/
                              by the exporter, the corrector and the dumper
     ApplyNames.java          write recovered names back, with confidence marks;
                              all or nothing, read back (run via applynames.py)
+mcp_server/
+  server.py                  one MCP server in front of the tools (stdio); the
+                             only place the MCP SDK is imported
+  operations.py              each tool as a function returning an envelope
+  sessions.py                session folders and the analysis cache
+  safety.py                  path checks, timed processes
+  paging.py                  one page of a result, with a cursor
 knowledge/
   00-scope.md                what this handles and what it does not
   01-dos-binaries.md         MZ format, memory models, segments, packers, hardware
@@ -978,6 +1059,7 @@ tests/bodies/                function bodies, origins, shared code, and what
                              no function claims
 tests/sweep/                 sweeps against Python, JavaScript and a rebuild;
                              wrong candidates caught at the planted input
+tests/mcp/                   the MCP server over stdio, through the SDK's client
 AGENTS.md                    the method, for any agent or human
 SKILL.md                     Claude Code wrapper
 env.example.ps1              copy to env.ps1, point at your own tool copies

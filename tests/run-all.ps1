@@ -84,6 +84,9 @@ $Prerequisites = @{
     # Its Ghidra half skips by itself, saying so, and this reports that as
     # "partly skipped" beside the PASS.
     'loadimage'  = @('nasm')
+    # The MCP server, through the SDK's own client. Its Ghidra half skips by
+    # itself, saying so.
+    'mcp'        = @('nasm', 'capstone', 'unicorn', 'mcp')
     'pcxlib'     = @()
     'placements' = @('nasm', 'capstone', 'unicorn')
     'sopwith'    = @('sopwith', 'capstone', 'unicorn')
@@ -165,7 +168,7 @@ if (-not $pythonVersion) {
     Write-Host "no Python at '$Python'. Pass -Python or set PYTHON." -ForegroundColor Red
     exit 1
 }
-foreach ($module in 'capstone', 'unicorn') {
+foreach ($module in 'capstone', 'unicorn', 'mcp') {
     if (-not (Test-PythonModule $module)) {
         $missing[$module] = "$module not importable by $Python (pip install $module)"
     }

@@ -9,6 +9,12 @@ description: Decompile and reverse-engineer 1980s DOS programs — 16-bit real-m
 file exists only to register the skill with Claude Code, and keeping the
 instructions in one place is what stops the two from drifting apart.
 
+**When the `dos-decompiler` MCP server is available, prefer its tools** —
+`triage`, `open_binary`, `analyze`, `function` and the rest. They return the
+same results as the command-line tools, as structured envelopes with their
+evidence attached, in pages that keep each answer small. The command line in
+`tools/` is the fallback, and the method does not change either way.
+
 ## The three things to get right
 
 Everything else is detail, but these decide whether the work is worth anything.

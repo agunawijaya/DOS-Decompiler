@@ -1,0 +1,318 @@
+#!/usr/bin/env python3
+"""
+server.py -- One MCP server in front of the DOS-Decompiler toolkit.
+
+An agent working with the command-line tools runs a command, reads console
+text and infers its structure. That costs context, and it fails quietly when
+the text changes. This server gives Claude Code, Codex, Cursor or any other
+MCP client the same tools as calls with structured results: every tool
+returns the evidence envelope of knowledge/17-evidence.md -- the result, the
+observations behind it with where each was seen, what the method cannot see,
+and what it could not settle.
+
+It is a thin layer. operations.py calls the same Python functions the
+command-line tools call, and this file only registers those as MCP tools; it
+does no analysis of its own. The command line stays the primary interface,
+and AGENTS.md stays the method: the prompts this server offers tell the agent
+to read it and to run triage first.
+
+What it keeps
+-------------
+open_binary copies a target into a session folder under DOSDEC_WORK (default
+%LOCALAPPDATA%\\dos-decompiler\\sessions) and every tool reads the copy; the
+original is never opened for writing. close_binary deletes the folder.
+Analysis is cached by the target's SHA-256 and the analysis profile's id, so
+a second session on the same bytes does not run Ghidra again. See
+sessions.py.
+
+What it refuses
+---------------
+Relative paths, paths with `..`, paths that resolve somewhere else, and any
+write outside the session folder or a keep_to folder the user names -- never
+beside the original. Every external program has a timeout. Every result is
+one page: lists are cut to `limit` with a cursor, and the page is held under
+64,000 bytes. A .COM is admitted only with format="com". See safety.py and
+paging.py.
+
+Requires the MCP Python SDK (pip install mcp; 2.x, Python 3.11 or later).
+Nothing else in the toolkit imports it. GHIDRA_HOME, JAVA_HOME and NASM come
+from the environment the server starts in, as for the command line.
+
+Usage:
+    python mcp_server/server.py          # stdio; started by the MCP client
+"""
+
+import json
+import sys
+from pathlib import Path
+
+try:
+    import anyio
+    from anyio import from_thread, to_thread
+    from mcp.server.mcpserver import Context, MCPServer
+    from mcp.types import CallToolResult, TextContent
+except ImportError:
+    sys.stderr.write(
+        "mcp_server: the MCP Python SDK is not installed in this Python "
+        f"({sys.executable}).\n"
+        "Install it with:  python -m pip install mcp\n"
+        "(the official SDK, 2.x, which needs Python 3.11 or later). The "
+        "command-line tools in tools/ do not need it.\n")
+    sys.exit(2)
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+sys.path.insert(0, str(HERE))
+import operations as op  # noqa: E402
+
+INSTRUCTIONS = (
+    "Tools for decompiling DOS programs, each returning an evidence envelope: "
+    "result, evidence (each observation with where it was seen), limitations "
+    "and unknowns. Read the prompt standard_workflow or extended_workflow "
+    "first; the method is AGENTS.md (resource toolkit://AGENTS.md). Always "
+    "triage before promising anything. Paths are absolute. Long results come "
+    "in pages: pass page.next_cursor back as cursor.")
+
+server = MCPServer("dos-decompiler", instructions=INSTRUCTIONS)
+
+
+def answer(env):
+    """The envelope as both structured content and its JSON text; an error
+    when it says the tool could not do what was asked."""
+    return CallToolResult(content=[TextContent(type="text", text=json.dumps(env))],
+                          structured_content=env,
+                          is_error=env.get("status") in ("blocked", "error"))
+
+
+async def call(fn, *args, **kwargs):
+    """Run an operation in a worker thread, so a long one does not stall the
+    server's other requests."""
+    return answer(await to_thread.run_sync(lambda: fn(*args, **kwargs)))
+
+
+# ---------------------------------------------------------------- admission
+
+@server.tool()
+async def survey(folder: str, limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """Survey a game folder: every executable triaged, batch files read, and
+    which executable looks like the game and why. folder is absolute."""
+    return await call(op.survey, folder, limit, cursor)
+
+
+@server.tool()
+async def triage(session_id: str | None = None, path: str | None = None,
+                 limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """Is this program in scope? Packers, overlays, interpreted engines,
+    memory model, with the file offset of each finding. Run this first.
+    Pass a session_id, or an absolute path."""
+    return await call(op.triage, session_id, path, limit, cursor)
+
+
+@server.tool()
+async def open_binary(path: str, format: str = "auto") -> CallToolResult:
+    """Admit a target: copy it into a new session and return its session_id.
+    format is auto, mz or com. A .COM is admitted only with format="com": it
+    has no header, so neither its name nor a guess is enough."""
+    return await call(op.open_binary, path, format)
+
+
+@server.tool()
+async def close_binary(session_id: str) -> CallToolResult:
+    """Delete a session: the copy, its Ghidra project, everything written there."""
+    return await call(op.close_binary, session_id)
+
+
+@server.tool()
+async def list_sessions(limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """The open sessions, with their targets and whether each was analysed."""
+    return await call(op.list_sessions, limit, cursor)
+
+
+# ---------------------------------------------------------------- unpacking, .COM
+
+@server.tool()
+async def unpack(session_id: str, out: str | None = None,
+                 keep_to: str | None = None) -> CallToolResult:
+    """Run a packed MZ's own decompressor under emulation and dump the image
+    inside the session (out, if given, must be inside it); keep_to, an
+    absolute folder of yours, keeps a copy."""
+    return await call(op.unpack, session_id, out, keep_to)
+
+
+@server.tool()
+async def comrec(session_id: str, out: str | None = None, keep_to: str | None = None,
+                 limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """Rebuild a .COM as NASM source and prove it byte-identical (status
+    verified) or say why not. The .asm is written inside the session (out,
+    if given, must be inside it); keep_to keeps a copy elsewhere."""
+    return await call(op.comrec, session_id, out, keep_to, limit, cursor)
+
+
+# ---------------------------------------------------------------- analysis
+
+@server.tool()
+async def analyze(session_id: str, skip_recovery: bool = False, timeout: int = 1800,
+                  ctx: Context = None) -> CallToolResult:
+    """The Ghidra pipeline on an MZ session: import, load correction and
+    verification, analysis, function recovery, export, profile handshake.
+    Reports progress by stage. A second session on the same bytes reuses the
+    cached result. Stopped after timeout seconds."""
+    def progress(stage, total, message):
+        if ctx is not None:
+            from_thread.run(ctx.report_progress, stage, total, message)
+    return await call(op.analyze, session_id, skip_recovery, timeout, progress)
+
+
+@server.tool()
+async def verify_load_image(session_id: str, limit: int | None = None,
+                            cursor: str | None = None) -> CallToolResult:
+    """Check that Ghidra's program is the file: the same bytes at the
+    addresses the header implies, each relocation applied once."""
+    return await call(op.verify_load_image, session_id, limit, cursor)
+
+
+@server.tool()
+async def address_map(session_id: str, file_offset: str | None = None,
+                      address: str | None = None, linear: str | None = None) -> CallToolResult:
+    """Convert a file offset, a segment:offset address or a linear address
+    into the other two. Give exactly one."""
+    return await call(op.address_map, session_id, file_offset, address, linear)
+
+
+@server.tool()
+async def read_bytes(session_id: str, address: str | None = None,
+                     file_offset: str | None = None, length: int = 64) -> CallToolResult:
+    """Bytes as the program holds them once loaded (relocations applied), at
+    most 4096. Stops at the first byte not initialised from the file and says
+    so: complete false, length_read the bytes actually read."""
+    return await call(op.read_bytes, session_id, address, file_offset, length)
+
+
+@server.tool()
+async def list_functions(session_id: str, origin: str | None = None, name: str | None = None,
+                         min_size: int | None = None, max_size: int | None = None,
+                         limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """The analysed functions, filterable by origin (ghidra-analysis,
+    recovered-...), a name pattern (e.g. FUN_1000_*) and size."""
+    return await call(op.list_functions, session_id, origin, name, min_size, max_size,
+                      limit, cursor)
+
+
+@server.tool()
+async def function(session_id: str, entry: str | None = None, name: str | None = None,
+                   limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """One function: its body ranges, origin, decompiled C alone, the
+    disassembly of its body, and its calls out and in."""
+    return await call(op.function, session_id, entry, name, limit, cursor)
+
+
+@server.tool()
+async def coverage(session_id: str, limit: int | None = None,
+                   cursor: str | None = None) -> CallToolResult:
+    """Which code no function's body claims, and what each unclaimed run looks like."""
+    return await call(op.coverage, session_id, limit, cursor)
+
+
+@server.tool()
+async def anchors(session_id: str, entry: str | None = None, write_names: bool = False,
+                  limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """Functions identified from evidence alone -- interrupts, ports, strings,
+    constants -- and names that claim only that. write_names keeps them as
+    names.json in the session, for apply_names."""
+    return await call(op.anchors, session_id, entry, write_names, limit, cursor)
+
+
+@server.tool()
+async def libsig(session_id: str, database: str = "auto", limit: int | None = None,
+                 cursor: str | None = None) -> CallToolResult:
+    """C runtime functions, from the signature databases in signatures/;
+    "auto" tries each, and the one that matches names the compiler."""
+    return await call(op.libsig, session_id, database, limit, cursor)
+
+
+@server.tool()
+async def apply_names(session_id: str, mapping: str | dict | list, dryrun: bool = True,
+                      confirm: bool = False, min_score: float | None = None,
+                      certain: float | None = None, timeout: int = 900,
+                      limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """Write names into this session's Ghidra project: validated whole first,
+    read back after, rolled back whole on any failure. A dry run unless
+    dryrun is false and confirm is true. mapping is an absolute path or the
+    mapping itself."""
+    return await call(op.apply_names, session_id, mapping, dryrun, confirm, min_score,
+                      certain, timeout, limit, cursor)
+
+
+# ---------------------------------------------------------------- emulation
+
+@server.tool()
+async def emuverify(session_a: str, session_b: str, map_a: str | None = None,
+                    map_b: str | None = None, dgroup_a: str | None = None,
+                    dgroup_b: str | None = None, limit_functions: int | None = None,
+                    limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """Carry names between two builds of one program by running both under
+    emulation. Each side is a session, with a linker map (absolute path) or
+    its analysis's functions.json."""
+    return await call(op.emuverify, session_a, session_b, map_a, map_b, dgroup_a, dgroup_b,
+                      limit_functions, limit, cursor)
+
+
+@server.tool()
+async def sweep(session_id: str, entry: str, domain: str | dict,
+                candidate: str | None = None, candidate_session: str | None = None,
+                candidate_entry: str | None = None, all_divergences: bool = False,
+                trace: int = 0, max_cases: int | None = None, seed: int | None = None,
+                case_timeout: float | None = None, dgroup: str | None = None,
+                limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """Run one routine of the original on every input of a domain against a
+    candidate -- path/to/ref.py:fn, path/to/port.mjs:fn, or another session
+    -- and stop at the first input where they disagree. See the resource
+    knowledge://18-oracle-sweeps.md for the domain and the contract."""
+    return await call(op.sweep, session_id, entry, domain, candidate, candidate_session,
+                      candidate_entry, True, all_divergences, trace, max_cases, seed,
+                      case_timeout, dgroup, limit, cursor)
+
+
+# ---------------------------------------------------------------- prompts
+
+@server.prompt()
+def standard_workflow() -> str:
+    """The standard workflow: readable C and architecture notes."""
+    return ("Use the DOS-Decompiler tools for the standard workflow: annotated "
+            "pseudocode and architecture notes, verified by reading. First read "
+            "AGENTS.md (resource toolkit://AGENTS.md) -- it is the method, and "
+            "these tools only carry it out. Then open_binary the target and run "
+            "triage before promising anything: report its verdict and its "
+            "unknowns. Say plainly that the decompiled C will not resemble the "
+            "original source. Never commit a name on one source of evidence, and "
+            "say which of your conclusions are verified and which are inference.")
+
+
+@server.prompt()
+def extended_workflow() -> str:
+    """The extended workflow: source that provably rebuilds the binary."""
+    return ("Use the DOS-Decompiler tools for the extended workflow: source that "
+            "rebuilds the binary, verified mechanically. First read AGENTS.md "
+            "(resource toolkit://AGENTS.md) and knowledge/07-extended-"
+            "reconstruction.md (resource knowledge://07-extended-reconstruction.md). "
+            "Then open_binary the target and run triage before anything else, and "
+            "report its verdict. This needs the period compiler; ask for it. Say "
+            "which rung of the verification ladder each result stands on, and "
+            "never report a per-function match as a byte-identical image.")
+
+
+# ---------------------------------------------------------------- resources
+
+def text_resource(uri, path, description):
+    @server.resource(uri, mime_type="text/markdown", description=description)
+    def read() -> str:
+        return path.read_text(encoding="utf-8")
+
+
+text_resource("toolkit://AGENTS.md", ROOT / "AGENTS.md", "The method: AGENTS.md")
+for page in sorted((ROOT / "knowledge").glob("*.md")):
+    text_resource(f"knowledge://{page.name}", page, f"knowledge/{page.name}")
+
+
+if __name__ == "__main__":
+    server.run("stdio")
