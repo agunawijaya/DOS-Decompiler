@@ -162,6 +162,16 @@ async def _():
     return f"8 of 32 bytes, stopped at minalloc; file 0x49 = 1000:0009; {folder.name} deleted"
 
 
+@case("survey a folder: an envelope that names both fixtures in it")
+async def _():
+    env, err = await call("survey", folder=str(Fix.sweep_exe.parent))
+    envelope_ok(env)
+    text = json.dumps(env["result"])
+    check(not err and env["tool"] == "survey" and "SWEEP.EXE" in text and "PLAIN.COM" in text,
+          f"survey: {env['status']} {text[:300]}")
+    return f"{env['status']}, {len(env['evidence'])} evidence items on this page"
+
+
 @case("a .COM is admitted only when format=\"com\" is given")
 async def _():
     env, err = await call("open_binary", path=str(Fix.com))
