@@ -608,7 +608,8 @@ Its limits:
   code segment runs at its own `segment:offset`, with a far return address if
   it ends in `RETF` — from a `functions.json`, and from a linker map whose
   segment table calls that segment `CODE`. DGROUP comes from the map, or
-  from the segment the startup loads into `DS`; stderr says which. When the
+  from the segment the startup loads into `DS`; stderr says which (under
+  `--quiet`, only when the old guess would have differed). When the
   startup loads nothing the loader relocated, it falls back to the lowest
   relocated segment, which is a code segment when far code sits below the
   data: give `--dgroup-a`/`--dgroup-b` then (`knowledge/04-pitfalls.md`).

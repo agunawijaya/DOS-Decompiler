@@ -26,7 +26,9 @@ How a function is run
     A linker map names DGROUP. Without one it is the segment the program's
     startup loads into DS, found by running the startup; failing that, the
     lowest relocated segment, which is a code segment when far code sits
-    below the data. Which one was used is said on stderr.
+    below the data. Which one was used is said on stderr -- under --quiet,
+    only when it differs from what the lowest-relocated-segment rule, or for
+    a map the first-symbol rule, would have given.
   * A function is found by its whole entry, segment and offset, through the
     verified load mapping. One outside the segment the image starts in runs
     at its own CS:IP, entered with a far return address when it ends in RETF.
@@ -62,7 +64,7 @@ The report goes to stdout; --json writes the full result, matches, ambiguous
 and uninformative functions included. --dgroup-a/--dgroup-b give the data
 segment paragraph when it cannot be read from the map or the startup,
 --limit profiles only the first N functions of each side, and --quiet drops
-the progress lines on stderr.
+the progress lines on stderr, and the DGROUP line when the old rule agrees.
 
 Sweeps
 ------
@@ -407,9 +409,27 @@ def locate_dgroup(exe_path):
             f"within {STARTUP_BUDGET:,} instructions", None)
 
 
-def say_dgroup(exe_path, paragraph, how, where):
+def say_dgroup(exe_path, paragraph, how, where, old, quiet):
+    """Say on stderr which DGROUP was used and how it was found. Under
+    --quiet, only when it is not what the rule before prompt 05 would have
+    given (`old`, None when that rule had no answer): a --quiet run whose
+    answer did not change stays as silent as it was, and one whose answer
+    did is told why."""
+    if quiet and paragraph == old:
+        return
+    changed = "" if paragraph == old else (
+        f"; the old rule {'had no answer' if old is None else f'gave 0x{old:04x}'}")
     print(f"emuverify.py: {Path(exe_path).name}: DGROUP 0x{paragraph:04x}, {how}"
-          + (f" (at {where})" if where else ""), file=sys.stderr)
+          + (f" (at {where})" if where else "") + changed, file=sys.stderr)
+
+
+def old_rule(rule, *args):
+    """What a DGROUP rule from before prompt 05 gives, or None if it gives
+    nothing (it exits instead)."""
+    try:
+        return rule(*args)
+    except SystemExit:
+        return None
 
 
 class Entry:
@@ -462,7 +482,7 @@ def entries_from_functions_json(path, exe=None, accept_drift=False):
 
 
 class Emulator:
-    def __init__(self, exe, symbols_source, dgroup=None, accept_drift=False):
+    def __init__(self, exe, symbols_source, dgroup=None, accept_drift=False, quiet=False):
         self.image = load_image(exe)
         if str(symbols_source).lower().endswith(".json"):
             self.symbols = entries_from_functions_json(symbols_source, exe,
@@ -471,14 +491,16 @@ class Emulator:
                 self.dgroup = dgroup
             else:
                 self.dgroup, how, where = locate_dgroup(exe)
-                say_dgroup(exe, self.dgroup, how, where)
+                say_dgroup(exe, self.dgroup, how, where,
+                           old_rule(dgroup_from_relocations, exe), quiet)
         else:
             self.symbols, layout = map_entries(symbols_source, exe, self.image)
             if dgroup is not None:
                 self.dgroup = dgroup
             else:
                 self.dgroup, how = dgroup_from_map(symbols_source, layout)
-                say_dgroup(exe, self.dgroup, how, None)
+                say_dgroup(exe, self.dgroup, how, None,
+                           old_rule(dgroup_paragraph, symbols_source), quiet)
         self.md = Cs(CS_ARCH_X86, CS_MODE_16)
 
     def run(self, offset, args, max_insns=MAX_INSNS):
@@ -730,10 +752,10 @@ def main():
 
     a = Emulator(args.exe_a, args.map_a,
                  int(args.dgroup_a, 0) if args.dgroup_a else None,
-                 args.accept_profile_drift)
+                 args.accept_profile_drift, args.quiet)
     b = Emulator(args.exe_b, args.map_b,
                  int(args.dgroup_b, 0) if args.dgroup_b else None,
-                 args.accept_profile_drift)
+                 args.accept_profile_drift, args.quiet)
 
     a_offsets = dict(list(a.symbols.items())[:args.limit] if args.limit
                      else a.symbols.items())
