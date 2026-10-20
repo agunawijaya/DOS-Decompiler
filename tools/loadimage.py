@@ -261,6 +261,40 @@ class Expected:
         }
 
 
+def dos_map(path, load_segment=DEFAULT_LOAD_SEGMENT):
+    """A record map_address() can read, for a file nothing has analysed yet.
+
+    loadimage.json's mappings are Ghidra's blocks, so they exist only after an
+    import. This is what DOS itself does with the file: the load module at the
+    load segment, cut into 64 KB windows so every byte has a segment:offset,
+    and then the header's minalloc paragraphs -- allocated, with no file bytes
+    behind them -- as uninitialised. Relocated words are listed as in the
+    verified record. It is the expected load, from the header alone; once
+    the pipeline has run, the verified loadimage.json is the one to read."""
+    exp = Expected(path, load_segment)
+    rec = exp.record()
+    _, mz = mzinfo.parse(path)
+    minalloc = mz["header"]["min_extra_paragraphs"]
+    base = rec["module"]["linear_start"]
+    size = rec["module"]["size"]
+    mappings = []
+    for start in range(0, size, 0x10000):
+        end = min(start + 0x10000, size) - 1
+        mappings.append({"block": f"load module +0x{start:x}",
+                         "segment": f"{load_segment + (start >> 4):04x}",
+                         "linear_start": base + start, "linear_end_inclusive": base + end,
+                         "file_start": exp.header_size + start,
+                         "file_end_inclusive": exp.header_size + end})
+    # DOS rounds the module up to a paragraph and gives minalloc more.
+    first_free = base + ((size + 15) // 16) * 16
+    uninitialized = []
+    if minalloc:
+        uninitialized.append({"block": "minalloc", "linear_start": base + size,
+                              "linear_end_inclusive": first_free + minalloc * 16 - 1})
+    rec.update(mappings=mappings, uninitialized=uninitialized, source="expected")
+    return rec
+
+
 def expected_envelope(path, load_segment=DEFAULT_LOAD_SEGMENT, profile=None):
     try:
         exp = Expected(path, load_segment)

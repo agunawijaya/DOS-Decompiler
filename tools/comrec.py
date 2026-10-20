@@ -62,6 +62,10 @@ except ImportError:  # pragma: no cover
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import residue  # noqa: E402  (the residue rules bodies.py shares)
 
+# One assembly of the rebuilt source takes well under a second; a NASM that
+# runs this long is stuck, and the reconstruction stops rather than waits.
+NASM_TIMEOUT = 120
+
 # Branches whose operand is a code address we should turn into a label.
 BRANCH = {
     "jmp", "call", "je", "jne", "jz", "jnz", "ja", "jae", "jb", "jbe", "jg",
@@ -1357,7 +1361,12 @@ class Reconstructor:
             cmd = [nasm, "-f", "bin", "-o", str(binf), str(src)]
             if want_listing:
                 cmd += ["-l", str(lst)]
-            r = subprocess.run(cmd, capture_output=True, text=True)
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True,
+                                   timeout=NASM_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                return None, (f"nasm did not finish in {NASM_TIMEOUT} s and was "
+                              f"stopped"), {}
             if r.returncode != 0:
                 return None, r.stderr, {}
             listing = self.parse_listing(lst) if want_listing and lst.exists() else {}

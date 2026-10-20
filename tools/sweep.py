@@ -1674,7 +1674,10 @@ def summary(env, seconds=None):
     return "\n".join(out)
 
 
-def main(argv, prog="emuverify.py sweep"):
+def parser(prog="emuverify.py sweep"):
+    """The command line's argument parser: the MCP server parses its own
+    arguments with it, so a sweep there has exactly the command line's
+    defaults."""
     import argparse
     ap = argparse.ArgumentParser(prog=prog, description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1713,7 +1716,11 @@ def main(argv, prog="emuverify.py sweep"):
     ap.add_argument("--quiet", action="store_true", help="no progress lines on stderr")
     ap.add_argument("--accept-profile-drift", action="store_true",
                     help="read functions.json although its handshake.json says it drifted")
-    args = ap.parse_args(argv)
+    return ap
+
+
+def main(argv, prog="emuverify.py sweep"):
+    args = parser(prog).parse_args(argv)
 
     def progress(msg):
         if not args.quiet:

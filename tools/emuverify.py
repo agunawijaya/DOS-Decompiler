@@ -728,6 +728,32 @@ def compare(a_emu, b_emu, a_offsets, b_offsets, progress=None):
     }
 
 
+def pair(exe_a, map_a, exe_b, map_b, dgroup_a=None, dgroup_b=None, limit=None,
+         accept_drift=False, quiet=False, progress=None):
+    """The comparison the command line runs, as a function: (result, checked).
+
+    `result` is compare()'s dict, which --json writes. `checked` is None
+    unless both sides are linker maps and something matched: then their
+    names make the answer checkable, and it holds correct, incorrect,
+    precision and the mismatched pairs. When one side is a functions.json
+    its "names" are Ghidra placeholders, so the comparison is meaningless and
+    reporting a precision would be a fiction."""
+    a = Emulator(exe_a, map_a, dgroup_a, accept_drift, quiet)
+    b = Emulator(exe_b, map_b, dgroup_b, accept_drift, quiet)
+    a_offsets = dict(list(a.symbols.items())[:limit] if limit else a.symbols.items())
+    b_offsets = dict(list(b.symbols.items())[:limit] if limit else b.symbols.items())
+    res = compare(a, b, a_offsets, b_offsets, progress)
+    checkable = not (str(map_a).lower().endswith(".json")
+                     or str(map_b).lower().endswith(".json"))
+    checked = None
+    if res["matches"] and checkable:
+        correct = sum(1 for x, y in res["matches"] if x == y)
+        checked = {"correct": correct, "incorrect": len(res["matches"]) - correct,
+                   "precision": correct / max(1, len(res["matches"])),
+                   "mismatches": [(x, y) for x, y in res["matches"] if x != y]}
+    return res, checked
+
+
 def main():
     # `sweep` is a subcommand; everything else is the comparison, whose
     # command line is unchanged: four positional arguments.
@@ -750,23 +776,14 @@ def main():
                          "says it drifted; announced on stderr")
     args = ap.parse_args()
 
-    a = Emulator(args.exe_a, args.map_a,
-                 int(args.dgroup_a, 0) if args.dgroup_a else None,
-                 args.accept_profile_drift, args.quiet)
-    b = Emulator(args.exe_b, args.map_b,
-                 int(args.dgroup_b, 0) if args.dgroup_b else None,
-                 args.accept_profile_drift, args.quiet)
-
-    a_offsets = dict(list(a.symbols.items())[:args.limit] if args.limit
-                     else a.symbols.items())
-    b_offsets = dict(list(b.symbols.items())[:args.limit] if args.limit
-                     else b.symbols.items())
-
     def progress(msg):
         if not args.quiet:
             print(f"  {msg}", file=sys.stderr)
 
-    res = compare(a, b, a_offsets, b_offsets, progress)
+    res, checked = pair(args.exe_a, args.map_a, args.exe_b, args.map_b,
+                        int(args.dgroup_a, 0) if args.dgroup_a else None,
+                        int(args.dgroup_b, 0) if args.dgroup_b else None,
+                        args.limit, args.accept_profile_drift, args.quiet, progress)
 
     print(f"functions profiled : {res['profiled_a']} in A, {res['profiled_b']} in B")
     print(f"unique matches     : {len(res['matches'])}"
@@ -775,23 +792,15 @@ def main():
     print(f"ambiguous          : {len(res['ambiguous'])}")
     print(f"uninformative      : {len(res['uninformative'])}")
 
-    # When both sides carry real symbol names, agreement is checkable. When one
-    # side is a functions.json its "names" are Ghidra placeholders, so the
-    # comparison is meaningless and reporting a precision would be a fiction.
-    checkable = not (str(args.map_a).lower().endswith(".json")
-                     or str(args.map_b).lower().endswith(".json"))
-    if res["matches"] and checkable:
-        correct = sum(1 for x, y in res["matches"] if x == y)
-        wrong = len(res["matches"]) - correct
+    if checked is not None:
         print(f"\nboth maps carry names, so the answer is checkable:")
-        print(f"  correct   : {correct}")
-        print(f"  incorrect : {wrong}")
-        print(f"  precision : {correct / max(1, len(res['matches'])):.3f}")
-        if wrong:
+        print(f"  correct   : {checked['correct']}")
+        print(f"  incorrect : {checked['incorrect']}")
+        print(f"  precision : {checked['precision']:.3f}")
+        if checked["mismatches"]:
             print("\n  mismatches:")
-            for x, y in res["matches"]:
-                if x != y:
-                    print(f"    {x} -> {y}")
+            for x, y in checked["mismatches"]:
+                print(f"    {x} -> {y}")
     elif res["matches"]:
         print("\nnames carried across (first 20):")
         for x, y in res["matches"][:20]:
