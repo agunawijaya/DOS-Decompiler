@@ -44,6 +44,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import re
 import struct
@@ -1818,6 +1819,292 @@ def parse_segments(specs, size):
     return segs
 
 
+def find_nasm(given=None):
+    """nasm, from what was given, then $NASM, then PATH; or SystemExit
+    naming all three. No path from this machine belongs in the repository."""
+    nasm = given or os.environ.get("NASM")
+    if not nasm:
+        from shutil import which
+        nasm = which("nasm")
+    if not nasm or not Path(nasm).exists():
+        raise SystemExit(
+            "nasm not found. Pass --nasm PATH, set the NASM environment "
+            "variable, or put nasm on PATH. It is a single executable: "
+            "https://www.nasm.us/")
+    return nasm
+
+
+def reconstruct(com, out, segment=(), max_relocations=8, entry=(), entries_from=None,
+                nasm=None, mapfile=None):
+    """Rebuild a .COM (or a single-segment MZ) as NASM source, prove it, and
+    report on it. Returns (report, exit code).
+
+    The report holds every figure the command line prints, as data -- format,
+    segments, what was detected, the decode rates, the code region and what
+    the rest of it is, the files written, and whether the rebuild was
+    byte-identical -- and `lines`, the report as main() prints it, line for
+    line. main() is now only the argument parser and those prints, so a
+    caller that is not a terminal (prompt 06's MCP server) gets the same
+    result without parsing text."""
+    nasm = find_nasm(nasm)
+    lines = []
+    say = lines.append
+    segment, entry = list(segment), list(entry)
+    report = {"file": str(com), "out": str(out), "format": "COM", "byte_identical": False,
+              "written": []}
+
+    image = Path(com).read_bytes()
+    mz = mz_load_image(image, max_relocations)
+    cs_base = 0
+    if mz is not None:
+        header, image, mz_entry, cs_base = mz
+        report.update(format="MZ", header_bytes=len(header), mz_entry=mz_entry)
+        say(f"format      : MZ, {len(header)}-byte header stripped; "
+            f"entry CS:IP -> image offset 0x{mz_entry:X}")
+        say("              a single-segment MZ takes the .COM route, which "
+            "reaches a\n              byte-identical rebuild; the header is "
+            "put back on the way out")
+        if not segment:
+            # An MZ image is addressed from 0, not from a PSP at 0x100.
+            segment = ["0x0:0x0"]
+        entry = entry + [str(mz_entry)]
+
+    entries = [0] + [int(e, 0) for e in entry]
+
+    if entries_from:
+        # Every routine key. The recursive walk reaches what something branches
+        # to; a symbol file also knows what a *person* found -- Tapper's INT 80h
+        # shim is installed by a loader the walk never runs, so its bytes stayed
+        # data and its name landed nowhere. Seeding them took the file from
+        # 68.9% decoded to 74.5%, still byte-identical.
+        seeds = json.loads(Path(entries_from).read_text(encoding="utf-8"))
+        extra = sorted({int(k.split(":")[-1], 16)
+                        for k in seeds.get("routines", {})})
+        entries += [e for e in extra if 0 <= e < len(image)]
+        report["entries_from"] = len(extra)
+        say(f"entries     : {len(extra)} from {entries_from}")
+
+    detected = None
+    if not segment:
+        probe = Cs(CS_ARCH_X86, CS_MODE_16)
+        detected = detect_layout(image, probe)
+        if detected:
+            start, base = detected
+            segment = [f"0x{start:X}:0x{base:X}"]
+            entries.append(start)
+    segments = parse_segments(segment, len(image))
+
+    r = Reconstructor(str(com), segments, entries,
+                      image=image if mz is not None else None,
+                      cs_base=cs_base)
+    source, last, rounds, err = r.run(nasm)
+
+    total = len(image)
+    code_bytes = sum(sz for off, (sz, _, _) in r.decoded.items()
+                     if off not in r.demoted)
+    disasm_bytes = sum(sz for sz, _, _ in r.decoded.values())
+
+    say(f"file        : {com}  ({total:,} bytes)")
+    say(f"segments    : " + ", ".join(
+        f"0x{s.file_start:04X}+ @ base 0x{s.base:04X}" for s in segments)
+        + ("   (detected from the entry stub)" if detected else ""))
+    report["segments"] = [{"file_start": s.file_start, "base": s.base} for s in segments]
+    report["segments_detected"] = bool(detected)
+    handlers = r.detect_interrupt_handlers()
+    report["interrupt_handlers"] = [{"vector": v, "file_offset": o}
+                                    for v, o in sorted(set(handlers))]
+    if handlers:
+        say("interrupts  : " + ", ".join(
+            f"INT {v:02X}h -> file 0x{o:05X}" for v, o in sorted(set(handlers))))
+    dispatch = r.detect_dispatch_targets()
+    report["dispatch"] = [{"pointer": v, "targets": list(ts)} for v, ts in dispatch]
+    if dispatch:
+        say("dispatch    : " + "; ".join(
+            f"jmp [{v:#06x}] -> "
+            + ", ".join(f"0x{t:05X}" for t in ts) for v, ts in dispatch))
+        say("              indirect jumps resolved from the constants "
+            "written to the pointer")
+    tables = r.detect_jump_tables()
+    report["jump_tables"] = [{"base": base, "targets": list(ts)} for base, ts in tables]
+    if tables:
+        say("jump tables : " + "; ".join(
+            f"cs:{base:#06x} -> {len(ts)} targets, 0x{min(ts):05X}..0x{max(ts):05X}"
+            for base, ts in tables))
+        say("              every entry disassembles as a routine and lies "
+            "inside the code\n              already found; the first that "
+            "does not ends the table")
+    report["provenance"] = []
+    for finding, evidence in r.detect_provenance():
+        report["provenance"].append({"finding": finding, "evidence": evidence})
+        say(f"provenance  : {finding}")
+        say(f"              {evidence}")
+    say(f"rounds      : {rounds}")
+    say(f"instructions: {len(r.decoded):,} disassembled "
+        f"({len(r.demoted):,} pinned to fixed bytes to preserve encoding)")
+    say(f"bytes as code: {code_bytes:,} / {total:,}  "
+        f"({code_bytes / total:.1%} of file)")
+    report.update(rounds=rounds, instructions=len(r.decoded), pinned=len(r.demoted),
+                  total_bytes=total, code_bytes=code_bytes, disassembled_bytes=disasm_bytes)
+
+    # A whole-file percentage says more about how much of the program is
+    # artwork and lookup tables than about how well it was recovered. The
+    # figure that matters is how much of the region that actually holds code
+    # came back as instructions.
+    #
+    # A big block of data counts as being outside that region only if it sits
+    # against one end of the file. ParaTrooper keeps its tables at the front
+    # and its code behind them; Zaxxon does the opposite, code first and 12,323
+    # bytes of artwork after it. Both shapes are one contiguous block bounded
+    # by an edge, so trim from each end -- allowing for the few bytes of entry
+    # stub that precede a leading block, as in ParaTrooper's twelve-byte jump.
+    body_lo, body_hi = 0, total
+    for st, en in r.gaps(min_len=256):
+        if en - st <= total * 0.15:
+            continue
+        if st < max(64, total * 0.02):
+            body_lo = max(body_lo, en)
+        elif en >= total - 16:
+            body_hi = min(body_hi, st)
+    # A body of zero bytes is not a degenerate case to divide by, it is a
+    # finding: the walk from the entry point reached nothing, so whatever this
+    # file is, it does not start where a .COM normally starts.
+    report["code_region"] = None
+    if (body_lo or body_hi < total) and body_hi > body_lo:
+        body = body_hi - body_lo
+        in_body = sum(r.coverage()[body_lo:body_hi])
+        report["code_region"] = {"start": body_lo, "end": body_hi, "bytes": body,
+                                 "recovered": in_body}
+        say(f"code region : 0x{body_lo:04X}..0x{body_hi:04X}  ({body:,} bytes)")
+        say(f"  recovered : {in_body:,} bytes as instructions "
+            f"({in_body / body:.1%} of the code region)")
+        if body_lo:
+            say(f"  data head : 0x0000..0x{body_lo:04X} left as data "
+                f"({body_lo:,} bytes)")
+        if body_hi < total:
+            say(f"  data tail : 0x{body_hi:04X}..0x{total:04X} left as data "
+                f"({total - body_hi:,} bytes)")
+        # What the rest of the region is, so the percentage above cannot be
+        # read as "a fifth of this program is missing" when it is mostly the
+        # program's own tables and artwork sitting among its routines.
+        k = r.classify_residue(body_lo, body_hi)
+        report["code_region"]["residue"] = dict(k)
+        rest = sum(k.values())
+        if rest:
+            named = [(v, n) for n, v in
+                     (("pointer table", k["table"]), ("text", k["text"]),
+                      ("zero fill", k["zero"]), ("other, mostly artwork",
+                                                 k["other"])) if v]
+            say(f"  not code  : {rest:,} bytes ({rest / body:.1%} of the "
+                f"region, counting a pinned instruction as code), being "
+                + ", ".join(f"{v:,} {n}" for v, n in
+                            sorted(named, reverse=True)))
+            if k["code"]:
+                say(f"              and {k['code']:,} bytes that disassemble "
+                    f"cleanly -- worth a look")
+            else:
+                say("              nothing in it looks like unreached code")
+    say(f"disassembled: {disasm_bytes:,} bytes carry a decoded instruction "
+        f"({disasm_bytes / total:.1%}), counting the pinned ones")
+
+    if mapfile:
+        # Which bytes are data is the question the next step asks, and it is
+        # not answerable from the .asm without reading all of it. The two
+        # columns beside each run are the cheap test for what kind of data:
+        # mostly printable is text, mostly zero is padding or a sparse table,
+        # and neither is what artwork looks like -- see gfxdump.py.
+        # 'pin' has to be its own kind or the map is unreadable: a pinned
+        # instruction is emitted as `db`, so counting it as data chops the
+        # routines into three-byte fragments and buries the real tables among
+        # two hundred spurious ones.
+        kinds = bytearray(total)
+        for off, (size, _, _) in r.decoded.items():
+            for i in range(off, min(off + size, total)):
+                kinds[i] = 1 if off in r.demoted else 2
+        names = {0: "data", 1: "pin", 2: "code"}
+
+        Path(mapfile).parent.mkdir(parents=True, exist_ok=True)
+        with open(mapfile, "w", encoding="ascii") as fh:
+            fh.write(f"# region map of {os.path.basename(str(com))} "
+                     f"({total:,} bytes)\n")
+            fh.write("# code = covered by an instruction that survived "
+                     "verification\n")
+            fh.write("# pin  = an instruction NASM could not be made to "
+                     "re-encode, emitted as db\n")
+            fh.write("# data = not reached, or reached and rejected\n")
+            fh.write(f"# {'kind':<5} {'start':>7} {'end':>7} {'length':>7} "
+                     f"{'zero':>5} {'ascii':>6}\n")
+            i = 0
+            while i < total:
+                j = i
+                while j < total and kinds[j] == kinds[i]:
+                    j += 1
+                run = image[i:j]
+                zero = sum(1 for b in run if b == 0) / len(run)
+                text = sum(1 for b in run if 0x20 <= b < 0x7F) / len(run)
+                fh.write(f"  {names[kinds[i]]:<5} "
+                         f"0x{i:05X} 0x{j:05X} {j - i:7,} "
+                         f"{zero:5.0%} {text:6.0%}\n")
+                i = j
+        report["written"].append(str(mapfile))
+        say(f"map         : wrote {mapfile}")
+
+    report["reached_almost_nothing"] = disasm_bytes < total * 0.02
+    if report["reached_almost_nothing"]:
+        # Say it plainly rather than leaving a 0.1% to be read as a bad day.
+        # The rebuild can still be byte-identical -- emitting the whole file as
+        # `db` would be -- and that would prove nothing about understanding it.
+        say("\nNOTE: almost nothing was reached from the entry point. The "
+            "rebuild below may\n      still be byte-identical, which in this "
+            "state means only that the bytes were\n      copied. Likely "
+            "causes, in the order worth checking:")
+        say("        - the file is packed or self-decrypting, and the real "
+            "code appears only\n          after the loader has run")
+        say("        - execution leaves the entry stub through a jump the "
+            "walker does not\n          follow (a table, a computed target, "
+            "an interrupt vector)")
+        say("        - it is not a .COM at all, whatever the extension says")
+        say("      Look at the first 64 bytes before going further.")
+
+    report["error"] = err
+    report["lines"] = lines
+    if err:
+        say(f"\nFAILED: {err}")
+        if err == "did not converge":
+            # The figures above were printed in the same voice as a result, and
+            # they are not one -- the loop stopped because it ran out of turns,
+            # not because it had found everything. Karateka reported 85.0% of
+            # its code region that way for weeks, and the missing 15% was read
+            # as a property of the binary rather than of the budget. It was the
+            # budget: with more rounds the same tool reaches 91.9%.
+            say("      Every figure above is a floor, not a measurement. The "
+                "loop stopped on its\n      round limit, so more of this file "
+                "is code than the percentages say.\n      Raise max_rounds "
+                "before drawing any conclusion from them.")
+        if last:
+            Path(out).write_text(last, encoding="ascii", errors="replace")
+            report["written"].append(str(out))
+            say(f"wrote the last attempt to {out} for inspection")
+        return report, 1
+
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(source, encoding="ascii", errors="replace")
+    report["written"].append(str(out))
+    report["byte_identical"] = True
+    say(f"\nBYTE-IDENTICAL. wrote {out}")
+    if mz is not None:
+        # The claim has to be about the file the user handed over, not about
+        # the image inside it. So write the header out beside the source, with
+        # the one line that reassembles the whole executable.
+        hdr_path = Path(out).with_suffix(".mzheader")
+        hdr_path.write_bytes(header)
+        report["written"].append(str(hdr_path))
+        say(f"              wrote {hdr_path.name} ({len(header)} bytes)")
+        say(f"              nasm -f bin -o image.bin {Path(out).name}")
+        say(f"              cat {hdr_path.name} image.bin > rebuilt.exe   "
+            f"# and that is the original")
+    return report, 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1852,248 +2139,11 @@ def main():
                          "render with gfxdump.py")
     args = ap.parse_args()
 
-    # No path from this machine belongs in the repository. Look where the user
-    # said, then where they told the environment, then on PATH -- and say all
-    # three if none of them answer.
-    nasm = args.nasm or os.environ.get("NASM")
-    if not nasm:
-        from shutil import which
-        nasm = which("nasm")
-    if not nasm or not Path(nasm).exists():
-        raise SystemExit(
-            "nasm not found. Pass --nasm PATH, set the NASM environment "
-            "variable, or put nasm on PATH. It is a single executable: "
-            "https://www.nasm.us/")
-
-    image = Path(args.com).read_bytes()
-    mz = mz_load_image(image, args.max_relocations)
-    cs_base = 0
-    if mz is not None:
-        header, image, mz_entry, cs_base = mz
-        print(f"format      : MZ, {len(header)}-byte header stripped; "
-              f"entry CS:IP -> image offset 0x{mz_entry:X}")
-        print("              a single-segment MZ takes the .COM route, which "
-              "reaches a\n              byte-identical rebuild; the header is "
-              "put back on the way out")
-        if not args.segment:
-            # An MZ image is addressed from 0, not from a PSP at 0x100.
-            args.segment = ["0x0:0x0"]
-        args.entry = list(args.entry) + [str(mz_entry)]
-
-    entries = [0] + [int(e, 0) for e in args.entry]
-
-    if args.entries_from:
-        # Every routine key. The recursive walk reaches what something branches
-        # to; a symbol file also knows what a *person* found -- Tapper's INT 80h
-        # shim is installed by a loader the walk never runs, so its bytes stayed
-        # data and its name landed nowhere. Seeding them took the file from
-        # 68.9% decoded to 74.5%, still byte-identical.
-        import json as _json
-        from pathlib import Path as _Path
-        seeds = _json.loads(
-            _Path(args.entries_from).read_text(encoding="utf-8"))
-        extra = sorted({int(k.split(":")[-1], 16)
-                        for k in seeds.get("routines", {})})
-        entries += [e for e in extra if 0 <= e < len(image)]
-        print(f"entries     : {len(extra)} from {args.entries_from}")
-
-    detected = None
-    if not args.segment:
-        probe = Cs(CS_ARCH_X86, CS_MODE_16)
-        detected = detect_layout(image, probe)
-        if detected:
-            start, base = detected
-            args.segment = [f"0x{start:X}:0x{base:X}"]
-            entries.append(start)
-    segments = parse_segments(args.segment, len(image))
-
-    r = Reconstructor(args.com, segments, entries,
-                      image=image if mz is not None else None,
-                      cs_base=cs_base)
-    source, last, rounds, err = r.run(nasm)
-
-    total = len(image)
-    code_bytes = sum(sz for off, (sz, _, _) in r.decoded.items()
-                     if off not in r.demoted)
-    disasm_bytes = sum(sz for sz, _, _ in r.decoded.values())
-
-    print(f"file        : {args.com}  ({total:,} bytes)")
-    print(f"segments    : " + ", ".join(
-        f"0x{s.file_start:04X}+ @ base 0x{s.base:04X}" for s in segments)
-        + ("   (detected from the entry stub)" if detected else ""))
-    handlers = r.detect_interrupt_handlers()
-    if handlers:
-        print("interrupts  : " + ", ".join(
-            f"INT {v:02X}h -> file 0x{o:05X}" for v, o in sorted(set(handlers))))
-    dispatch = r.detect_dispatch_targets()
-    if dispatch:
-        print("dispatch    : " + "; ".join(
-            f"jmp [{v:#06x}] -> "
-            + ", ".join(f"0x{t:05X}" for t in ts) for v, ts in dispatch))
-        print("              indirect jumps resolved from the constants "
-              "written to the pointer")
-    tables = r.detect_jump_tables()
-    if tables:
-        print("jump tables : " + "; ".join(
-            f"cs:{base:#06x} -> {len(ts)} targets, 0x{min(ts):05X}..0x{max(ts):05X}"
-            for base, ts in tables))
-        print("              every entry disassembles as a routine and lies "
-              "inside the code\n              already found; the first that "
-              "does not ends the table")
-    for finding, evidence in r.detect_provenance():
-        print(f"provenance  : {finding}")
-        print(f"              {evidence}")
-    print(f"rounds      : {rounds}")
-    print(f"instructions: {len(r.decoded):,} disassembled "
-          f"({len(r.demoted):,} pinned to fixed bytes to preserve encoding)")
-    print(f"bytes as code: {code_bytes:,} / {total:,}  "
-          f"({code_bytes / total:.1%} of file)")
-
-    # A whole-file percentage says more about how much of the program is
-    # artwork and lookup tables than about how well it was recovered. The
-    # figure that matters is how much of the region that actually holds code
-    # came back as instructions.
-    #
-    # A big block of data counts as being outside that region only if it sits
-    # against one end of the file. ParaTrooper keeps its tables at the front
-    # and its code behind them; Zaxxon does the opposite, code first and 12,323
-    # bytes of artwork after it. Both shapes are one contiguous block bounded
-    # by an edge, so trim from each end -- allowing for the few bytes of entry
-    # stub that precede a leading block, as in ParaTrooper's twelve-byte jump.
-    body_lo, body_hi = 0, total
-    for st, en in r.gaps(min_len=256):
-        if en - st <= total * 0.15:
-            continue
-        if st < max(64, total * 0.02):
-            body_lo = max(body_lo, en)
-        elif en >= total - 16:
-            body_hi = min(body_hi, st)
-    # A body of zero bytes is not a degenerate case to divide by, it is a
-    # finding: the walk from the entry point reached nothing, so whatever this
-    # file is, it does not start where a .COM normally starts.
-    if (body_lo or body_hi < total) and body_hi > body_lo:
-        body = body_hi - body_lo
-        in_body = sum(r.coverage()[body_lo:body_hi])
-        print(f"code region : 0x{body_lo:04X}..0x{body_hi:04X}  ({body:,} bytes)")
-        print(f"  recovered : {in_body:,} bytes as instructions "
-              f"({in_body / body:.1%} of the code region)")
-        if body_lo:
-            print(f"  data head : 0x0000..0x{body_lo:04X} left as data "
-                  f"({body_lo:,} bytes)")
-        if body_hi < total:
-            print(f"  data tail : 0x{body_hi:04X}..0x{total:04X} left as data "
-                  f"({total - body_hi:,} bytes)")
-        # What the rest of the region is, so the percentage above cannot be
-        # read as "a fifth of this program is missing" when it is mostly the
-        # program's own tables and artwork sitting among its routines.
-        k = r.classify_residue(body_lo, body_hi)
-        rest = sum(k.values())
-        if rest:
-            named = [(v, n) for n, v in
-                     (("pointer table", k["table"]), ("text", k["text"]),
-                      ("zero fill", k["zero"]), ("other, mostly artwork",
-                                                 k["other"])) if v]
-            print(f"  not code  : {rest:,} bytes ({rest / body:.1%} of the "
-                  f"region, counting a pinned instruction as code), being "
-                  + ", ".join(f"{v:,} {n}" for v, n in
-                              sorted(named, reverse=True)))
-            if k["code"]:
-                print(f"              and {k['code']:,} bytes that disassemble "
-                      f"cleanly -- worth a look")
-            else:
-                print("              nothing in it looks like unreached code")
-    print(f"disassembled: {disasm_bytes:,} bytes carry a decoded instruction "
-          f"({disasm_bytes / total:.1%}), counting the pinned ones")
-
-    if args.mapfile:
-        # Which bytes are data is the question the next step asks, and it is
-        # not answerable from the .asm without reading all of it. The two
-        # columns beside each run are the cheap test for what kind of data:
-        # mostly printable is text, mostly zero is padding or a sparse table,
-        # and neither is what artwork looks like -- see gfxdump.py.
-        # 'pin' has to be its own kind or the map is unreadable: a pinned
-        # instruction is emitted as `db`, so counting it as data chops the
-        # routines into three-byte fragments and buries the real tables among
-        # two hundred spurious ones.
-        kinds = bytearray(total)
-        for off, (size, _, _) in r.decoded.items():
-            for i in range(off, min(off + size, total)):
-                kinds[i] = 1 if off in r.demoted else 2
-        names = {0: "data", 1: "pin", 2: "code"}
-
-        Path(args.mapfile).parent.mkdir(parents=True, exist_ok=True)
-        with open(args.mapfile, "w", encoding="ascii") as fh:
-            fh.write(f"# region map of {os.path.basename(args.com)} "
-                     f"({total:,} bytes)\n")
-            fh.write("# code = covered by an instruction that survived "
-                     "verification\n")
-            fh.write("# pin  = an instruction NASM could not be made to "
-                     "re-encode, emitted as db\n")
-            fh.write("# data = not reached, or reached and rejected\n")
-            fh.write(f"# {'kind':<5} {'start':>7} {'end':>7} {'length':>7} "
-                     f"{'zero':>5} {'ascii':>6}\n")
-            i = 0
-            while i < total:
-                j = i
-                while j < total and kinds[j] == kinds[i]:
-                    j += 1
-                run = image[i:j]
-                zero = sum(1 for b in run if b == 0) / len(run)
-                text = sum(1 for b in run if 0x20 <= b < 0x7F) / len(run)
-                fh.write(f"  {names[kinds[i]]:<5} "
-                         f"0x{i:05X} 0x{j:05X} {j - i:7,} "
-                         f"{zero:5.0%} {text:6.0%}\n")
-                i = j
-        print(f"map         : wrote {args.mapfile}")
-
-    if disasm_bytes < total * 0.02:
-        # Say it plainly rather than leaving a 0.1% to be read as a bad day.
-        # The rebuild can still be byte-identical -- emitting the whole file as
-        # `db` would be -- and that would prove nothing about understanding it.
-        print("\nNOTE: almost nothing was reached from the entry point. The "
-              "rebuild below may\n      still be byte-identical, which in this "
-              "state means only that the bytes were\n      copied. Likely "
-              "causes, in the order worth checking:")
-        print("        - the file is packed or self-decrypting, and the real "
-              "code appears only\n          after the loader has run")
-        print("        - execution leaves the entry stub through a jump the "
-              "walker does not\n          follow (a table, a computed target, "
-              "an interrupt vector)")
-        print("        - it is not a .COM at all, whatever the extension says")
-        print("      Look at the first 64 bytes before going further.")
-
-    if err:
-        print(f"\nFAILED: {err}")
-        if err == "did not converge":
-            # The figures above were printed in the same voice as a result, and
-            # they are not one -- the loop stopped because it ran out of turns,
-            # not because it had found everything. Karateka reported 85.0% of
-            # its code region that way for weeks, and the missing 15% was read
-            # as a property of the binary rather than of the budget. It was the
-            # budget: with more rounds the same tool reaches 91.9%.
-            print("      Every figure above is a floor, not a measurement. The "
-                  "loop stopped on its\n      round limit, so more of this file "
-                  "is code than the percentages say.\n      Raise max_rounds "
-                  "before drawing any conclusion from them.")
-        if last:
-            Path(args.out).write_text(last, encoding="ascii", errors="replace")
-            print(f"wrote the last attempt to {args.out} for inspection")
-        return 1
-
-    Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(source, encoding="ascii", errors="replace")
-    print(f"\nBYTE-IDENTICAL. wrote {args.out}")
-    if mz is not None:
-        # The claim has to be about the file the user handed over, not about
-        # the image inside it. So write the header out beside the source, with
-        # the one line that reassembles the whole executable.
-        hdr_path = Path(args.out).with_suffix(".mzheader")
-        hdr_path.write_bytes(header)
-        print(f"              wrote {hdr_path.name} ({len(header)} bytes)")
-        print(f"              nasm -f bin -o image.bin {Path(args.out).name}")
-        print(f"              cat {hdr_path.name} image.bin > rebuilt.exe   "
-              f"# and that is the original")
-    return 0
+    report, code = reconstruct(args.com, args.out, args.segment, args.max_relocations,
+                               args.entry, args.entries_from, args.nasm, args.mapfile)
+    for line in report["lines"]:
+        print(line)
+    return code
 
 
 if __name__ == "__main__":
