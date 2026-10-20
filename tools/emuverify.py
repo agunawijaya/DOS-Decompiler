@@ -64,10 +64,23 @@ segment paragraph when it cannot be read from the map or the startup,
 --limit profiles only the first N functions of each side, and --quiet drops
 the progress lines on stderr.
 
+Sweeps
+------
+`emuverify.py sweep` answers a different question: does a candidate -- a
+rebuilt binary, a Python reference, a JavaScript port -- compute exactly what
+one routine of the original computes, on every input of a domain? It runs the
+original under this emulation case after case, compares, and prints the first
+input where they disagree and how much of the routine the sweep exercised.
+The four vectors above are not involved. tools/sweep.py has the domain, the
+candidate contract and the output; knowledge/18-oracle-sweeps.md has worked
+examples.
+
 Usage:
     python emuverify.py a.exe a.map b.exe b.map
     python emuverify.py a.exe a.map b.exe b.map --json result.json --quiet
     python emuverify.py known.exe known.map target.exe out/functions.json
+    python emuverify.py sweep GAME.EXE 1000:0049 --domain muldiv.json \\
+           --candidate port.mjs:muldiv --functions out/functions.json
 """
 
 import argparse
@@ -694,6 +707,11 @@ def compare(a_emu, b_emu, a_offsets, b_offsets, progress=None):
 
 
 def main():
+    # `sweep` is a subcommand; everything else is the comparison, whose
+    # command line is unchanged: four positional arguments.
+    if len(sys.argv) > 1 and sys.argv[1] == "sweep":
+        import sweep
+        return sweep.main(sys.argv[2:])
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("exe_a")

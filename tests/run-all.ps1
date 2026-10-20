@@ -87,6 +87,9 @@ $Prerequisites = @{
     'pcxlib'     = @()
     'placements' = @('nasm', 'capstone', 'unicorn')
     'sopwith'    = @('sopwith', 'capstone', 'unicorn')
+    # Its JavaScript cases skip without Node, and its Ghidra case without
+    # Ghidra, each saying so.
+    'sweep'      = @('nasm', 'capstone', 'unicorn')
     'tplist'     = @('capstone')
     'tpscan'     = @()
     'unpack'     = @('unicorn')
