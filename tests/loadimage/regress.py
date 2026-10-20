@@ -85,6 +85,7 @@ VARIANTS = {"plain": [], "APPENDED": ["APPENDED"], "DUPLICATED": ["DUPLICATED"],
             "FULL_LAST_PAGE": ["FULL_LAST_PAGE"],
             "BOTH": ["DUPLICATED", "FULL_LAST_PAGE"],
             "TAIL_RELOCATION": ["TAIL_RELOCATION"],
+            "DUPLICATED_TAIL": ["DUPLICATED", "TAIL_RELOCATION"],
             "RELOC_TABLE_OUTSIDE": ["RELOC_TABLE_OUTSIDE"],
             "RELOC_TARGET_PAST": ["RELOC_TARGET_PAST"],
             "ENTRY_OUTSIDE": ["ENTRY_OUTSIDE"]}
@@ -254,29 +255,30 @@ def synthetic_dump(exp, folder, memory=None, splits=None):
     `memory` replaces the loaded bytes, to model a load done wrong."""
     folder.mkdir(parents=True, exist_ok=True)
     mem = bytes(exp.relocated if memory is None else memory)
+    load = exp.load_segment
     hdr, size = exp.header_size, len(exp.module)
     splits = sorted(set([0] + list(splits or [0x10, 0x40, 0x60]) + [size]))
     blocks = []
     for i, (lo, hi) in enumerate(zip(splits, splits[1:])):
-        seg = LOAD + lo // 16
+        seg = load + lo // 16
         name = f"block-{i:02d}.bin"
         (folder / name).write_bytes(mem[lo:hi])
         blocks.append({"index": i, "name": f"CODE_{i}", "space": "ram",
                        "segmented": True, "start": f"{seg:04x}:0000",
-                       "start_offset": LOAD * 16 + lo, "size": hi - lo,
+                       "start_offset": load * 16 + lo, "size": hi - lo,
                        "initialized": True, "sha256": loadimage.sha256(mem[lo:hi]),
                        "dump": name,
-                       "mappings": [{"min": f"{seg:04x}:0000", "min_offset": LOAD * 16 + lo,
+                       "mappings": [{"min": f"{seg:04x}:0000", "min_offset": load * 16 + lo,
                                      "offset_in_block": 0, "length": hi - lo,
                                      "file_offset": hdr + lo}]})
     last = blocks[-1]
     seg = int(last["start"][:4], 16)
-    top = size - (seg - LOAD) * 16
+    top = size - (seg - load) * 16
     blocks.append({"index": len(blocks), "name": "DATA", "space": "ram",
                    "segmented": True, "start": f"{seg:04x}:{top:04x}",
-                   "start_offset": LOAD * 16 + size, "size": 256, "initialized": False,
+                   "start_offset": load * 16 + size, "size": 256, "initialized": False,
                    "mappings": [{"min": f"{seg:04x}:{top:04x}",
-                                 "min_offset": LOAD * 16 + size, "offset_in_block": 0,
+                                 "min_offset": load * 16 + size, "offset_in_block": 0,
                                  "length": 256, "file_offset": -1}]})
     (folder / "header.bin").write_bytes(exp.data[:hdr])
     blocks.append({"index": len(blocks), "name": "HEADER", "space": "HEADER",
@@ -292,7 +294,7 @@ def synthetic_dump(exp, folder, memory=None, splits=None):
         "schema": "dos-decompiler/loadimage-observed/1",
         "script_sha256": evidence.source_sha256(loadimage.DUMP_SCRIPT),
         "helper_sha256": evidence.source_sha256(loadimage.HELPER_SCRIPT),
-        "loader": "Old-style DOS Executable (MZ)", "load_segment": "0x1000",
+        "loader": "Old-style DOS Executable (MZ)", "load_segment": f"0x{load:04x}",
         "executable_sha256": loadimage.sha256(exp.data), "header_size": hdr,
         "stack": {"ss": exp.stack["segment"], "sp": exp.stack["sp"]},
         "entry_points": [{"address": exp.entry["address"], "offset": exp.entry["linear"]}],
@@ -618,6 +620,523 @@ def _():
         raise AssertionError(f"wrong word: {env['result']['failed']}, {held}")
     return (f"0x{word:04x} at {exp.relocations[-1]['address']} excused; not without a "
             f"record, from another corrector, outside the page, or with the word wrong")
+
+
+# ---------------------------------------------------------------- every check, written down
+
+# Each scenario is a synthetic dump of one of the fixtures, wrong in one way
+# (or right), and verify's whole answer for it is held to
+# tests/loadimage/expected-checks.json: every check's expected and observed
+# value, its detail, its first difference, the status, the failed list and
+# the unknowns. The tests above name the first failure; this holds the rest
+# of what a reader sees. Run with --update-expected after a deliberate change
+# and read the diff before committing it: the file is a record of what the
+# verifier says, so a change to it is a change to the verifier's answers.
+EXPECTED_CHECKS = HERE / "expected-checks.json"
+
+
+def edit_observed(folder, fn):
+    path = folder / "observed.json"
+    obs = json.loads(path.read_text(encoding="utf-8"))
+    fn(obs)
+    path.write_text(json.dumps(obs, indent=1), encoding="utf-8")
+    return folder
+
+
+def flip(path, at, bits=0x01):
+    data = bytearray(path.read_bytes())
+    data[at] ^= bits
+    path.write_bytes(data)
+
+
+def code_blocks(obs):
+    return [b for b in obs["blocks"] if b["segmented"] and b.get("dump")]
+
+
+def corrections_record(exp, name, corrections, **changes):
+    rec = {"schema": "dos-decompiler/load-corrections/1",
+           "script_sha256": evidence.source_sha256(loadimage.CORRECT_SCRIPT),
+           "helper_sha256": evidence.source_sha256(loadimage.HELPER_SCRIPT),
+           "target_sha256": loadimage.sha256(exp.data), "count": len(corrections),
+           "notes": [], "corrections": corrections}
+    rec.update(changes)
+    path = WORK / "records" / f"{name}.json"
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(json.dumps(rec), encoding="utf-8")
+    return path
+
+
+def scenarios():
+    """(name, variant, folder, corrections, profile) for each scenario."""
+    out = []
+
+    def add(name, variant, folder, corrections=None, profile=None):
+        out.append((name, variant, folder, corrections, profile))
+
+    def dump(variant, name, memory=None, splits=None):
+        return synthetic_dump(loadimage.Expected(EXE[variant]), WORK / "scenario" / name,
+                              memory, splits)
+
+    plain = loadimage.Expected(EXE["plain"])
+    add("plain, right", "plain", dump("plain", "right"))
+    add("appended, right", "APPENDED", dump("APPENDED", "appended"))
+    add("duplicated, right", "DUPLICATED", dump("DUPLICATED", "duplicated"))
+
+    # The duplicated word fixed up once, and listed once, as Ghidra does.
+    dup = loadimage.Expected(EXE["DUPLICATED"])
+    twice = next(r for r in dup.relocations if r["entries_for_this_word"] > 1)
+    memory = bytearray(dup.relocated)
+    struct.pack_into("<H", memory, twice["image_offset"],
+                     (twice["original_word"] + LOAD) & 0xFFFF)
+    folder = dump("DUPLICATED", "duplicated-once", memory)
+
+    def once(obs):
+        seen = [r for r in obs["relocations"] if r["offset"] == twice["linear"]]
+        obs["relocations"].remove(seen[-1])
+    add("duplicated, applied once", "DUPLICATED", edit_observed(folder, once))
+
+    r3 = plain.relocations[3]
+    memory = bytearray(plain.relocated)
+    memory[r3["image_offset"]:r3["image_offset"] + 2] = struct.pack("<H", r3["original_word"])
+    add("a relocated word left as the file has it", "plain", dump("plain", "unrelocated", memory))
+
+    folder = dump("plain", "tampered-byte")
+    tamper_byte(folder)
+    add("one byte changed in memory", "plain", folder)
+    for mode in ("missing", "extra"):
+        folder = dump("plain", f"relocation-{mode}")
+        tamper_relocation(folder, mode)
+        add(f"a relocation record {mode}", "plain", folder)
+
+    add("a segment not loaded", "plain",
+        edit_observed(dump("plain", "gap"), lambda obs: obs["blocks"].pop(2)))
+
+    def overlap(obs):
+        b = code_blocks(obs)[1]
+        m = b["mappings"][0]
+        path = WORK / "scenario" / "overlap" / b["dump"]
+        before = plain.relocated[m["file_offset"] - plain.header_size - 0x10:
+                                 m["file_offset"] - plain.header_size]
+        path.write_bytes(before + path.read_bytes())
+        m["file_offset"] -= 0x10
+        m["length"] += 0x10
+        m["min_offset"] -= 0x10
+        seg = int(m["min"][:4], 16) - 1
+        m["min"] = f"{seg:04x}:0000"
+        b["size"] += 0x10
+    add("two mappings over one stretch of the file", "plain",
+        edit_observed(dump("plain", "overlap"), overlap))
+
+    app = loadimage.Expected(EXE["APPENDED"])
+
+    def past_the_end(obs):
+        b = code_blocks(obs)[-1]
+        m = b["mappings"][0]
+        tail = app.data[app.image_end:app.image_end + 0x10]
+        path = WORK / "scenario" / "past-the-end" / b["dump"]
+        path.write_bytes(path.read_bytes() + tail)
+        m["length"] += len(tail)
+        b["size"] += len(tail)
+    add("a mapping reaching into the appended bytes", "APPENDED",
+        edit_observed(dump("APPENDED", "past-the-end", splits=[0x10, 0x20]), past_the_end))
+
+    def short_tail(obs):
+        b = code_blocks(obs)[-1]
+        m = b["mappings"][0]
+        path = WORK / "scenario" / "short-tail" / b["dump"]
+        path.write_bytes(path.read_bytes()[:-0x10])
+        m["length"] -= 0x10
+        b["size"] -= 0x10
+    add("the end of the module not loaded", "plain",
+        edit_observed(dump("plain", "short-tail"), short_tail))
+
+    def header_strays(obs):
+        h = next(b for b in obs["blocks"] if b["name"] == "HEADER")
+        h["mappings"].append(dict(h["mappings"][0], file_offset=plain.header_size - 8,
+                                  offset_in_block=0, length=0x18))
+    folder = edit_observed(dump("plain", "header-strays"), header_strays)
+    flip(folder / "header.bin", 2)
+    add("the header mapped into the module, and changed", "plain", folder)
+
+    def moved(obs):
+        m = code_blocks(obs)[1]["mappings"][0]
+        seg = int(m["min"][:4], 16) + 1
+        m["min"], m["min_offset"] = f"{seg:04x}:0000", m["min_offset"] + 0x10
+    add("a mapping at the wrong address", "plain",
+        edit_observed(dump("plain", "moved"), moved))
+
+    def no_bytes(obs):
+        del code_blocks(obs)[1]["dump"]
+    add("a mapped block with no bytes", "plain",
+        edit_observed(dump("plain", "no-bytes"), no_bytes))
+
+    folder = dump("plain", "file-copies")
+    flip(folder / "file-original.bin", plain.header_size + 4)
+    flip(folder / "file-modified.bin", plain.header_size + 5)
+
+    def copies(obs):
+        obs["file_bytes"][0]["size"] += 1
+        obs["executable_sha256"] = "0" * 64
+    add("Ghidra's copies of the file differ from it", "plain", edit_observed(folder, copies))
+
+    folder = dump("plain", "short-copy")
+    path = folder / "file-original.bin"
+    path.write_bytes(path.read_bytes()[:-3])
+    add("Ghidra's copy of the file is short", "plain", folder)
+
+    def settings(obs):
+        obs["loader"] = "Raw Binary"
+        obs["load_segment"] = "0x2000"
+        obs["helper_sha256"] = "0" * 64
+    add("another loader, load segment and helper", "plain",
+        edit_observed(dump("plain", "settings"), settings))
+
+    def entry_and_stack(obs):
+        e = obs["entry_points"][0]
+        seg, off = loadimage.parse_address(e["address"])
+        e["address"], e["offset"] = f"{seg:04x}:{off + 1:04x}", e["offset"] + 1
+        obs["stack"]["sp"] += 2
+    add("the entry and the stack elsewhere", "plain",
+        edit_observed(dump("plain", "entry-stack"), entry_and_stack))
+
+    def records(obs):
+        obs["relocations"][0]["bytes"] = "0000"
+        obs["relocations"][1]["status"] = "FAILURE"
+    add("a relocation record with other bytes, and one FAILURE", "plain",
+        edit_observed(dump("plain", "records"), records))
+
+    def word_unloaded(obs):
+        lin = plain.relocations[3]["linear"]
+        obs["blocks"] = [b for b in obs["blocks"] if not (
+            b["segmented"] and b.get("dump") and b["start_offset"] <= lin
+            < b["start_offset"] + b["size"])]
+    add("a relocated word in a block not loaded", "plain",
+        edit_observed(dump("plain", "word-unloaded"), word_unloaded))
+
+    # A relocated word whose two bytes Ghidra put in two blocks: the second
+    # block starts at the word's high byte. A load done right, still.
+    hi_byte = plain.relocations[0]["image_offset"] + 1
+    folder = dump("plain", "split-word")
+
+    def split_word(obs):
+        b = next(b for b in code_blocks(obs)
+                 if b["mappings"][0]["file_offset"] - plain.header_size < hi_byte
+                 < b["mappings"][0]["file_offset"] - plain.header_size + b["size"])
+        m = b["mappings"][0]
+        cut = hi_byte - (m["file_offset"] - plain.header_size)
+        data = (folder / b["dump"]).read_bytes()
+        (folder / b["dump"]).write_bytes(data[:cut])
+        (folder / "split-high.bin").write_bytes(data[cut:])
+        seg = int(m["min"][:4], 16)
+        high = json.loads(json.dumps(b))
+        high.update(name=b["name"] + "_HIGH", dump="split-high.bin", size=b["size"] - cut,
+                    start=f"{seg:04x}:{cut:04x}", start_offset=b["start_offset"] + cut,
+                    sha256=loadimage.sha256(data[cut:]))
+        high["mappings"][0].update(min=f"{seg:04x}:{cut:04x}", min_offset=m["min_offset"] + cut,
+                                   length=m["length"] - cut, file_offset=m["file_offset"] + cut)
+        b.update(size=cut, sha256=loadimage.sha256(data[:cut]))
+        m["length"] = cut
+        obs["blocks"].insert(obs["blocks"].index(b) + 1, high)
+    add("a relocated word split across two blocks", "plain", edit_observed(folder, split_word))
+
+    # No dump to compare against, and one that is not JSON: blocked.
+    add("no dump", "plain", WORK / "scenario" / "nothing-here")
+    folder = WORK / "scenario" / "not-json"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "observed.json").write_text("{not json", encoding="utf-8")
+    add("a dump that is not JSON", "plain", folder)
+
+    # Corrections records, checked for provenance only.
+    good = dump("plain", "corrected")
+    add("a corrections record that cannot be read", "plain", good, WORK / "records" / "none.json")
+    bad = WORK / "records" / "bad.json"
+    bad.parent.mkdir(exist_ok=True)
+    bad.write_text("{not json", encoding="utf-8")
+    add("a corrections record that is not JSON", "plain", good, bad)
+    add("a corrections record from another helper", "plain", good,
+        corrections_record(plain, "other-helper", [], helper_sha256="0" * 64))
+    add("a corrections record of two corrections", "plain", good,
+        corrections_record(plain, "two", [{"kind": "duplicated-relocation", "address": r3["address"]},
+                                          {"kind": "duplicated-relocation", "address": r3["address"]}]))
+
+    # The FAILURE record in a restored page, as in the case above, and two
+    # records that do not restore that page.
+    tail = loadimage.Expected(EXE["TAIL_RELOCATION"])
+    tail_linear = LOAD * 16 + 0x212 - tail.header_size
+    page = (LOAD * 16 + 0x200 - tail.header_size, LOAD * 16 + 0x3FF - tail.header_size)
+
+    def failure(obs):
+        for r in obs["relocations"]:
+            if r["offset"] == tail_linear:
+                r.update(status="FAILURE", length=0, bytes=None)
+    folder = edit_observed(dump("TAIL_RELOCATION", "tail"), failure)
+    restored = {"kind": "missing-last-page", "linear_start": page[0],
+                "linear_end_inclusive": page[1]}
+    add("a FAILURE record in a restored page", "TAIL_RELOCATION", folder,
+        corrections_record(tail, "tail-good", [restored]))
+    add("a FAILURE record, the page restored by no record", "TAIL_RELOCATION", folder,
+        corrections_record(tail, "tail-other-kind", [dict(restored, kind="duplicated-relocation")]))
+    add("a FAILURE record, the restored range not numbers", "TAIL_RELOCATION", folder,
+        corrections_record(tail, "tail-strings", [
+            dict(restored, linear_start=str(page[0])),
+            dict(restored, linear_end_inclusive=str(page[1]))]))
+    add("a FAILURE record just outside the restored page", "TAIL_RELOCATION", folder,
+        corrections_record(tail, "tail-short", [dict(restored, linear_end_inclusive=tail_linear)]))
+
+    # ---- each comparison judged on both sides, and at its edges
+
+    # Values sorting before the expected ones, and a second copy of the file
+    # Ghidra's first copy is the one that counts.
+    def before_side(obs):
+        obs["loader"] = "Intel Hex"
+        obs["load_segment"] = "0x0800"
+        obs["executable_sha256"] = "f" * 64
+        first = obs["file_bytes"][0]
+        obs["file_bytes"] = [dict(first, size=first["size"] - 1), dict(first, index=1, size=7)]
+    add("another loader, load segment and size, sorting before", "plain",
+        edit_observed(dump("plain", "before-side"), before_side))
+
+    # A second copy of the file listed after Ghidra's, which is right: only
+    # the first is Ghidra's copy.
+    add("a second copy of the file after a right first one", "plain",
+        edit_observed(dump("plain", "second-copy"), lambda obs: obs["file_bytes"].append(
+            dict(obs["file_bytes"][0], index=1, size=7))))
+
+    # Ghidra's copies differing upward: the first byte that differs is
+    # larger, and the copy's hash sorts after the file's.
+    folder = dump("plain", "copies-upward")
+    data = plain.data
+    up = next(p for p in range(plain.header_size, len(data)) if data[p] % 2 == 0
+              and loadimage.sha256(data[:p] + bytes([data[p] ^ 1]) + data[p + 1:])
+              > loadimage.sha256(data))
+    flip(folder / "file-original.bin", up)
+    rel = plain.relocated_file
+    flip(folder / "file-modified.bin",
+         next(p for p in range(plain.header_size, len(rel)) if rel[p] % 2 == 0))
+    add("Ghidra's copies differing upward", "plain", folder)
+
+    add("no copy of the file", "plain",
+        edit_observed(dump("plain", "no-copy"), lambda obs: obs.update(file_bytes=[])))
+
+    def header_halves(obs):
+        h = next(b for b in obs["blocks"] if b["name"] == "HEADER")
+        m = h["mappings"][0]
+        h["mappings"] = [dict(m, length=0x20), dict(m, offset_in_block=0x20, file_offset=0x20,
+                                                    length=m["length"] - 0x20)]
+    add("the header in two mappings", "plain",
+        edit_observed(dump("plain", "header-halves"), header_halves))
+    folder = dump("plain", "header-down")
+    flip(folder / "header.bin", 4)                     # the page count, 1 to 0
+    add("the header changed downward", "plain", folder)
+
+    def nested(obs):
+        b = code_blocks(obs)[1]
+        inner = json.loads(json.dumps(b))
+        m = inner["mappings"][0]
+        seg = int(m["min"][:4], 16)
+        inner.update(name=b["name"] + "_INNER", start=f"{seg:04x}:0008",
+                     start_offset=b["start_offset"] + 8, size=8)
+        m.update(min=f"{seg:04x}:0008", min_offset=m["min_offset"] + 8, length=8,
+                 file_offset=m["file_offset"] + 8, offset_in_block=8)
+        obs["blocks"].insert(obs["blocks"].index(b) + 1, inner)
+    add("a mapping inside another", "plain", edit_observed(dump("plain", "nested"), nested))
+
+    big = loadimage.Expected(EXE["BIGPAGE"])
+    add("a module past 64 KB in three blocks", "BIGPAGE",
+        synthetic_dump(big, WORK / "scenario" / "big", splits=[0x1000, 0x8000]))
+
+    def lower(obs):
+        m = code_blocks(obs)[2]["mappings"][0]
+        seg = int(m["min"][:4], 16) - 1
+        m["min"], m["min_offset"] = f"{seg:04x}:0000", m["min_offset"] - 0x10
+    add("a mapping at a lower address", "plain", edit_observed(dump("plain", "lower"), lower))
+
+    # A block starting 0x20 bytes into the header, with the module's first
+    # byte wrong in it.
+    def from_header(obs):
+        b = code_blocks(obs)[0]
+        m = b["mappings"][0]
+        path = WORK / "scenario" / "from-header" / b["dump"]
+        body = bytearray(path.read_bytes())
+        body[0] ^= 0x01
+        path.write_bytes(plain.data[plain.header_size - 0x20:plain.header_size] + bytes(body))
+        b.update(start="0ffe:0000", start_offset=b["start_offset"] - 0x20, size=b["size"] + 0x20)
+        m.update(min="0ffe:0000", min_offset=m["min_offset"] - 0x20, length=m["length"] + 0x20,
+                 file_offset=m["file_offset"] - 0x20)
+    add("a block starting in the header, the module's first byte wrong", "plain",
+        edit_observed(dump("plain", "from-header"), from_header))
+
+    # Relocation records: one listed twice though declared once; an extra one
+    # first, then one with bytes above the file's.
+    add("a relocation record listed twice", "plain",
+        edit_observed(dump("plain", "twice"),
+                      lambda obs: obs["relocations"].insert(1, dict(obs["relocations"][1]))))
+
+    def extra_first(obs):
+        first = obs["relocations"][0]
+        seg, off = loadimage.parse_address(first["address"])
+        extra = dict(first, offset=first["offset"] + 8, address=f"{seg:04x}:{off + 8:04x}")
+        obs["relocations"][2]["bytes"] = "ffff"
+        obs["relocations"].insert(0, extra)
+    add("an extra relocation record first, and one with bytes above the file's", "plain",
+        edit_observed(dump("plain", "extra-first"), extra_first))
+
+    # The duplicated word followed by another relocation, which is wrong.
+    duptail = loadimage.Expected(EXE["DUPLICATED_TAIL"])
+    last = duptail.relocations[-1]
+    memory = bytearray(duptail.relocated)
+    memory[last["image_offset"]] ^= 0x01
+    add("a wrong word after the duplicated one", "DUPLICATED_TAIL",
+        synthetic_dump(duptail, WORK / "scenario" / "dup-tail", memory))
+
+    # Loaded at segment 0x0003, whose bits meet the relocations' segments: a
+    # word left as the file has it, in a first block of 0x60 bytes.
+    low = loadimage.Expected(EXE["plain"], 0x0003)
+    r3 = low.relocations[3]
+    memory = bytearray(low.relocated)
+    memory[r3["image_offset"]:r3["image_offset"] + 2] = struct.pack("<H", r3["original_word"])
+    add("loaded at segment 0x0003, a word left unrelocated", "plain",
+        synthetic_dump(low, WORK / "scenario" / "low-load", memory, splits=[0x60]),
+        profile={"load_segment": "0x0003"})
+
+    add("a corrections record of another file, sorting after", "plain", good,
+        corrections_record(plain, "other-target-after", [], target_sha256="f" * 64))
+
+    # The restored page at its edges, and records that are not FAILURE.
+    def tail_dump(name, status="FAILURE", word=None, extra=None):
+        def edit(obs):
+            for r in obs["relocations"]:
+                if r["offset"] == tail_linear:
+                    r.update(status=status, length=0, bytes=None)
+            if extra is not None:
+                seg = loadimage.parse_address(t["address"])[0]
+                obs["relocations"].insert(0, dict(obs["relocations"][0], offset=extra,
+                                                  address=f"{seg:04x}:{extra - seg * 16:04x}",
+                                                  status="FAILURE", length=0, bytes=None))
+        memory = None
+        if word is not None:
+            memory = bytearray(tail.relocated)
+            struct.pack_into("<H", memory, tail_linear - LOAD * 16, word)
+        return edit_observed(synthetic_dump(tail, WORK / "scenario" / name, memory), edit)
+
+    t = next(r for r in tail.relocations if r["linear"] == tail_linear)
+    page_record = corrections_record(tail, "tail-page", [restored])
+    add("an APPLIED record in a restored page", "TAIL_RELOCATION",
+        synthetic_dump(tail, WORK / "scenario" / "tail-applied"), page_record)
+    add("a PARTIAL record in a restored page", "TAIL_RELOCATION",
+        tail_dump("tail-partial", status="PARTIAL"), page_record)
+    folder_tail = tail_dump("tail-edge")
+    add("a FAILURE record whose word ends the restored range", "TAIL_RELOCATION", folder_tail,
+        corrections_record(tail, "tail-ends-at-word",
+                           [dict(restored, linear_end_inclusive=tail_linear + 1)]))
+    add("a FAILURE record whose word starts the restored range", "TAIL_RELOCATION", folder_tail,
+        corrections_record(tail, "tail-starts-at-word", [dict(restored, linear_start=tail_linear)]))
+    odd = tail_linear + 0x11
+    add("an undeclared FAILURE record at an odd address, the range ending on it", "TAIL_RELOCATION",
+        tail_dump("tail-odd", extra=odd),
+        corrections_record(tail, "tail-odd", [dict(restored, linear_start=odd - 1,
+                                                   linear_end_inclusive=odd)]))
+    add("an undeclared FAILURE record first, then the tail's with its word wrong",
+        "TAIL_RELOCATION", tail_dump("tail-two", word=t["relocated_word"] ^ 0x0100,
+                                     extra=tail_linear + 0x20), page_record)
+    add("a FAILURE record whose word is below the file's", "TAIL_RELOCATION",
+        tail_dump("tail-low", word=t["relocated_word"] - 1), page_record)
+    add("a corrections entry of a kind sorting after missing-last-page", "TAIL_RELOCATION",
+        folder_tail, corrections_record(tail, "tail-later-kind", [dict(restored, kind="page-restored")]))
+
+    # A profile names the dumper and the corrector, and the load segment.
+    profile = {"loader": "Old-style DOS Executable (MZ)", "load_segment": "0x1000",
+               "load_image_dump": {"script_sha256": "1" * 64, "helper_sha256": "2" * 64},
+               "load_correction": {"script_sha256": "3" * 64, "helper_sha256": "4" * 64}}
+    add("a profile expecting other scripts", "plain", good,
+        corrections_record(plain, "for-profile", []), profile)
+    return out
+
+
+def written_down(env):
+    """verify's answer, with this run's folder and this checkout's script
+    hashes replaced by names, so that it compares across runs and edits."""
+    r = env["result"]
+    view = {"status": env["status"], "failed": r.get("failed"), "reason": r.get("reason"),
+            "corrections": r.get("corrections"), "corrections_made": r.get("corrections_made"),
+            "correction_record": r.get("correction_record"),
+            "checks": [{k: i[k] for k in ("claim", "level", "value", "detail", "location")
+                        if k in i} for i in env["evidence"]],
+            "unknowns": env["unknowns"], "limitations": len(env["limitations"])}
+    text = json.dumps(view, sort_keys=True)
+    # The folder appears as JSON spells a path, and inside an error message,
+    # where Python quotes it with its backslashes doubled.
+    for value, name in ((json.dumps(repr(str(WORK))[1:-1])[1:-1], "<work>"),
+                        (json.dumps(str(WORK))[1:-1], "<work>"),
+                        (evidence.source_sha256(loadimage.DUMP_SCRIPT), "<DumpLoadImage.java>"),
+                        (evidence.source_sha256(loadimage.HELPER_SCRIPT), "<LoadImageMap.java>"),
+                        (evidence.source_sha256(loadimage.CORRECT_SCRIPT), "<CorrectMzLoad.java>")):
+        text = text.replace(value, name)
+    # And a path below it with / between its parts, as it is on Linux.
+    text = text.replace("\\\\\\\\", "/").replace("\\\\", "/")
+    return json.loads(text)
+
+
+@case("first_difference locates a byte one run lacks, and its address, by hand")
+def _():
+    for want, got, args, out in (
+            (b"a" * 300, b"a" * 301, (0,), {"file_offset": "0x12c", "expected": None,
+                                             "observed": "0x61"}),
+            (b"a" * 301, b"a" * 300, (0,), {"file_offset": "0x12c", "expected": "0x61",
+                                             "observed": None}),
+            # file offset 0x101 and linear 0x10011 have bit 0 set, so + 1 is
+            # neither | 1 nor ^ 1.
+            (b"\x00\x01", b"\x00\x02", (0x101, 0x10011, 0x1000),
+             {"file_offset": "0x102", "expected": "0x01", "observed": "0x02",
+              "linear": "0x10012", "address": "1000:0012"}),
+            # Segment 0x10, linear 0x250: 0x150 into the segment, not 0x50.
+            (b"\x00", b"\x01", (0, 0x250, 0x10),
+             {"file_offset": "0x0", "expected": "0x00", "observed": "0x01",
+              "linear": "0x250", "address": "0010:0150"})):
+        found = loadimage.first_difference(want, got, *args)
+        if found != out:
+            raise AssertionError(f"first_difference(... {args}): {found}, not {out}")
+    if loadimage.first_difference(b"abc", b"abc", 0) is not None:
+        raise AssertionError("two equal runs differ")
+    return "past either end of 300 bytes; across a carry; in a segment below 0x1000"
+
+
+@case("every check of every synthetic scenario reads as written down")
+def _():
+    got = {}
+    for name, variant, folder, corrections, profile in scenarios():
+        env = loadimage.verify(EXE[variant], folder, profile=profile, corrections=corrections)
+        got[name] = written_down(env)
+    if "--update-expected" in sys.argv:
+        EXPECTED_CHECKS.write_text(json.dumps(got, indent=1, sort_keys=True) + "\n",
+                                   encoding="utf-8")
+        return f"wrote {len(got)} scenarios to {EXPECTED_CHECKS.name}; read the diff"
+    want = json.loads(EXPECTED_CHECKS.read_text(encoding="utf-8"))
+    if set(want) != set(got):
+        raise AssertionError(f"scenarios {sorted(set(want) ^ set(got))} differ in name")
+    for name in want:
+        if got[name] == want[name]:
+            continue
+        for key in sorted(want[name]):
+            if key != "checks" and got[name].get(key) != want[name][key]:
+                raise AssertionError(f"{name}: {key} {got[name].get(key)!r}, "
+                                     f"written down {want[name][key]!r}")
+        for g, w in zip(got[name]["checks"], want[name]["checks"]):
+            if g != w:
+                raise AssertionError(f"{name}: check {w['claim']}: {json.dumps(g)} "
+                                     f"written down {json.dumps(w)}")
+        raise AssertionError(f"{name}: {len(got[name]['checks'])} checks, written down "
+                             f"{len(want[name]['checks'])}")
+    # The comparison's own defaults: without a word on the record's
+    # provenance, nothing in a restored page is excused.
+    tail_folder = WORK / "scenario" / "tail"
+    exp = loadimage.Expected(EXE["TAIL_RELOCATION"])
+    page = (LOAD * 16 + 0x200 - exp.header_size, LOAD * 16 + 0x3FF - exp.header_size)
+    checks = loadimage.compare(exp, loadimage.Observed(tail_folder), restored=[page])
+    held = next(i for i in checks.items if i["name"] == "relocations.status_after_correction")
+    if held["ok"] or "provenance" not in str(held["observed"]):
+        raise AssertionError(f"compare without trusted: {held}")
+    return f"{len(want)} scenarios, {sum(len(w['checks']) for w in want.values())} checks"
 
 
 # ---------------------------------------------------------------- Ghidra
