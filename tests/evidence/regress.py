@@ -28,11 +28,12 @@ the MZ shapes triage distinguishes, and tests/com/fixtures/ reused for the
 unicorn; without them those two checks are reported as skipped.
 
 Usage:
-    python tests/evidence/regress.py [--nasm PATH]
+    python tests/evidence/regress.py [--nasm PATH] [--only TEXT ...]
 """
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
@@ -40,6 +41,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager, redirect_stderr
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -297,7 +299,20 @@ def _():
         game.write_bytes(original)
     if evidence.directory_identity(folder) != first:
         raise AssertionError("restoring the byte did not restore the hash")
-    return f"{first['files']} file, hash {first['sha256'][:12]}"
+    if first["size"] != sum(f.stat().st_size for f in folder.rglob("*") if f.is_file()):
+        raise AssertionError(f"size {first['size']} is not the files' bytes")
+    # A file in a subfolder counts, and so does one sorted after a subfolder.
+    nested = FIX.work / "nested-folder"
+    (nested / "a").mkdir(parents=True, exist_ok=True)
+    (nested / "a" / "inner.bin").write_bytes(b"inner")
+    (nested / "b.bin").write_bytes(b"after the folder")
+    ident = evidence.directory_identity(nested)
+    if (ident["files"], ident["size"]) != (2, 21):
+        raise AssertionError(f"nested: {ident['files']} files, {ident['size']} bytes")
+    (nested / "b.bin").write_bytes(b"after the folder.")
+    if evidence.directory_identity(nested)["sha256"] == ident["sha256"]:
+        raise AssertionError("a file after a subfolder does not move the hash")
+    return f"{first['files']} file, hash {first['sha256'][:12]}; a nested folder too"
 
 
 # ---------------------------------------------------------- determinism
@@ -334,6 +349,15 @@ def _():
     return f"{len(FIX.folders)} folders, each run twice"
 
 
+def written_out_id(target_sha256, item):
+    """The id rule of knowledge/17, written out rather than imported, so a
+    change to it has to change this test as well as evidence.py."""
+    content = {k: item[k] for k in ("kind", "claim", "location", "value") if k in item}
+    body = json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return (f"ev-{(target_sha256 or '0' * 8)[:8]}-"
+            f"{hashlib.sha256(body.encode('ascii')).hexdigest()[:8]}")
+
+
 @case("envelopes are canonical and their ids recompute")
 def _():
     envelopes = [triage_envelope(p)[1] for p in FIX.files()]
@@ -343,8 +367,16 @@ def _():
     for raw in envelopes:
         text = raw.decode("ascii")                     # ASCII only, or it raises
         env = json.loads(text)
-        if evidence.dumps(env) != text:
+        # The form written out, not evidence.dumps compared with itself.
+        if json.dumps(env, sort_keys=True, indent=2, ensure_ascii=True) + "\n" != text:
             raise AssertionError(f"{env['tool']}: not in canonical form")
+        seen = {}
+        for item in env["evidence"]:
+            base = written_out_id(env["target"]["sha256"], item)
+            seen[base] = seen.get(base, 0) + 1
+            want = base if seen[base] == 1 else f"{base}-{seen[base]}"
+            if item["id"] != want:
+                raise AssertionError(f"{env['tool']}: id {item['id']}, by the rule {want}")
         for key in ("schema", "tool", "tool_version", "target", "profile",
                     "status", "result", "evidence", "limitations", "unknowns"):
             if key not in env:
@@ -364,6 +396,63 @@ def _():
             if item["id"][3:11] != env["target"]["sha256"][:8]:
                 raise AssertionError(f"{item['id']} is not tied to the target")
     return f"{len(envelopes)} envelopes, {items} ids"
+
+
+@case("ids without a target, and items one id apart, follow the rule")
+def _():
+    item = {"kind": "k", "claim": "c", "location": {"file_offset": "0x10"}, "value": 1}
+    want = written_out_id(None, item)
+    if not want.startswith("ev-00000000-") or evidence.evidence_id(None, item) != want:
+        raise AssertionError(f"no target: {evidence.evidence_id(None, item)}, not {want}")
+    other = {"kind": "other", "claim": "c"}
+    # Same id content, different detail or level: one id apart. The very same
+    # item twice: one item.
+    env = evidence.envelope("probe", None, evidence=[
+        dict(item, detail="first"), dict(item, detail="second"),
+        dict(item, level="warn", detail="third"), other, dict(item, detail="first")])
+    ids = [i["id"] for i in env["evidence"]]
+    if ids != [want, f"{want}-2", f"{want}-3", written_out_id(None, other)]:
+        raise AssertionError(f"ids {ids}")
+    return f"{want}, then -2 and -3; the repeat kept once"
+
+
+@case("NaN and infinity are refused anywhere, and JSON is written in one form")
+def _():
+    for bad in ({"x": float("nan")}, {"x": {"y": [1, float("inf")]}},
+                [{"z": (float("-inf"),)}]):
+        for fn in (evidence.canonical, evidence.dumps):
+            try:
+                fn(bad)
+            except ValueError as e:
+                if "evidence: NaN and infinity" not in str(e):
+                    raise AssertionError(f"{fn.__name__}({bad}): {e}")
+            else:
+                raise AssertionError(f"{fn.__name__} took {bad}")
+    sample = {"b": "caf\u00e9", "a": [1, {"d": 2, "c": 3}]}
+    if evidence.canonical(sample) != '{"a":[1,{"c":3,"d":2}],"b":"caf\\u00e9"}':
+        raise AssertionError(f"canonical: {evidence.canonical(sample)!r}")
+    indented = ('{\n  "a": [\n    1,\n    {\n      "c": 3,\n      "d": 2\n    }\n  ],\n'
+                '  "b": "caf\\u00e9"\n}\n')
+    if evidence.dumps(sample) != indented:
+        raise AssertionError(f"dumps: {evidence.dumps(sample)!r}")
+    # write() takes a Path as well as a string, and writes those bytes.
+    env = evidence.envelope("probe", None, result=sample)
+    dest = FIX.work / "written-by-path.json"
+    evidence.write(env, dest)
+    if dest.read_bytes() != evidence.dumps(env).encode("ascii"):
+        raise AssertionError("write(Path) wrote other bytes")
+    return "nested NaN and infinity refused; sorted keys, two-space indent, ASCII"
+
+
+@case("without git on PATH the toolkit version is unknown, not a traceback")
+def _():
+    probe = ("import sys; sys.path.insert(0, sys.argv[1]); import evidence; "
+             "print(evidence.toolkit_version())")
+    r = subprocess.run([sys.executable, "-c", probe, str(TOOLS)], capture_output=True,
+                       text=True, env=dict(os.environ, PATH=""))
+    if r.returncode != 0 or r.stdout.strip() != "unknown":
+        raise AssertionError(f"exit {r.returncode}: {r.stdout.strip()!r} {r.stderr[-300:]!r}")
+    return "unknown"
 
 
 @case("an id follows the bytes, not the file's name or folder")
@@ -829,6 +918,175 @@ def _():
     return detail
 
 
+def stderr_of(fn, *args, **kwargs):
+    """What fn wrote to stderr, with the once-per-file memory cleared first."""
+    evidence._warned.clear()
+    err = io.StringIO()
+    with redirect_stderr(err):
+        fn(*args, **kwargs)
+    return err.getvalue()
+
+
+def refusal(fn, *args, **kwargs):
+    try:
+        fn(*args, **kwargs)
+    except SystemExit as e:
+        return str(e)
+    raise AssertionError(f"{fn.__name__} did not refuse")
+
+
+@case("a refusal names both hashes, whichever way they sort; a target since moved is not checked")
+def _():
+    work = FIX.work / "refusal"
+    work.mkdir(exist_ok=True)
+    a, b = FIX.mz["smallc"], FIX.mz["spread"]
+    for made_from, given in ((a, b), (b, a)):
+        path = work / f"functions-{made_from.stem}.json"
+        text = refusal(evidence.check_functions_target, fake_functions(made_from), path,
+                       given, "probe")
+        rec, act = evidence.sha256_file(made_from), evidence.sha256_file(given)
+        for want in (f"sha256 {rec[:16]}...", f"sha256 {act[:16]}...", str(path), str(given)):
+            if want not in text:
+                raise AssertionError(f"{made_from.name} given {given.name}: no {want!r} in {text!r}")
+    # Without --exe: the file target.path names, rebuilt so that its hash
+    # sorts after the recorded one, and before it.
+    game = work / "GAME.EXE"
+    original = a.read_bytes()
+    game.write_bytes(original)
+    data = fake_functions(game)
+    rec = data["target"]["sha256"]
+    orders = {}
+    for n in range(256):
+        rebuilt = original + bytes([n])
+        sha = hashlib.sha256(rebuilt).hexdigest()
+        orders.setdefault(sha > rec, rebuilt)
+        if len(orders) == 2:
+            break
+    for later, rebuilt in orders.items():
+        game.write_bytes(rebuilt)
+        act = hashlib.sha256(rebuilt).hexdigest()
+        text = stderr_of(evidence.check_functions_target, data, work / "f.json", None, "probe")
+        if f"sha256 was {rec[:16]}...; that file is now {act[:16]}..." not in text:
+            raise AssertionError(f"rebuilt, sorting {'after' if later else 'before'}: {text!r}")
+    game.unlink()
+    text = stderr_of(evidence.check_functions_target, data, work / "f.json", None, "probe")
+    if text:
+        raise AssertionError(f"a target that is gone was checked: {text!r}")
+    return "both orders refused with both hashes; rebuilt warned both ways; gone, silent"
+
+
+@contextmanager
+def unreadable(path):
+    """Hold `path` so that reading it raises OSError, or yield False."""
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateFileW.restype = wintypes.HANDLE
+        k32.CreateFileW.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                                    ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD,
+                                    wintypes.HANDLE)
+        # GENERIC_READ, no sharing, OPEN_EXISTING: every other open fails.
+        handle = k32.CreateFileW(str(path), 0x80000000, 0, None, 3, 0, None)
+        if handle in (None, wintypes.HANDLE(-1).value):
+            yield False
+            return
+        try:
+            yield True
+        finally:
+            k32.CloseHandle(handle)
+        return
+    mode = path.stat().st_mode
+    path.chmod(0)
+    try:
+        try:
+            path.read_bytes()
+            yield False                                # root reads anything
+        except OSError:
+            yield True
+    finally:
+        path.chmod(mode)
+
+
+@case("a handshake record that cannot be read warns, and one about another export is refused")
+def _():
+    folder, exe, src = drifted_folder("records-malformed")
+    record, fj = folder / "handshake.json", folder / "functions.json"
+    good = record.read_text(encoding="utf-8")
+    for name, content in (("not JSON", "{not json"), ("no status", "{}"),
+                          ("not an object", "[]")):
+        record.write_text(content, encoding="utf-8")
+        text = stderr_of(evidence.check_handshake, fj, "probe", False)
+        if "could not read" not in text:
+            raise AssertionError(f"{name}: {text!r}")
+    record.write_text(good, encoding="utf-8")
+    with unreadable(record) as held:
+        if held:
+            text = stderr_of(evidence.check_handshake, fj, "probe", False)
+            if "could not read" not in text:
+                raise AssertionError(f"locked: {text!r}")
+    # A record of another export, its hash sorting before or after this
+    # one's, is refused with the fix for a rewritten export.
+    env = json.loads(good)
+    env["status"] = "verified"
+    for fake in ("0" * 64, "f" * 64):
+        env["result"]["functions_sha256"] = fake
+        record.write_text(json.dumps(env), encoding="utf-8")
+        text = refusal(evidence.check_handshake, fj, "probe", False)
+        if "checked an earlier export" not in text or "analysis_profile.py check" not in text:
+            raise AssertionError(f"record of {fake[:4]}...: {text!r}")
+    # The drift: refused by default, naming only the field that drifted,
+    # with the fix for a drift.
+    record.write_text(good, encoding="utf-8")
+    for fn, args in ((evidence.check_handshake, (fj,)), (evidence.load_functions, (fj, exe))):
+        text = refusal(fn, *args)
+        if "the handshake found load_segment: expected 0x2000, observed 0x1000.\n" not in text \
+                or "Find out why Ghidra" not in text:
+            raise AssertionError(f"{fn.__name__} by default: {text!r}")
+    return (f"three malformed records{'' if held else ' (a locked one could not be made)'} "
+            f"warned; both hash orders refused; drift refused by default")
+
+
+@case("an export from a load image that did not verify is read with one warning")
+def _():
+    work = FIX.work / "unverified-load"
+    work.mkdir(exist_ok=True)
+    exe = FIX.mz["smallc"]
+    fj, li = work / "functions.json", work / "loadimage.json"
+    data = fake_functions(exe)
+    data["load_image"] = {"status": "mismatch", "corrections": None,
+                          "mismatch_allowed": True, "record": "loadimage.json"}
+    fj.write_text(json.dumps(data), encoding="utf-8")
+    li.write_text(json.dumps({"result": {"first_failure": {"name": "module.coverage"}}}),
+                  encoding="utf-8")
+
+    def twice():
+        return stderr_of(lambda: [evidence.load_functions(fj, exe, "probe") for _ in "ab"])
+    want = (f"probe: warning: {fj} was exported from a load image that did not verify "
+            f"(mismatch); the pipeline went on only because it was told -AllowLoadMismatch. "
+            f"The first failing check was module.coverage. Addresses and bytes in it may not "
+            f"be the file's; see {li}.\n")
+    if twice() != want:
+        raise AssertionError(f"mismatch: {twice()!r}")
+    # The record beside it missing or unreadable: the same warning, without
+    # the first failing check.
+    for name, content in (("bad JSON", "{not json"), ("no result", "{}"),
+                          ("not an object", "[]"), ("missing", None)):
+        if content is None:
+            li.unlink()
+        else:
+            li.write_text(content, encoding="utf-8")
+        text = twice()
+        if text.count("warning") != 1 or "did not verify (mismatch)" not in text \
+                or "first failing check" in text:
+            raise AssertionError(f"loadimage.json {name}: {text!r}")
+    data["load_image"]["status"] = "verified"
+    fj.write_text(json.dumps(data), encoding="utf-8")
+    if twice():
+        raise AssertionError(f"verified: {twice()!r}")
+    return "warned once with the first failing check; once without it when unreadable; verified silent"
+
+
 @case("with no --exe, a target rebuilt since the export is warned about")
 def _():
     work = FIX.work / "rebuilt"
@@ -903,10 +1161,16 @@ def _():
         raise AssertionError("profile.json names the wrong target")
     # The id names the settings, not the file: another executable, same id.
     other = work / "other-profile.json"
-    run(TOOLS / "analysis_profile.py", "write", "--exe", FIX.mz["spread"], "--ghidra",
-        ghidra, "--out", other, env=env)
+    code, out, err = run(TOOLS / "analysis_profile.py", "write", "--exe", FIX.mz["spread"],
+                         "--ghidra", ghidra, "--out", other, env=env)
     if json.loads(other.read_text())["profile"]["profile_id"] != want:
         raise AssertionError("profile_id changed with the target")
+    # What write prints is the profile it wrote, not a summary of something else.
+    line = (f"profile {want[:16]}  ({p['loader']}, {p['language']}:{p['compiler_spec']}, "
+            f"load segment {p['load_segment']}, Ghidra 12.1.2, recovery on, load "
+            f"correction on) -> {other}")
+    if code != 0 or out.decode("utf-8").strip() != line:
+        raise AssertionError(f"write printed {out.decode('utf-8').strip()!r}, not {line!r}")
     return f"profile {want[:12]}, the same for two executables"
 
 
@@ -1155,10 +1419,15 @@ def _():
 
 @case("the handshake verifies an export that matches")
 def _():
-    work, _, _, prof, _, functions, _ = handshake_setup()
+    work, _, _, prof, expected, functions, _ = handshake_setup()
     code, out, env = check(work, prof, functions)
-    if code != 0 or env["status"] != "verified" or "verified" not in out:
-        raise AssertionError(f"exit {code}, {env['status']}: {out}")
+    pid = expected["profile"]["profile_id"]
+    line = f"profile handshake: verified, 15 fields agree (profile {pid[:16]})"
+    if code != 0 or env["status"] != "verified" or out.strip() != line:
+        raise AssertionError(f"exit {code}, {env['status']}: {out!r}, not {line!r}")
+    levels = {i["location"]["field"]: i["level"] for i in env["evidence"]}
+    if len(levels) != 15 or set(levels.values()) != {"info"}:
+        raise AssertionError(f"a verified handshake recorded {levels}")
     return out.strip()
 
 
@@ -1176,7 +1445,8 @@ OBSERVED_FIELDS = ("loader", "language", "compiler_spec", "image_base",
 
 @case("drifting any one compared field stops the handshake and names it")
 def _():
-    work, _, _, prof, _, functions, _ = handshake_setup()
+    work, _, _, prof, expected, functions, _ = handshake_setup()
+    pid = expected["profile"]["profile_id"]
     named = []
     for field in OBSERVED_FIELDS:
         drifted = json.loads(json.dumps(functions))
@@ -1194,8 +1464,18 @@ def _():
             raise AssertionError(f"{field}: exit {code}, {env['status']}")
         if f"profile drift: {field}: expected" not in out:
             raise AssertionError(f"{field}: not named in {out!r}")
+        # Exit 1 is also what an uncaught exception gives: the message has to
+        # be there whole, and nothing after it.
+        tail = (f"was not produced under profile {pid[:16]}. Do not use it until the "
+                f"difference is understood; the record is in {work / 'handshake.json'}.")
+        if tail not in out or "Traceback" in out:
+            raise AssertionError(f"{field}: {out!r}")
+        levels = {i["location"]["field"]: i["level"] for i in env["evidence"]}
+        wrong = {f: lv for f, lv in levels.items() if lv != ("mismatch" if f == field else "info")}
+        if len(levels) != 15 or wrong:
+            raise AssertionError(f"{field}: levels {wrong or levels}")
         named.append(field)
-    return f"{len(named)} fields, each refused by name"
+    return f"{len(named)} fields, each refused by name, alone in the record"
 
 
 @case("a forced drift is expected, and refused, like any other")
@@ -1213,6 +1493,59 @@ def _():
     if record["result"]["drift"] != ["load_segment"]:
         raise AssertionError(f"drift recorded as {record['result']['drift']}")
     return "load_segment: expected 0x2000, observed 0x1000"
+
+
+@case("a forced drift reaches dotted fields, reads true and false, and refuses a typo")
+def _():
+    work, ghidra, exe, _, _, functions, env = handshake_setup()
+
+    def write(spec, name):
+        out = work / name
+        code, _, err = run(TOOLS / "analysis_profile.py", "write", "--exe", exe,
+                           "--ghidra", ghidra, "--out", out,
+                           env=dict(env, **{analysis_profile.DRIFT_VARIABLE: spec}))
+        return code, err, (json.loads(out.read_text(encoding="utf-8"))["profile"]
+                           if code == 0 else None)
+
+    # A value is everything after the first '=', and true, false and null are read.
+    code, err, p = write("recovery.ran=false,load_correction.ran=true,"
+                         "export.helper_sha256=null,ghidra_version=12=x", "dotted.json")
+    if code != 0:
+        raise AssertionError(f"the forced write failed: {err.strip()[-300:]}")
+    got = (p["recovery"]["ran"], p["load_correction"]["ran"], p["export"]["helper_sha256"],
+           p["ghidra_version"], "ran" in p)
+    if got != (False, True, None, "12=x", False):
+        raise AssertionError(f"forced to {got}")
+    code, out, record = check(work, work / "dotted.json", functions)
+    if code != 1 or record["result"]["drift"] != ["ghidra_version", "recovery.ran",
+                                                   "export.helper_sha256"]:
+        raise AssertionError(f"exit {code}, drift {record['result']['drift']}")
+    # A field the profile does not have is a typo, refused; one it has but the
+    # export does not report is taken, and moves only the id.
+    code, err, _ = write("load_segmnet=0x2000", "typo.json")
+    if code == 0 or "load_segmnet" not in err or "not a profile field" not in err:
+        raise AssertionError(f"a typo was taken: exit {code}, {err.strip()[-200:]!r}")
+    code, err, p = write("load_image_dump.script_sha256=x", "uncompared.json")
+    if code != 0 or p["load_image_dump"]["script_sha256"] != "x":
+        raise AssertionError(f"an uncompared field was refused: {err.strip()[-200:]!r}")
+    code, out, record = check(work, work / "uncompared.json", functions)
+    if code != 0 or record["status"] != "verified":
+        raise AssertionError(f"forcing an uncompared field broke the handshake: {out!r}")
+    return "dotted fields, true/false/null and '=' in a value; a typo refused"
+
+
+@case("a field missing from the export is a drift named (absent), not a crash")
+def _():
+    work, _, _, prof, _, functions, _ = handshake_setup()
+    for drop, field in (("recovery", "recovery.ran"), ("loader", "loader")):
+        bare = json.loads(json.dumps(functions))
+        del bare["observed_profile"][drop]
+        code, out, env = check(work, prof, bare)
+        if code != 1 or env["status"] != "mismatch" or "Traceback" in out \
+                or f"profile drift: {field}: expected" not in out \
+                or "observed (absent)" not in out:
+            raise AssertionError(f"without {drop}: exit {code}, {out.strip()[-300:]!r}")
+    return "recovery and loader removed: each named, observed (absent)"
 
 
 @case("an export with no observed_profile, or none at all, is not verified")
@@ -1236,6 +1569,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--nasm")
+    ap.add_argument("--only", action="append",
+                    help="run only the cases whose name contains this; may be repeated")
     args = ap.parse_args()
     nasm = args.nasm or os.environ.get("NASM") or shutil.which("nasm")
     if not nasm or not Path(nasm).exists():
@@ -1243,11 +1578,13 @@ def main():
               "the fixtures cannot be assembled")
         return 77
 
+    cases = [(name, fn) for name, fn in CASES
+             if not args.only or any(o in name for o in args.only)]
     work = Path(tempfile.mkdtemp(prefix="evidence-regress-"))
     failures = skipped = 0
     try:
         FIX = Fixtures(nasm, work)
-        for name, fn in CASES:
+        for name, fn in cases:
             try:
                 print(f"  PASS  {name:<66} {fn()}")
             except Skip as e:
@@ -1260,13 +1597,16 @@ def main():
         shutil.rmtree(work, ignore_errors=True)
 
     print()
+    if not cases:
+        print(f"no evidence check matches --only {args.only}")
+        return 1
     if failures:
-        print(f"{failures} of {len(CASES)} evidence checks failed.")
+        print(f"{failures} of {len(cases)} evidence checks failed.")
         return 1
     if skipped:
-        print(f"{len(CASES) - skipped} evidence checks pass; {skipped} skipped.")
+        print(f"{len(cases) - skipped} evidence checks pass; {skipped} skipped.")
         return 0
-    print(f"All {len(CASES)} evidence checks pass.")
+    print(f"All {len(cases)} evidence checks pass.")
     return 0
 
 
