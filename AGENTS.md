@@ -291,6 +291,7 @@ Say which rung of the verification ladder the result will sit on:
 | 1a | byte-identical **functions**, relocation slots wildcarded | each function's code is right — **not** which symbols it references |
 | 1b | byte-identical **linked image** | the source is right |
 | 2 | instruction-identical, layout-tolerant — `bindiff.py` | the code is right |
+| 3s | exhaustive sweep of one routine over a declared domain — `emuverify.py sweep` | its compared outputs equal the candidate's on every input of that domain — and nothing outside it |
 | 3a | per-function behavioural equivalence — `emuverify.py` | this function is that function |
 | 3b | instruction-trace equivalence under identical input | control flow is the same, and a divergence localises to one instruction |
 | 4 | pixel-identical frames under identical input | the program behaves the same |
@@ -299,6 +300,11 @@ Say which rung of the verification ladder the result will sit on:
 Do not report 1a as 1b. A per-function comparison must wildcard relocation
 slots, so a function that references the wrong symbol still compares as
 identical; only the linked image catches it.
+
+Do not report a sampled sweep as 3s either. 3s is an *exhaustive* sweep, and
+it covers only its domain and only the share of the routine the domain
+reached: quote the sweep's coverage line with it. A sampled sweep is 3a with
+more cases (Step 5).
 
 ---
 
@@ -600,7 +606,7 @@ Its limits:
   `sti; ret`, `intsoff` is `cli; ret`). It reports these rather than guessing.
 - It assumes the small model: one DGROUP, `SS == DS`. A function in another
   code segment runs at its own `segment:offset`, with a far return address if
-  it ends in `RETF` -- from a `functions.json`, and from a linker map whose
+  it ends in `RETF` — from a `functions.json`, and from a linker map whose
   segment table calls that segment `CODE`. DGROUP comes from the map, or
   from the segment the startup loads into `DS`; stderr says which. When the
   startup loads nothing the loader relocated, it falls back to the lowest
@@ -611,6 +617,35 @@ That failure mode is the point. Statistical matching on a mismatched pair
 produces dozens of confident-looking scores and gets `main` wrong; emulation
 produces almost nothing. Loud failure is safer than quiet failure when the output
 becomes names you will read for weeks.
+
+**If you have a port or a rebuild of one routine, sweep it against the
+original:**
+
+```
+python tools/emuverify.py sweep GAME.EXE 1000:0024 --domain domain.json \
+       --candidate port.mjs:muldiv --functions OUTDIR/functions.json
+```
+
+It runs the original routine under emulation on every input of the domain you
+write down, and the candidate beside it — a JavaScript port (one Node process
+for the whole sweep), a Python reference, or a rebuilt binary — and stops at
+the first input where they disagree, printing both outputs. Divide faults are
+outcomes the candidate must reproduce, not crashes. That is how a port's
+arithmetic is shown to be the original's: the 16-bit wraparound, the unsigned
+shift and the off-by-one comparison each show up at one input.
+
+Report three things with the verdict:
+
+- **Exhaustive or sampled.** A domain bigger than `max_cases` is sampled:
+  boundary values, then random ones, with the seed. A sampled pass is not a
+  proof; the last line says which it was.
+- **The coverage line.** "80.0% of the body exercised" means the domain never
+  reached a fifth of the routine, and the sweep proved nothing about that
+  fifth. It lists the ranges.
+- **The DGROUP it used,** which it prints with how it found it.
+
+`knowledge/18-oracle-sweeps.md` has the candidate contract, complete examples
+in both languages, and how to model 16-bit arithmetic in JavaScript.
 
 Also: run the game in DOSBox-X and check the behaviour you claim to have found.
 If Ghidra and radare2 disagree about an instruction, look at the bytes.
@@ -679,6 +714,10 @@ not mean nothing got worse.
   Ghidra's `image_base` is not the load segment and that its MZ loader gets two
   kinds of file wrong, and how the pipeline corrects them; and function bodies
   as address ranges, their origins, shared code, and `bodies.py`
+- `knowledge/18-oracle-sweeps.md` — sweeping one routine of the original
+  against a rebuild, a Python reference or a JavaScript port: the candidate
+  contract, modelling 16-bit arithmetic in JavaScript, divide faults,
+  exhaustive versus sampled, coverage, and where Unicorn is not an 8088
 - `knowledge/ghidra-upstream-mzloader.md` — the two MZ loader divergences
   written up as an issue for Ghidra, with a reproducer; drafted, not filed
 - `tests/sopwith/CASE-STUDY.md` — the whole method worked through, including the

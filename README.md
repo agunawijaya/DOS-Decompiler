@@ -265,6 +265,7 @@ say so.
 | 1a | byte-identical **functions**, relocation slots wildcarded | each function's code is right — **not** which symbols it references |
 | 1b | byte-identical **linked image** | the source is right |
 | 2 | instruction-identical, layout-tolerant — `bindiff.py` | the code is right |
+| 3s | exhaustive sweep of one routine over a declared domain — `emuverify.py sweep` | its compared outputs equal the candidate's on every input of that domain — and nothing outside it |
 | 3a | per-function behavioural equivalence — `emuverify.py` | this function is that function |
 | 3b | instruction-trace equivalence under identical input | control flow is the same, and a divergence localises to one instruction |
 | 4 | pixel-identical frames under identical input | the program behaves the same |
@@ -278,6 +279,14 @@ from the first link.
 
 For MZ executables, rung 1b is the goal of a long reconstruction loop. For
 `.COM` files it is where you start — see below.
+
+3s is a sweep: one routine of the original, run under emulation on every
+input of a domain against a rebuild, a Python reference or a JavaScript port,
+stopping at the first input where they disagree and saying how much of the
+routine the domain reached. It sits above 3a because no input of the domain
+goes unchecked, and below 2 because it says nothing outside the domain. A
+sampled sweep, for a domain too big to run whole, is 3a with more cases, and
+says so. See [`knowledge/18-oracle-sweeps.md`](knowledge/18-oracle-sweeps.md).
 
 ---
 
@@ -363,6 +372,7 @@ Copy-Item env.example.ps1 env.ps1     # then edit the paths
 | Microsoft C 5.0 | period-correct ground truth | `MSC_HOME` | optional |
 | [DOSBox-X](https://dosbox-x.com/) | running period toolchains and the games | `DOSBOX` | optional |
 | [radare2](https://rada.re/) | second opinion when Ghidra looks wrong | `RADARE2` | optional |
+| [Node.js](https://nodejs.org/) 16+ | running a JavaScript port as a sweep candidate (measured on 22.17.0) | `node` on `PATH` | for JavaScript candidates |
 
 ```bash
 pip install capstone unicorn
@@ -645,6 +655,14 @@ python tools\libsig.py apply path\to\GAME.EXE out\functions.json `
 python tools\srcinv.py path\to\source --json src.json
 python tools\match.py src.json out\functions.json --align `
        --exclude-library out\lib.json --report ident.md
+
+# 5. Does a port compute what the original does? Run one routine of the
+#    original on every input of a domain against a JavaScript port, a Python
+#    reference (ref.py:fn) or a rebuild (--candidate-exe, --candidate-entry).
+#    Stops at the first input where they disagree; reports coverage of the
+#    routine's body. Exit 0 verified, 1 mismatch, 3 blocked.
+python tools\emuverify.py sweep path\to\GAME.EXE 1000:0024 --domain muldiv.json `
+       --candidate port.mjs:muldiv --functions out\functions.json
 ```
 
 Try each signature database in `signatures/` — the one that matches tells you
@@ -893,7 +911,12 @@ tools/
   libscan.py                 find the C runtime using the compiler's own .LIB,
                              and recover the entry point a packer discarded
   libsig.py                  recognise C runtime functions and exclude them
-  emuverify.py               decide equivalence by running both under emulation
+  emuverify.py               decide equivalence by running both under emulation;
+                             "sweep" runs one routine over a whole domain
+                             against a rebuild, a Python reference or a port
+    sweep.py                 not a tool: the engine of emuverify.py sweep
+    sweep_harness.mjs        not a tool: one Node process that answers a
+                             sweep's cases for a JavaScript candidate
   bindiff.py                 instruction-level diff of a rebuild vs the original
   srcinv.py                  inventory functions/globals in K&R C and MASM source
   match.py                   identify binary functions against reference source
@@ -932,6 +955,8 @@ knowledge/
   15-adventure-engine-shape.md  recognising 1980s adventure-game engines
   16-emulator-driven-exploration.md  scripted emulation for adventure engines
   17-evidence.md             evidence envelopes, the analysis profile, stale results
+  18-oracle-sweeps.md        sweeping a routine against the original: the
+                             contract, 16-bit arithmetic in JavaScript, coverage
   ghidra-upstream-mzloader.md  a draft bug report for Ghidra's MZ loader, not filed
 signatures/                  C runtime fingerprints: MS C 5.0, MS C 5.1, Watcom
 tests/run-all.ps1            every suite this machine can run; skips say why
@@ -945,9 +970,12 @@ tests/loadimage/             load-image correction and verification: correct,
 tests/applynames/            names refused, applied, read back and rolled back,
                              each shown by re-exporting
 tests/farcall/               a far function in a second segment, for libsig.py
-                             and emuverify.py
+                             and emuverify.py: DGROUP from the startup, a
+                             linker map's far code
 tests/bodies/                function bodies, origins, shared code, and what
                              no function claims
+tests/sweep/                 sweeps against Python, JavaScript and a rebuild;
+                             wrong candidates caught at the planted input
 AGENTS.md                    the method, for any agent or human
 SKILL.md                     Claude Code wrapper
 env.example.ps1              copy to env.ps1, point at your own tool copies

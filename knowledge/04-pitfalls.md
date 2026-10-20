@@ -297,6 +297,26 @@ no way in but the menu. The general form: a `--call` gives you a routine whose
 caller never ran, and the failures it produces are all consequences of that one
 fact.
 
+**A Unicorn instance remembers the last fault.** `emuverify.py sweep` runs
+thousands of cases in one instance, and a divide fault is ended by calling
+`emu_stop` from the interrupt hook. Measured on Unicorn 2.1.4, the next divide
+fault in that instance arrived as interrupt 8, a double fault, and the one
+after that as no interrupt at all: the CPU still believed it was delivering
+the first. The first version therefore called the second fault of a sweep a
+"cpu" fault. Save the context once after setup (`context_save`) and restore it
+at the start of every case; it costs 0.4 microseconds. A tool that makes a
+fresh instance per run never sees this, which is why the comparison never did.
+
+**`emuverify.py`'s comparison has a wall-clock limit.** Each run is
+`emu_start(..., timeout=2_000_000)`: two seconds, then it stops, and a
+function stopped that way is dropped as unrunnable. On a busy machine that
+can change the count. Comparing Talisman against itself (`--limit 60`), one
+run profiled 59 functions on side A and 60 on side B, though both sides were
+the same file. Eight later runs, in four pairs, did not repeat it: each pair
+was byte-identical. Treat a one-function wobble in "functions profiled" as
+this before anything else. The sweep budgets by
+instruction count only, so it cannot wobble this way.
+
 ## Analysis
 
 **Small model explains suspiciously few relocations.** Sopwith has 2

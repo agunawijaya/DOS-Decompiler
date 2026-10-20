@@ -28,6 +28,7 @@ and say so:
 | 1a | byte-identical **functions**, relocation slots wildcarded | each function's code is right — **not** which symbols it references |
 | 1b | byte-identical **linked image** | the source is right |
 | 2 | **instruction-identical, layout-tolerant** (`bindiff.py`) | the code is right |
+| 3s | **exhaustive sweep** of one routine over a declared domain (`emuverify.py sweep`) | its compared outputs equal the candidate's on every input of that domain — and nothing outside it |
 | 3a | per-function behavioural equivalence (`emuverify.py`) | this function is that function |
 | 3b | instruction-trace equivalence under identical input | control flow is the same, and a divergence localises to one instruction |
 | 4 | pixel-identical frames under identical input | the program behaves the same |
@@ -60,6 +61,22 @@ Rung 4 is the right target when byte-identity is out of reach — a packed
 original, a lost compiler, or a deliberate port to a modern language. It is
 not a lesser goal, just a different observable: feed the original and the port
 the same recorded input and require the framebuffers to match exactly.
+
+**Rung 3s sits between 2 and 3a, for one routine over one domain.** Rung 3a
+concludes "this function is that function" from four input vectors chosen to
+make functions branch. An exhaustive sweep leaves no input of its domain
+unchecked, and compares every output it is told to: return registers, every
+global's final value, the calls and their arguments, the divide faults. That
+is more than 3a. It is less than 2: an instruction-identical rebuild is right
+for every input there is and every output, by construction. A sweep says
+nothing outside its domain, nothing about an output it did not compare,
+nothing about the callees it stubs. And it says nothing about the code its
+domain never reached, which its coverage line reports as a share of the
+routine's body. A *sampled* sweep is not on rung 3s: it is rung 3a with more
+cases, and says "sampled" with its seed. This is the rung a port to a modern
+language can reach routine by routine, below rung 4's whole-program check, and
+it localises a disagreement to one input where rung 4 localises it to a frame.
+`18-oracle-sweeps.md` has the method and worked examples.
 
 ## The loop
 
