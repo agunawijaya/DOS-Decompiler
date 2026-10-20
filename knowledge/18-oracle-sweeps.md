@@ -271,6 +271,23 @@ A field the contract does not know, or a value that is not a number, stops the
 sweep instead: those are almost always a misspelling (`{"Ax": 7}`), and
 comparing nothing would look like agreement.
 
+**A candidate that never returns is a hang, not a sweep that never ends.**
+Past `--case-timeout` seconds on one case (default 10), the candidate's
+outcome for that case is `hang`, compared like any other: a port that loops
+where the original returns diverges there. A Python candidate is interrupted
+by an exception raised into its loop, between bytecodes, so it must be
+looping in Python; one blocked inside a C call runs on until the call
+returns. A Node process stuck in a case is killed, and a new one takes the
+cases after it. That happens once: the second time a Node process stops
+answering, by a hang or by dying, the sweep is `blocked`, because a port that
+loops on many inputs would otherwise cost a timeout and a Node start each.
+Before this, a candidate that looped on one input stopped the sweep for good:
+measured, the code before the timeout was still waiting at case 17 after 60
+seconds. The timeout costs nothing measurable. Old and new code alternating
+over five rounds of the 65,536-case `rare` sweep gave best times of 3.83 s
+against 3.84 s for Python (+0.3%) and 4.40 s against 4.40 s for JavaScript;
+the run-to-run spread was about 7%.
+
 **Writes are compared as their effect.** That is the final value of every
 declared global, and every other byte of DGROUP the original changed, below
 the stack frame at 0xF000. A port does not write bytes, it sets variables. So

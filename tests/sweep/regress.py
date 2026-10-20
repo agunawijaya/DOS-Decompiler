@@ -491,6 +491,47 @@ def _():
     return "; ".join(out)
 
 
+@case("a Python candidate that never returns for one input is a hang there, and the sweep goes on")
+def _():
+    # x = 16 is case 17 of 0..1000. The original returns 16 there.
+    spec = rare_domain("rare-small", {"range": [0, 1000]})
+    code, text, env = sweep(at("sweep", "rare"), spec, *py("rare_loops_at_sixteen"),
+                            extra=["--case-timeout", "1"])
+    first = expect_mismatch(code, text, env, 17, {"x": 16}, ["fault"])
+    if first["candidate"] != {"fault": "hang"} or first["original"].get("fault"):
+        raise AssertionError(f"{first['original']} vs {first['candidate']}")
+    code, text, env = sweep(at("sweep", "rare"), spec, *py("rare_loops_at_sixteen"),
+                            extra=["--case-timeout", "1", "--all"])
+    r = env["result"]
+    if (r["cases_run"], r["diverge"], r["candidate"]["hangs"]) != (1001, 1, 1):
+        raise AssertionError(f"{r['cases_run']} run, {r['diverge']} diverge, "
+                             f"{r['candidate']['hangs']} hangs")
+    return "case 17, x=16: the original returns, the candidate hangs; with --all 1,001 run, 1 hang"
+
+
+@case("a JavaScript port that never returns is killed, restarted once, then the sweep is blocked",
+      needs=("node",))
+def _():
+    spec = rare_domain("rare-small", {"range": [0, 1000]})
+    code, text, env = sweep(at("sweep", "rare"), spec, *js("rareLoopsAtSixteen"),
+                            extra=["--case-timeout", "1", "--all"])
+    r = env["result"]
+    if code != 1 or "candidate" not in r:
+        raise AssertionError(f"exit {code}, {env['status']}: {r.get('reason') or text[-600:]}")
+    c = r["candidate"]
+    if (r["cases_run"], r["diverge"], c["hangs"], c["restarts"], c["processes"]) \
+            != (1001, 1, 1, 1, 2) or r["first_divergence"]["case"] != 17:
+        raise AssertionError(f"exit {code}: {r['cases_run']} run, {r['diverge']} diverge, "
+                             f"candidate {c}")
+    code, text, env = sweep(at("sweep", "rare"), spec, *js("rareLoopsAtSixteenAndThirtyTwo"),
+                            extra=["--case-timeout", "1", "--all"])
+    reason = (env or {}).get("result", {}).get("reason", "")
+    if code != 3 or "case 33" not in reason or "restarted once" not in reason:
+        raise AssertionError(f"exit {code}: {reason or text[-600:]}")
+    return ("x=16: hang, Node killed and restarted, 1,001 cases run; a second loop at "
+            "x=32: blocked at case 33")
+
+
 @case("a candidate that answers outside the contract stops the sweep")
 def _():
     code, text, env = sweep(at("sweep", "rare"), rare_domain("rare-small", {"range": [0, 1000]}),

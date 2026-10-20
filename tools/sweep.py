@@ -145,6 +145,12 @@ Both return an object -- a bare number means {ax: number} -- with any of:
                 returning. Nothing else is compared on such a case. In
                 Python a ZeroDivisionError counts as "divide".
 
+A case the candidate takes longer than --case-timeout over (default 10 s) is
+the outcome `hang` on the candidate side, compared like any other. A Python
+candidate is interrupted inside its own loop; a Node process is stuck in
+the case, so it is killed and a new one takes the cases after it -- once.
+The second time a Node process stops answering, the sweep is blocked.
+
 A field the domain compares and the candidate leaves out is a divergence,
 named as such, and so is a fraction where the machine holds an integer -- a
 port that divides without Math.trunc. A field the contract does not know, or
@@ -899,10 +905,71 @@ class PythonContext:
         return stub_for(self._stubs, len(self.calls))
 
 
+CASE_TIMEOUT = 10.0         # seconds a candidate may take over one case
+
+
+class CandidateTimeout(BaseException):
+    """Raised into a Python candidate that has run past the case timeout. A
+    BaseException, so that a candidate's own `except Exception` cannot
+    swallow it."""
+
+
+class Watchdog:
+    """Fires when one case has run past its deadline.
+
+    Arming is two attribute stores a case, so that it costs nothing a sweep
+    of 65,536 cases would notice; a thread polls the deadline a few times a
+    second. What firing does is the candidate's: interrupt a Python
+    candidate's loop, or kill a Node process that stopped answering."""
+
+    POLL = 0.05
+
+    def __init__(self, seconds, fire):
+        self.seconds, self.fire = seconds, fire
+        self.armed = None                   # (token, deadline), or None
+        self.fired = None                   # the token it last fired for
+        self.lock = threading.Lock()
+        threading.Thread(target=self._watch, daemon=True).start()
+
+    def arm(self, token):
+        self.armed = (token, time.monotonic() + self.seconds)
+
+    def disarm(self):
+        with self.lock:
+            self.armed = None
+
+    def _watch(self):
+        while True:
+            time.sleep(self.POLL)
+            armed = self.armed
+            if armed is None or time.monotonic() < armed[1]:
+                continue
+            with self.lock:
+                if self.armed is armed:     # still the same case, still running
+                    self.armed = None
+                    self.fired = armed[0]
+                    self.fire(armed[0])
+
+
+def interrupt(thread_id, exc):
+    """Raise `exc` in another thread at its next bytecode, or with exc None,
+    cancel one not yet raised."""
+    import ctypes
+    ctypes.pythonapi.PyThreadState_SetAsyncExc(
+        ctypes.c_ulong(thread_id), ctypes.py_object(exc) if exc else None)
+
+
 class PythonCandidate:
+    """A Python callable, called in this process.
+
+    A case that runs past the case timeout is interrupted by an exception
+    raised into the candidate's own loop, and answers `hang`. That reaches a
+    loop written in Python; a candidate blocked inside a C call -- a
+    time.sleep, a regular expression -- is not interrupted until the call
+    returns."""
     kind = "python"
 
-    def __init__(self, source, stubs):
+    def __init__(self, source, stubs, case_timeout=CASE_TIMEOUT):
         path, _, name = source.rpartition(":")
         if not path or not name:
             raise Blocked(f"--candidate {source}: give path/to/ref.py:function_name")
@@ -921,24 +988,45 @@ class PythonCandidate:
         if not callable(self.fn):
             raise Blocked(f"--candidate: {self.path} has no function {name}")
         self.processes = 0
+        self.case_timeout, self.hangs = case_timeout, 0
+        self.thread = threading.get_ident()
+        self.watchdog = Watchdog(case_timeout,
+                                 lambda token: interrupt(self.thread, CandidateTimeout))
 
     def describe(self):
         return {"kind": "python", "source": str(self.path), "function": self.name,
-                "runtime": f"Python {platform.python_version()}, in this process"}
+                "runtime": f"Python {platform.python_version()}, in this process",
+                "case_timeout": self.case_timeout, "hangs": self.hangs}
 
     def evaluate(self, cases):
-        out = []
-        for c in cases:
-            ctx = PythonContext(c.view, self.stubs)
+        return [self._one(c) for c in cases]
+
+    def _one(self, case):
+        ctx = PythonContext(case.view, self.stubs)
+        answer = None
+        try:
             try:
-                result = self.fn(list(c.args), ctx)
-            except ZeroDivisionError:
-                result = {"fault": "divide"}
-            except Exception as e:  # noqa: BLE001 -- the candidate's answer for this case
-                out.append({"error": f"{type(e).__name__}: {e}", "calls": ctx.calls})
-                continue
-            out.append({"result": result, "calls": ctx.calls})
-        return out
+                self.watchdog.arm(case.number)
+                try:
+                    answer = {"result": self.fn(list(case.args), ctx), "calls": ctx.calls}
+                except ZeroDivisionError:
+                    answer = {"result": {"fault": "divide"}, "calls": ctx.calls}
+                except Exception as e:  # noqa: BLE001 -- the candidate's answer for this case
+                    answer = {"error": f"{type(e).__name__}: {e}", "calls": ctx.calls}
+            finally:
+                self.watchdog.disarm()
+                if self.watchdog.fired == case.number and answer is not None:
+                    # It fired as the case returned: cancel the exception if
+                    # it is still on its way. If it already arrived, the
+                    # except below keeps the answer the case gave.
+                    interrupt(self.thread, None)
+        except CandidateTimeout:
+            pass
+        if answer is None:
+            self.hangs += 1
+            answer = {"result": {"fault": "hang"}, "calls": ctx.calls,
+                      "timeout": f"no answer in {self.case_timeout:g} s"}
+        return answer
 
     def close(self):
         pass
@@ -946,86 +1034,153 @@ class PythonCandidate:
 
 class NodeCandidate:
     """One Node process for the whole sweep: cases go in as JSON lines, and
-    results come back the same way, in order."""
-    kind = "javascript"
+    results come back the same way, in order.
 
-    def __init__(self, source, stubs):
+    A case that runs past the case timeout answers `hang`. Node is stuck in
+    it, so the process is killed and a new one takes the cases after it --
+    once. The second time a process stops answering, by a hang or by dying,
+    the sweep is blocked: a port that loops on many inputs would otherwise
+    cost a timeout and a Node start for every one of them."""
+    kind = "javascript"
+    RESTARTS = 1
+
+    def __init__(self, source, stubs, case_timeout=CASE_TIMEOUT):
         path, _, name = source.rpartition(":")
         if not path or not name:
             raise Blocked(f"--candidate {source}: give path/to/port.mjs:functionName")
-        self.path, self.name = Path(path), name
+        self.path, self.name, self.stubs = Path(path), name, stubs
         if not self.path.is_file():
             raise Blocked(f"--candidate: no file {self.path}")
-        node = shutil.which("node")
-        if not node:
+        self.node = shutil.which("node")
+        if not self.node:
             raise Blocked("node is not on PATH; a JavaScript candidate needs Node.js 16 or "
                           "later (measured on 22.17.0)")
-        self.version = subprocess.run([node, "--version"], capture_output=True,
+        self.version = subprocess.run([self.node, "--version"], capture_output=True,
                                       text=True).stdout.strip()
         # stderr to a file, not a pipe: nothing reads it while the sweep
         # runs, and a full pipe would stop Node mid-sweep.
         self.errors = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+        self.case_timeout, self.hangs, self.restarts = case_timeout, 0, 0
+        self.pids, self.proc = set(), None
+        self.watchdog = Watchdog(case_timeout, self._kill)
+        self._start()
+
+    def _start(self):
         self.proc = subprocess.Popen(
-            [node, str(HARNESS), str(self.path.resolve()), name, json.dumps(stubs)],
+            [self.node, str(HARNESS), str(self.path.resolve()), self.name,
+             json.dumps(self.stubs)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.errors,
             text=True, encoding="utf-8", bufsize=1)
+        self.watchdog.arm("start")
         ready = self._line()
-        if not ready.get("ready"):
+        self.watchdog.disarm()
+        if not ready or not ready.get("ready"):
+            why = (ready or {}).get("error") or self._stderr() or \
+                f"no answer in {self.case_timeout:g} s"
             self.close()
-            raise Blocked(f"--candidate: Node could not load {self.path}:{name}: "
-                          f"{ready.get('error', 'no answer')}")
-        self.pids = {ready["pid"]}
-        self.processes = 1
+            raise Blocked(f"--candidate: Node could not load {self.path}:{self.name}: {why}")
+        self.pids.add(ready["pid"])
+
+    def _kill(self, token):
+        try:
+            self.proc.kill()
+        except OSError:
+            pass
 
     def _line(self):
+        """The next answer, or None when the process is gone."""
         line = self.proc.stdout.readline()
-        if not line:
+        return json.loads(line) if line else None
+
+    def _stderr(self):
+        self.errors.seek(0)
+        return self.errors.read().strip()[-800:]
+
+    def _restart(self, case, why):
+        if self.restarts >= self.RESTARTS:
+            err = self._stderr()
+            raise Blocked(f"the Node process for {self.path} stopped answering at case "
+                          f"{case} ({why}), and it had been restarted once already"
+                          + (f": {err}" if err else "")
+                          + f"; find out why the port does not return there, or raise "
+                            f"--case-timeout if it is only slow")
+        self.restarts += 1
+        try:
             self.proc.wait(timeout=10)
-            self.errors.seek(0)
-            err = self.errors.read()
-            raise Blocked(f"the Node process for {self.path} stopped answering"
-                          + (f": {err.strip()[-800:]}" if err.strip() else ""))
-        return json.loads(line)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+        self._start()
 
     def describe(self):
         return {"kind": "javascript", "source": str(self.path), "function": self.name,
                 "runtime": f"Node {self.version}, one process for the sweep",
-                "processes": len(self.pids)}
+                "processes": len(self.pids), "case_timeout": self.case_timeout,
+                "hangs": self.hangs, "restarts": self.restarts}
 
-    def evaluate(self, cases):
+    def _feed(self, cases):
         # A thread writes while this one reads: on Linux a pipe's buffer is
         # 64 KB and Node's stdout to a pipe is synchronous, so writing a whole
         # chunk before reading any of it could leave both sides waiting.
+        proc = self.proc
+
         def feed():
             try:
                 for c in cases:
-                    self.proc.stdin.write(json.dumps({"id": c.number, "args": c.args,
-                                                      "globals": c.view}) + "\n")
-                self.proc.stdin.flush()
-            except OSError:
-                pass
+                    proc.stdin.write(json.dumps({"id": c.number, "args": c.args,
+                                                 "globals": c.view}) + "\n")
+                proc.stdin.flush()
+            except (OSError, ValueError):
+                pass                        # the process was killed under it
         writer = threading.Thread(target=feed, daemon=True)
         writer.start()
-        out = []
-        for c in cases:
-            answer = self._line()
-            if answer.get("id") != c.number:
-                raise Blocked(f"the Node harness answered case {answer.get('id')} "
-                              f"where case {c.number} was due")
-            self.pids.add(answer.get("pid"))
-            out.append(answer)
-        writer.join()
+        return writer
+
+    def evaluate(self, cases):
+        out, pending = [], list(cases)
+        while pending:
+            writer = self._feed(pending)
+            rest = []
+            for i, c in enumerate(pending):
+                self.watchdog.arm(c.number)
+                answer = self._line()
+                self.watchdog.disarm()
+                if answer is None and self.watchdog.fired == c.number:
+                    self.hangs += 1
+                    out.append({"result": {"fault": "hang"}, "calls": [],
+                                "timeout": f"no answer in {self.case_timeout:g} s"})
+                    self._restart(c.number, f"no answer in {self.case_timeout:g} s")
+                    rest = pending[i + 1:]
+                    break
+                if answer is None:
+                    self._restart(c.number, "the process exited")
+                    rest = pending[i:]      # it never answered this one
+                    break
+                if answer.get("id") != c.number:
+                    raise Blocked(f"the Node harness answered case {answer.get('id')} "
+                                  f"where case {c.number} was due")
+                self.pids.add(answer.get("pid"))
+                out.append(answer)
+                if self.watchdog.fired == c.number:
+                    # The deadline passed just as the answer came: the process
+                    # was killed after answering. Not a hang; start another.
+                    self.restarts -= 1
+                    self._restart(c.number, "killed after answering")
+                    rest = pending[i + 1:]
+                    break
+            writer.join(timeout=10)
+            pending = rest
         return out
 
     def close(self):
         try:
             self.proc.stdin.close()
-        except OSError:
+        except (OSError, ValueError):
             pass
         try:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+            self.proc.wait(timeout=10)
         self.errors.close()
 
 
@@ -1253,6 +1408,9 @@ LIMITATIONS = [
     "Only the compared outputs are compared: memory the routine reads, flags other than "
     "carry, and registers other than AX and DX are not.",
     "Writes at DGROUP offsets from 0xF000 up are taken for the stack frame and not compared.",
+    "A Python candidate past the case timeout is interrupted between bytecodes: a loop "
+    "written in Python stops, but one blocked inside a C call (a sleep, a regular "
+    "expression) runs on until the call returns.",
 ]
 
 
@@ -1287,9 +1445,9 @@ def run_sweep(args, progress=None):
     elif args.candidate:
         suffix = args.candidate.rpartition(":")[0].lower()
         if suffix.endswith(".py"):
-            candidate = PythonCandidate(args.candidate, spec.stubs)
+            candidate = PythonCandidate(args.candidate, spec.stubs, args.case_timeout)
         elif suffix.endswith((".mjs", ".js", ".cjs")):
-            candidate = NodeCandidate(args.candidate, spec.stubs)
+            candidate = NodeCandidate(args.candidate, spec.stubs, args.case_timeout)
         else:
             raise Blocked(f"--candidate {args.candidate}: a .py or .mjs file and a function "
                           f"name after a colon; a rebuilt binary goes in --candidate-exe")
@@ -1546,6 +1704,9 @@ def main(argv, prog="emuverify.py sweep"):
                          f"(default {emuverify.MAX_INSNS})")
     ap.add_argument("--all", action="store_true",
                     help="run every case and group the divergences by field")
+    ap.add_argument("--case-timeout", type=float, default=CASE_TIMEOUT, metavar="SECONDS",
+                    help=f"how long a Python or JavaScript candidate may take over one case "
+                         f"before it counts as a hang (default {CASE_TIMEOUT:g})")
     ap.add_argument("--trace-on-divergence", type=int, metavar="N", default=0,
                     help="the last N instructions the original ran on the first divergent case")
     ap.add_argument("--evidence", help="write the envelope here, or '-' for stdout")

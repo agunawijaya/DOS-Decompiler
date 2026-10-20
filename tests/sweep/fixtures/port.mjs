@@ -61,6 +61,18 @@ export function rare([x], ctx) {
   return { ax: x === 0x1234 ? 7 : x & 0xff };
 }
 
+// Never return for x = 16 (and, in the second, x = 32): the sweep's case
+// timeout kills the Node process, restarts it once, and blocks the second time.
+export function rareLoopsAtSixteen([x], ctx) {
+  while (x === 16) {}
+  return { ax: x === 0x1234 ? 7 : x & 0xff };
+}
+
+export function rareLoopsAtSixteenAndThirtyTwo([x], ctx) {
+  while (x === 16 || x === 32) {}
+  return { ax: x === 0x1234 ? 7 : x & 0xff };
+}
+
 export function caller([a, b], ctx) {
   let r = ctx.call("helper", a, b);
   if (a < b) {                                         // signed, as JGE is

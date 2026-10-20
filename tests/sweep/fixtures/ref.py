@@ -58,6 +58,15 @@ def rare_masking_seven_bits(args, ctx):
     return {"ax": 7 if x == 0x1234 else x & 0x7F}
 
 
+def rare_loops_at_sixteen(args, ctx):
+    """Never returns for x = 16. Behind the sweep's case timeout that is a
+    hang at one input, not a sweep that never ends."""
+    (x,) = args
+    while x == 16:
+        pass
+    return {"ax": 7 if x == 0x1234 else x & 0xFF}
+
+
 def rare_misspelt(args, ctx):
     """Answers in a field the contract does not have. The sweep stops rather
     than compare nothing."""
