@@ -755,12 +755,19 @@ class Program:
                 uc.emu_stop()
         elif kind == "call":
             self._skip_call(uc, cs, linear - (cs << 4), insn)
-        elif kind == "div" and insn.form and self.cpu == "8088":
-            refused = self._refused_by_8088(uc, *insn.form)
-            if refused is not None:
-                st.end = f"divide: an 8088 refuses the quotient {refused}"
-                st.where = (cs, linear - (cs << 4))
-                uc.emu_stop()
+        elif kind == "div":
+            self._on_divide(uc, cs, linear, insn)
+
+    def _on_divide(self, uc, cs, linear, insn):
+        """On an 8088, end the case at an IDIV whose quotient it refuses."""
+        if self.cpu != "8088" or not insn.form:
+            return
+        refused = self._refused_by_8088(uc, *insn.form)
+        if refused is not None:
+            st = self.state
+            st.end = f"divide: an 8088 refuses the quotient {refused}"
+            st.where = (cs, linear - (cs << 4))
+            uc.emu_stop()
 
     def _refused_by_8088(self, uc, size, operand):
         """The quotient, when this IDIV's is the one an 8088 refuses and a 386

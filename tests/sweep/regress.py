@@ -377,6 +377,9 @@ def _():
     first = expect_mismatch(code, text, env, 9, {"n": -229382}, ["fault"])
     if first["original"] != {"fault": "divide"} or first["candidate"].get("ax") != 0x8000:
         raise AssertionError(f"original {first['original']}, candidate {first['candidate']}")
+    if first["original_at"] != at("sweep", "quot7.div"):
+        raise AssertionError(f"the fault is at {first['original_at']}, not the IDIV, "
+                             f"{at('sweep', 'quot7.div')}")
     why = "(an 8088 refuses the quotient -32768)"
     if not first["text"]["original"].endswith(why):
         raise AssertionError(f"the original's fault reads {first['text']['original']!r}")
@@ -700,6 +703,121 @@ def ghidra_ready():
     if not shutil.which("pwsh"):
         return "pwsh not found; pipeline.ps1 needs PowerShell 7"
     return None
+
+
+@case("the 8088's rule, by hand: operands, widths, signs, segments and where it stops")
+def _():
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_16
+    from unicorn import x86_const as R
+    import sweep
+
+    class FakeUnicorn:
+        """Registers and memory as a test sets them, read the way the hook reads."""
+        def __init__(self, regs, memory=()):
+            self.regs, self.memory, self.stopped = dict(regs), dict(memory), False
+
+        def reg_read(self, reg):
+            return self.regs.get(reg, 0)
+
+        def mem_read(self, at, n):
+            return bytes(self.memory.get(at + i, 0) for i in range(n))
+
+        def emu_stop(self):
+            self.stopped = True
+
+    def word_at(at, value):
+        return {at: value & 0xFF, at + 1: (value >> 8) & 0xFF}
+
+    # The operand, as the hook reads it from the decoded instruction.
+    md = Cs(CS_ARCH_X86, CS_MODE_16)
+    md.detail = True
+    for code, want in ((b"\xF7\xF9", (2, ("reg", "cx"))),                   # idiv cx
+                       (b"\xF6\xFB", (1, ("reg", "bl"))),                   # idiv bl
+                       (b"\xF7\x7E\x08", (2, ("mem", None, "bp", None, 8))),
+                       (b"\xF6\x78\x04", (1, ("mem", None, "bx", "si", 4))),
+                       (b"\x26\xF7\x3D", (2, ("mem", "es", "di", None, 0))),
+                       (b"\x66\xF7\xF8", None),                             # idiv eax
+                       (b"\x66\xF7\x3F", None)):                            # dword [bx]
+        got = sweep.idiv_form(next(md.disasm(code, 0)))
+        if got != want:
+            raise AssertionError(f"{code.hex()}: {got}, not {want}")
+    for value, bits, want in ((0xFFFF, 16, -1), (0x7FFF, 16, 32767), (0x8000, 16, -32768),
+                              (0x1FF, 8, -1), (0x80, 8, -128), (0x17F, 8, 127),
+                              (0x100000005, 32, 5)):
+        if sweep.signed(value, bits) != want:
+            raise AssertionError(f"signed({value:#x}, {bits}) is {sweep.signed(value, bits)}")
+
+    # The quotient, from DX:AX or AX and a divisor of every kind. The large
+    # divisors need all their bits, so a wrong width shows; the signs take
+    # every pair; -32769 and +32768 fault on both CPUs and are Unicorn's.
+    prog = object.__new__(sweep.Program)
+    W, B = ("reg", "cx"), ("reg", "bl")
+
+    def dxax(n):
+        return {R.UC_X86_REG_DX: (n >> 16) & 0xFFFF, R.UC_X86_REG_AX: n & 0xFFFF}
+    cases = [
+        (2, W, {**dxax(-229376), R.UC_X86_REG_CX: 7}, {}, -32768),
+        (2, W, {**dxax(-229382), R.UC_X86_REG_CX: 7}, {}, -32768),
+        (2, W, {**dxax(-229375), R.UC_X86_REG_CX: 7}, {}, None),
+        (2, W, {**dxax(-229383), R.UC_X86_REG_CX: 7}, {}, None),
+        (2, W, {**dxax(229376), R.UC_X86_REG_CX: 0xFFF9}, {}, -32768),       # / -7
+        (2, W, {**dxax(-229376), R.UC_X86_REG_CX: 0xFFF9}, {}, None),        # +32768
+        (2, W, {**dxax(655360000), R.UC_X86_REG_CX: 0xB1E0}, {}, -32768),    # / -20000
+        (2, W, {**dxax(-229376), R.UC_X86_REG_CX: 0}, {}, None),
+        (1, B, {R.UC_X86_REG_AX: 0xFC80, R.UC_X86_REG_BL: 7}, {}, -128),     # -896 / 7
+        (1, B, {R.UC_X86_REG_AX: 896, R.UC_X86_REG_BL: 0xF9}, {}, -128),
+        (1, B, {R.UC_X86_REG_AX: 12800, R.UC_X86_REG_BL: 0x9C}, {}, -128),   # / -100
+        (1, B, {R.UC_X86_REG_AX: 0xFC81, R.UC_X86_REG_BL: 7}, {}, None),     # -895
+        (1, B, {R.UC_X86_REG_AX: 0xFC7F, R.UC_X86_REG_BL: 7}, {}, -128),     # -897: -128.1
+        (1, B, {R.UC_X86_REG_AX: 0xFC79, R.UC_X86_REG_BL: 7}, {}, None),     # -903: -129
+    ]
+    # Memory: [bp + 8] is SS's, [bx + si + 4] DS's, es:[di] ES's, and an
+    # offset past 0xFFFF wraps. The wrong segment, or the index left out,
+    # finds a 3 there instead of the 7.
+    seg = {R.UC_X86_REG_SS: 0x2000, R.UC_X86_REG_DS: 0x3000, R.UC_X86_REG_ES: 0x4000}
+    decoys = {**word_at(0x30108, 3), **word_at(0x20034, 3), **word_at(0x30014, 3),
+              **word_at(0x30050, 3), **word_at(0x40010, 3), **word_at(0x31010, 3)}
+    cases += [
+        (2, ("mem", None, "bp", None, 8), {**dxax(-229376), **seg, R.UC_X86_REG_BP: 0x100},
+         {**decoys, **word_at(0x20108, 7)}, -32768),
+        (2, ("mem", None, "bx", "si", 4), {**dxax(-229376), **seg, R.UC_X86_REG_BX: 0x10,
+                                          R.UC_X86_REG_SI: 0x20},
+         {**decoys, **word_at(0x30034, 7)}, -32768),
+        (2, ("mem", "es", "di", None, 0), {**dxax(655360000), **seg, R.UC_X86_REG_DI: 0x50},
+         {**decoys, **word_at(0x40050, 0xB1E0)}, -32768),                    # / -20000
+        (2, ("mem", None, "bx", "si", 0), {**dxax(-229376), **seg, R.UC_X86_REG_BX: 0xFFF0,
+                                          R.UC_X86_REG_SI: 0x20},
+         {**decoys, **word_at(0x30010, 7)}, -32768),
+        (1, ("mem", None, "bx", None, 0), {R.UC_X86_REG_AX: 896, **seg, R.UC_X86_REG_BX: 0x1000},
+         {**decoys, 0x31000: 0xF9}, -128),
+    ]
+    for size, operand, regs, memory, want in cases:
+        got = prog._refused_by_8088(FakeUnicorn(regs, memory), size, operand)
+        if got != want:
+            raise AssertionError(f"{size}-byte IDIV of {operand} with {regs}: {got}, not {want}")
+
+    # Where it stops: on an 8088 only, only at an IDIV, at the IDIV itself.
+    form = (2, ("reg", "cx"))
+    for cpu, given, want in (("8088", form, "divide: an 8088 refuses the quotient -32768"),
+                             ("386", form, None), ("8088", None, None)):
+        prog.cpu, prog.state = cpu, sweep.CaseState(None, None)
+        uc = FakeUnicorn({**dxax(-229376), R.UC_X86_REG_CX: 7})
+        prog._on_divide(uc, 0x1000, 0x10023, sweep.Insn("div", 2, given, "idiv cx"))
+        st = prog.state
+        if (st.end, uc.stopped) != (want, want is not None) or \
+                (want and st.where != (0x1000, 0x23)):
+            raise AssertionError(f"{cpu}, form {given}: end {st.end!r} at {st.where}, "
+                                 f"stopped {uc.stopped}")
+
+    # The limitations: every one, with the CPU's own third.
+    for cpu, opening in (("8088", "The CPU is an 8088 in one respect only"),
+                         ("386", "Unicorn implements DIV and IDIV as a later x86 does")):
+        got = sweep.limitations(cpu)
+        if len(got) != len(sweep.LIMITATIONS) + 1 or not got[2].startswith(opening) \
+                or [l for i, l in enumerate(got) if i != 2] != sweep.LIMITATIONS:
+            raise AssertionError(f"{cpu}: limitations {got}")
+    return (f"7 operands decoded, 7 widths, {len(cases)} quotients, 3 places to stop or "
+            f"not, both CPUs' limitations")
 
 
 @case("the comparison's pieces and coverage give the answers worked out by hand")

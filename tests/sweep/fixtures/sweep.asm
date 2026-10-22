@@ -201,6 +201,7 @@ quot7:
     mov ax, [bp + 4]
     mov dx, [bp + 6]
     mov cx, 7
+.div:
     idiv cx
     pop bp
     ret
@@ -214,6 +215,7 @@ quot7b:
     frame
     mov ax, [bp + 4]
     mov bl, 7
+.div:
     idiv bl
     cbw
     pop bp
