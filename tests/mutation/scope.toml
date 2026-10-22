@@ -82,3 +82,12 @@ module = "tools/triage.py"
 functions = ["analyse", "verdict_line"]
 test = ["tests/evidence/regress.py", "--only", "triage", "--only", "packer",
         "--only", "open question", "--only", "not there"]
+
+# The sweep's 8088: which IDIV an 8088 refuses, read from its operand, and
+# where that ends a case (prompt 08).
+[[target]]
+name = "sweep-8088"
+module = "tools/sweep.py"
+functions = ["idiv_form", "signed", "Program._on_code", "Program._refused_by_8088",
+             "limitations"]
+test = ["tests/sweep/regress.py"]

@@ -46,6 +46,12 @@ How a case runs on the original
     outcome to compare, not a failure of the tool. More than --budget
     instructions ends it as `hang`, and any other CPU exception or emulator
     error as `cpu`; both say where.
+  * The CPU is an 8088 unless --cpu 386 says otherwise. Unicorn divides as a
+    386 does, and the one difference that matters is IDIV's: an 8088 also
+    raises the divide fault when the quotient is exactly -32768 (a word
+    divide) or -128 (a byte divide), which a 386 returns. Under --cpu 8088 a
+    hook on every IDIV works the quotient out first and ends the case as
+    `divide` on those two. The games this toolkit was built on ran on 8088s.
 
 Memory is put back after every case: every byte a case wrote, and every byte
 the sweep wrote for it, returns to what the image holds.
@@ -179,8 +185,9 @@ What it does not do
 Follow calls, raise interrupts, or see self-modifying code (an instruction is
 decoded once, the first time it runs). It compares the outputs it was told
 to; reads, the flags other than carry, and registers other than AX and DX are
-not compared. Unicorn implements IDIV as a later x86 does; see
-knowledge/18-oracle-sweeps.md for where that differs from an 8088.
+not compared. Of the ways an 8088 differs from the 386 Unicorn emulates, only
+IDIV's refusal of -32768 and -128 is modelled; knowledge/18-oracle-sweeps.md
+says how a candidate should model it too.
 """
 
 import importlib.util
@@ -212,7 +219,10 @@ from unicorn.x86_const import (UC_X86_REG_AX, UC_X86_REG_BX, UC_X86_REG_CX,  # n
                                UC_X86_REG_DX, UC_X86_REG_SI, UC_X86_REG_DI,
                                UC_X86_REG_BP, UC_X86_REG_SP, UC_X86_REG_IP,
                                UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES,
-                               UC_X86_REG_SS, UC_X86_REG_FLAGS)
+                               UC_X86_REG_SS, UC_X86_REG_FLAGS,
+                               UC_X86_REG_AL, UC_X86_REG_AH, UC_X86_REG_BL,
+                               UC_X86_REG_BH, UC_X86_REG_CL, UC_X86_REG_CH,
+                               UC_X86_REG_DL, UC_X86_REG_DH)
 
 IMAGE_SEG = emuverify.IMAGE_SEG
 IMAGE_BASE = emuverify.IMAGE_BASE
@@ -237,6 +247,13 @@ REGISTERS = {"ax": UC_X86_REG_AX, "bx": UC_X86_REG_BX, "cx": UC_X86_REG_CX,
              "dx": UC_X86_REG_DX, "si": UC_X86_REG_SI, "di": UC_X86_REG_DI,
              "bp": UC_X86_REG_BP, "sp": UC_X86_REG_SP, "cs": UC_X86_REG_CS,
              "ds": UC_X86_REG_DS, "es": UC_X86_REG_ES, "ss": UC_X86_REG_SS}
+BYTE_REGISTERS = {"al": UC_X86_REG_AL, "ah": UC_X86_REG_AH, "bl": UC_X86_REG_BL,
+                  "bh": UC_X86_REG_BH, "cl": UC_X86_REG_CL, "ch": UC_X86_REG_CH,
+                  "dl": UC_X86_REG_DL, "dh": UC_X86_REG_DH}
+
+CPUS = ("8088", "386")
+# The quotient an 8088's IDIV refuses and a 386's returns, by operand size.
+REFUSED_BY_8088 = {2: -0x8000, 1: -0x80}
 
 
 class Blocked(Exception):
@@ -557,6 +574,29 @@ def call_form(insn):
     return ("unknown",)
 
 
+def idiv_form(insn):
+    """(size, operand) for a word or byte IDIV, where the operand is ("reg",
+    name) or ("mem", segment, base, index, disp); None for any other size,
+    which an 8088 does not have."""
+    ops = insn.operands
+    if not ops or ops[0].size not in REFUSED_BY_8088:
+        return None
+    op = ops[0]
+    if op.type == X86_OP_REG:
+        return op.size, ("reg", insn.reg_name(op.reg))
+    if op.type == X86_OP_MEM:
+        m = op.mem
+        return op.size, ("mem", insn.reg_name(m.segment) if m.segment else None,
+                         insn.reg_name(m.base) if m.base else None,
+                         insn.reg_name(m.index) if m.index else None, m.disp)
+    return None
+
+
+def signed(value, bits):
+    value &= (1 << bits) - 1
+    return value - (1 << bits) if value >> (bits - 1) else value
+
+
 class CaseState:
     __slots__ = ("insns", "end", "where", "calls", "writes", "executed", "trace",
                  "pending_int")
@@ -572,9 +612,12 @@ class Program:
     """One routine of one MZ, loaded once and run case after case."""
 
     def __init__(self, exe, entry, load_segment, side, spec, dgroup=None, far=None,
-                 record=None, budget=emuverify.MAX_INSNS):
+                 record=None, budget=emuverify.MAX_INSNS, cpu="8088"):
         self.exe, self.side, self.spec, self.budget = Path(exe), side, spec, budget
         self.load_segment = load_segment
+        if cpu not in CPUS:
+            raise Blocked(f"--cpu {cpu}: one of {', '.join(CPUS)}")
+        self.cpu = cpu
         data = self.exe.read_bytes()
         if data[:2] not in (b"MZ", b"ZM"):
             raise Blocked(f"{exe}: not an MZ executable")
@@ -678,7 +721,7 @@ class Program:
             elif m in ("ret", "retf"):
                 insn = Insn("ret", found.size, None, text)
             elif m in ("div", "idiv"):
-                insn = Insn("div", found.size, None, text)
+                insn = Insn("div", found.size, idiv_form(found) if m == "idiv" else None, text)
             elif m == "int":
                 insn = Insn("int", found.size, None, text, found.operands[0].imm & 0xFF)
             elif m == "int3":
@@ -712,6 +755,41 @@ class Program:
                 uc.emu_stop()
         elif kind == "call":
             self._skip_call(uc, cs, linear - (cs << 4), insn)
+        elif kind == "div" and insn.form and self.cpu == "8088":
+            refused = self._refused_by_8088(uc, *insn.form)
+            if refused is not None:
+                st.end = f"divide: an 8088 refuses the quotient {refused}"
+                st.where = (cs, linear - (cs << 4))
+                uc.emu_stop()
+
+    def _refused_by_8088(self, uc, size, operand):
+        """The quotient, when this IDIV's is the one an 8088 refuses and a 386
+        returns; else None. Division by zero and a quotient out of range on
+        both are left to Unicorn, which faults on them itself."""
+        if operand[0] == "reg":
+            reg = (BYTE_REGISTERS if size == 1 else REGISTERS)[operand[1]]
+            divisor = signed(uc.reg_read(reg), 8 * size)
+        else:
+            _, segment, base, index, disp = operand
+            ea = disp
+            for r in (base, index):
+                if r:
+                    ea += uc.reg_read(REGISTERS[r])
+            ea &= 0xFFFF
+            if segment is None:
+                segment = "ss" if base == "bp" else "ds"
+            raw = bytes(uc.mem_read((uc.reg_read(REGISTERS[segment]) << 4) + ea, size))
+            divisor = signed(int.from_bytes(raw, "little"), 8 * size)
+        if divisor == 0:
+            return None
+        if size == 2:
+            dividend = signed((uc.reg_read(UC_X86_REG_DX) << 16) | uc.reg_read(UC_X86_REG_AX), 32)
+        else:
+            dividend = signed(uc.reg_read(UC_X86_REG_AX), 16)
+        quotient = abs(dividend) // abs(divisor)        # IDIV truncates toward zero
+        if (dividend < 0) != (divisor < 0):
+            quotient = -quotient
+        return quotient if quotient == REFUSED_BY_8088[size] else None
 
     def _skip_call(self, uc, cs, ip, insn):
         st = self.state
@@ -1301,7 +1379,10 @@ def show(outcome, compare, before=None):
         return f"raised {outcome['error']}"
     if outcome.get("fault"):
         at = f" at {outcome['at']}" if outcome.get("at") else ""
-        return f"{outcome['fault']} fault{at}"
+        # Said only of the fault a 386 would not raise, so that a person
+        # reading one side's fault and the other side's -32768 sees why.
+        why = (outcome.get("detail") or "").partition("divide: ")[2]
+        return f"{outcome['fault']} fault{at}" + (f" ({why})" if why else "")
     parts = []
     v = view(outcome, compare)
     for f in compare:
@@ -1400,9 +1481,6 @@ LIMITATIONS = [
     "(pascal) leaves the caller's stack as cdecl would not.",
     "Interrupts are skipped, as in emuverify.py: an INT does nothing, so a routine that "
     "depends on DOS or the BIOS is compared with that dependency removed.",
-    "Unicorn implements DIV and IDIV as a later x86 does. An 8088 also raises the divide "
-    "fault when IDIV's quotient is exactly the most negative value (-32768 for a word, "
-    "-128 for a byte); the sweep cannot see that difference.",
     "Each instruction is decoded once, the first time it runs, so self-modifying code is "
     "seen as it first was.",
     "Only the compared outputs are compared: memory the routine reads, flags other than "
@@ -1412,6 +1490,21 @@ LIMITATIONS = [
     "written in Python stops, but one blocked inside a C call (a sleep, a regular "
     "expression) runs on until the call returns.",
 ]
+
+# What the sweep's CPU means for DIV and IDIV, said third among the above.
+DIVIDE_LIMITATION = {
+    "8088": "The CPU is an 8088 in one respect only: IDIV raises the divide fault on a "
+            "quotient of exactly -32768 (a word divide) or -128 (a byte divide), as an 8088 "
+            "does and a 386 does not. In every other respect DIV and IDIV are Unicorn's, "
+            "which divides as a 386 does.",
+    "386": "Unicorn implements DIV and IDIV as a later x86 does, and --cpu 386 leaves them "
+           "so. An 8088 also raises the divide fault when IDIV's quotient is exactly the most "
+           "negative value (-32768 for a word, -128 for a byte); this sweep does not.",
+}
+
+
+def limitations(cpu):
+    return LIMITATIONS[:2] + [DIVIDE_LIMITATION[cpu]] + LIMITATIONS[2:]
 
 
 def run_sweep(args, progress=None):
@@ -1430,7 +1523,7 @@ def run_sweep(args, progress=None):
     far = True if args.far else (False if args.near else None)
     original = Program(args.exe, entry, load, "original", spec,
                        dgroup=number(args.dgroup, "--dgroup") if args.dgroup else None,
-                       far=far, record=record_, budget=args.budget)
+                       far=far, record=record_, budget=args.budget, cpu=args.cpu)
 
     if args.candidate_exe:
         if not args.candidate_entry:
@@ -1440,7 +1533,8 @@ def run_sweep(args, progress=None):
                         if args.candidate_load_segment else load,
                         "candidate", spec,
                         dgroup=number(args.candidate_dgroup, "--candidate-dgroup")
-                        if args.candidate_dgroup else None, far=far, budget=args.budget)
+                        if args.candidate_dgroup else None, far=far, budget=args.budget,
+                        cpu=args.cpu)
         candidate = BinaryCandidate(cprog)
     elif args.candidate:
         suffix = args.candidate.rpartition(":")[0].lower()
@@ -1541,6 +1635,7 @@ def run_sweep(args, progress=None):
                      "dgroup_how": original.dgroup_how, "dgroup_set_at": original.dgroup_at,
                      "load_segment": f"0x{load:04x}"},
         "candidate": described,
+        "cpu": args.cpu,
         "domain": {"spec": str(spec.path), "dimensions": [d.describe() for d in spec.dimensions],
                    "fixed_globals": {g.name: g.value for g in spec.globals if g.value is not None},
                    "full_product": info["full_product"]},
@@ -1591,7 +1686,7 @@ def run_sweep(args, progress=None):
         unknowns.append(f"How much of the routine did the sweep exercise? {cov['reason']}.")
     env = evidence.envelope("emuverify sweep", evidence.target_identity(original.exe),
                             status=status, result=result, evidence=items,
-                            limitations=LIMITATIONS, unknowns=unknowns)
+                            limitations=limitations(args.cpu), unknowns=unknowns)
     return env, seconds
 
 
@@ -1617,6 +1712,10 @@ def summary(env, seconds=None):
         f"the rest random"
     out.append(f"cases      {r['cases_run']:,} run of {r['planned']:,} ({how})")
     out.append(f"compared   {', '.join(r['compared'])}, and faults")
+    out.append("cpu        " + ("8088: IDIV faults on a quotient of -32768 or -128"
+                                if r["cpu"] == "8088" else
+                                "386: IDIV returns a quotient of -32768 or -128, which an "
+                                "8088 refuses"))
     faults = "; ".join(f"{n:,} {k} faults on both sides"
                        for k, n in r["faults_on_both_sides"].items())
     out.append(f"agree      {r['agree']:,}" + (f" ({faults})" if faults else ""))
@@ -1705,6 +1804,11 @@ def parser(prog="emuverify.py sweep"):
     ap.add_argument("--budget", type=int, default=emuverify.MAX_INSNS,
                     help=f"instructions per case before it counts as a hang "
                          f"(default {emuverify.MAX_INSNS})")
+    ap.add_argument("--cpu", choices=CPUS, default="8088",
+                    help="8088 (default): IDIV also faults on a quotient of exactly -32768 "
+                         "or -128, as the machines these games ran on did. 386: as Unicorn "
+                         "divides, which returns them. Both sides of a binary candidate run "
+                         "on the same CPU")
     ap.add_argument("--all", action="store_true",
                     help="run every case and group the divergences by field")
     ap.add_argument("--case-timeout", type=float, default=CASE_TIMEOUT, metavar="SECONDS",
@@ -1732,7 +1836,7 @@ def main(argv, prog="emuverify.py sweep"):
         env = evidence.envelope("emuverify sweep",
                                 evidence.target_identity(args.exe) if Path(args.exe).is_file()
                                 else None, status="blocked",
-                                result={"reason": str(e)}, limitations=LIMITATIONS)
+                                result={"reason": str(e)}, limitations=limitations(args.cpu))
         if args.evidence:
             evidence.write(env, args.evidence)
         print(f"emuverify.py sweep: {e}", file=sys.stderr)

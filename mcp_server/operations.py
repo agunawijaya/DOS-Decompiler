@@ -684,8 +684,10 @@ def emuverify(session_a, session_b, map_a=None, map_b=None, dgroup_a=None, dgrou
 @guarded("emuverify sweep")
 def sweep(session_id, entry, domain, candidate=None, candidate_session=None,
           candidate_entry=None, functions=True, all_divergences=False, trace=0,
-          max_cases=None, seed=None, case_timeout=None, dgroup=None, limit=None, cursor=None):
-    """emuverify.py sweep, with the session's copy as the original."""
+          max_cases=None, seed=None, case_timeout=None, dgroup=None, limit=None, cursor=None,
+          cpu=None):
+    """emuverify.py sweep, with the session's copy as the original. `cpu` is
+    8088, the command line's default, or 386."""
     import sweep as tool
     s = sessions.get(session_id)
     if isinstance(domain, dict):
@@ -707,7 +709,8 @@ def sweep(session_id, entry, domain, candidate=None, candidate_session=None,
     if functions and s.analysed():
         argv += ["--functions", str(s.analysis / "functions.json")]
     for flag, value in (("--max-cases", max_cases), ("--seed", seed),
-                        ("--case-timeout", case_timeout), ("--dgroup", dgroup)):
+                        ("--case-timeout", case_timeout), ("--dgroup", dgroup),
+                        ("--cpu", cpu)):
         if value is not None:
             argv += [flag, str(value)]
     if all_divergences:

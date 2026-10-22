@@ -266,14 +266,16 @@ async def sweep(session_id: str, entry: str, domain: str | dict,
                 candidate_entry: str | None = None, all_divergences: bool = False,
                 trace: int = 0, max_cases: int | None = None, seed: int | None = None,
                 case_timeout: float | None = None, dgroup: str | None = None,
-                limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+                limit: int | None = None, cursor: str | None = None,
+                cpu: str | None = None) -> CallToolResult:
     """Run one routine of the original on every input of a domain against a
     candidate -- path/to/ref.py:fn, path/to/port.mjs:fn, or another session
-    -- and stop at the first input where they disagree. See the resource
-    knowledge://18-oracle-sweeps.md for the domain and the contract."""
+    -- and stop at the first input where they disagree. `cpu` is 8088 (the
+    default: IDIV also faults on a quotient of -32768 or -128) or 386. See the
+    resource knowledge://18-oracle-sweeps.md for the domain and the contract."""
     return await call(op.sweep, session_id, entry, domain, candidate, candidate_session,
                       candidate_entry, True, all_divergences, trace, max_cases, seed,
-                      case_timeout, dgroup, limit, cursor)
+                      case_timeout, dgroup, limit, cursor, cpu)
 
 
 # ---------------------------------------------------------------- prompts

@@ -10,35 +10,51 @@
 //   (v << 16) >> 16 >> n SAR: a signed one
 //   Math.imul(a, b)      a 32-bit product, exact where a * b may not be
 //   Math.trunc(p / q)    IDIV's quotient: toward zero, not down
+//   -32768 < q <= 32767  the quotients an 8088's word IDIV returns; any
+//                        other, -32768 included, is the divide fault
 //
 // The functions whose names describe a mistake are wrong on purpose, each at
 // one boundary; tests/sweep/regress.py expects the sweep to stop at exactly
-// the first input where it shows.
+// the first input where it shows. Every divide is an 8088's, the sweep's
+// default CPU; the ones that divide as a 386 does say so in their names.
 
 const int16 = (v) => (v << 16) >> 16;
 
+// IDIV on an 8088: null for the divide fault, else the quotient.
+const idiv8088 = (dividend, divisor, low, high) => {
+  if (divisor === 0) return null;
+  const q = Math.trunc(dividend / divisor);
+  return low < q && q <= high ? q : null;
+};
+
 export function muldiv([a, b, c], ctx) {
   const product = int16(Math.imul(a, b));          // IMUL, of which C keeps AX
-  if (c === 0 || (product === -32768 && c === -1)) {
-    return { fault: "divide" };                    // what IDIV does instead
-  }
-  return { ax: Math.trunc(product / c) };
+  const q = idiv8088(product, c, -32768, 32767);
+  return q === null ? { fault: "divide" } : { ax: q };
 }
 
 export function muldivWithoutWrap([a, b, c], ctx) {
   const product = a * b;                           // never wraps at 16 bits
-  if (c === 0 || (product === -32768 && c === -1)) {
-    return { fault: "divide" };
-  }
-  return { ax: Math.trunc(product / c) };
+  const q = idiv8088(product, c, -32768, 32767);
+  return q === null ? { fault: "divide" } : { ax: q };
 }
 
 export function muldivWithoutTrunc([a, b, c], ctx) {
   const product = int16(Math.imul(a, b));
-  if (c === 0 || (product === -32768 && c === -1)) {
+  if (idiv8088(product, c, -32768, 32767) === null) {
     return { fault: "divide" };
   }
   return { ax: product / c };                      // a fraction where IDIV truncates
+}
+
+export function quot7([n], ctx) {
+  const q = idiv8088(n, 7, -32768, 32767);         // DX:AX by CX
+  return q === null ? { fault: "divide" } : { ax: q };
+}
+
+export function quot7AsA386Divides([n], ctx) {
+  const q = Math.trunc(n / 7);                     // -32768 kept, as a 386 keeps it
+  return q < -32768 || q > 32767 ? { fault: "divide" } : { ax: q };
 }
 
 export function clampStore([x], ctx) {

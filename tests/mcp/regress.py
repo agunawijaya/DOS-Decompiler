@@ -183,11 +183,14 @@ async def _():
     check(not err and env["tool"] == "triage"
           and (env["result"].get("verdict") or {}).get("in_scope") is True,
           f"triage: {env['status']} {env['result'].get('verdict')}")
-    # The module is 248 bytes (312 in the file less the 64-byte header): it
-    # ends at 1000:00f7, and minalloc follows. From 1000:00f0, 8 bytes.
-    env, err = await call("read_bytes", session_id=sid, address="1000:00f0", length=32)
+    # The module is the file less its 64-byte header, and minalloc follows
+    # it: 32 bytes asked for from 8 before its end, 8 come back. Worked out
+    # from the file, which grows when a routine is added to the fixture.
+    module = len(Fix.sweep_exe.read_bytes()) - 0x40
+    env, err = await call("read_bytes", session_id=sid, address=f"1000:{module - 8:04x}",
+                          length=32)
     r = env["result"]
-    data = Fix.sweep_exe.read_bytes()[0x40 + 0xF0:0x40 + 0xF8]
+    data = Fix.sweep_exe.read_bytes()[0x40 + module - 8:0x40 + module]
     check(not err and r["complete"] is False and r["length_read"] == 8
           and r["hex"] == data.hex(" ") and "uninitialised" in r["stopped_because"],
           f"read_bytes: {r}")
@@ -363,8 +366,20 @@ async def _():
                           domain=domain, candidate=f"{SWEEP_FIX / 'ref.py'}:rare_masking_seven_bits")
     check(env["status"] == "mismatch" and env["result"]["first_divergence"]["case"] == 129,
           f"wrong candidate: {env['status']}")
+    # The CPU, as the command line takes it: an 8088 unless told otherwise.
+    # quot7 divides a long by 7; n = -229,382 gives the quotient -32768.
+    quot7 = {"args": [{"name": "n", "list": [-229382], "size": 4}], "compare": ["ax"]}
+    seen = []
+    for cpu, status in ((None, "mismatch"), ("8088", "mismatch"), ("386", "verified")):
+        env, err = await call("sweep", session_id=sid, entry=f"1000:{Fix.labels['quot7']:04x}",
+                              domain=quot7, cpu=cpu,
+                              candidate=f"{SWEEP_FIX / 'ref.py'}:quot7_as_a_386_divides")
+        check(not err and env["status"] == status
+              and env["result"]["cpu"] == (cpu or "8088"), f"cpu {cpu}: {env['status']}")
+        seen.append(f"{cpu or 'default'} {status}")
     await call("close_binary", session_id=sid)
-    return "1,001 cases verified; the 0x7F candidate fails at case 129, as in prompt 05"
+    return ("1,001 cases verified; the 0x7F candidate fails at case 129, as in prompt 05; "
+            "quot7 at -32768: " + ", ".join(seen))
 
 
 @case("emuverify on two sessions with linker maps")

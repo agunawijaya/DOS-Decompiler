@@ -1,4 +1,4 @@
-; Four small cdecl routines to sweep, in a small-model MZ.
+; Six small cdecl routines to sweep, in a small-model MZ.
 ;
 ; `emuverify.py sweep` runs one routine of an original program on every input
 ; of a domain and compares it with a candidate. These are the shapes where a
@@ -10,10 +10,13 @@
 ;                 third, shifted right unsigned, on the other
 ;   rare          a branch only one input in 65,536 takes
 ;   caller        calls `helper` once, and a second time only when a < b
+;   quot7, quot7b a long divided by 7 with a word IDIV, an int with a byte
+;                 one: the quotients -32768 and -128, which an 8088 refuses
+;                 and a 386 returns
 ;
 ; tests/sweep/regress.py works out every expected value from this file: the
 ; labels from NASM's listing, and the instruction counts by hand, written out
-; beside each routine. tests/sweep/fixtures/rebuild.asm is the same four
+; beside each routine. tests/sweep/fixtures/rebuild.asm is the first four
 ; routines written differently, to stand in for a rebuild from reconstructed
 ; source.
 ;
@@ -84,7 +87,9 @@ fix_ss equ $ - 2
 ; C keeps the low word of the product (AX) and sign-extends it again (CWD)
 ; before dividing, so the product wraps at 16 bits. IDIV faults when c is 0,
 ; and when the wrapped product is -32768 and c is -1, because +32768 does not
-; fit. 8 instructions, every one run by any input that does not fault.
+; fit. On an 8088 it faults on -32768 with c = 1 as well: the quotient is
+; -32768, which a 386 returns and an 8088 refuses. 8 instructions, every one
+; run by any input that does not fault.
 muldiv:
     frame
     mov ax, [bp + 4]
@@ -183,6 +188,37 @@ helper:
     pop bp
     ret
 helper_end:
+
+; int quot7(long n) { return n / 7; }
+;
+; A long divided by a constant that fits in a word: DX:AX by CX, the quotient
+; in AX. 7 * -32768 = -229,376 and IDIV truncates toward zero, so n from
+; -229,382 to -229,376 gives the quotient -32768. A 386 returns it; an 8088
+; raises the divide fault. From -229,383 down the quotient does not fit a word
+; and both fault. 8 instructions.
+quot7:
+    frame
+    mov ax, [bp + 4]
+    mov dx, [bp + 6]
+    mov cx, 7
+    idiv cx
+    pop bp
+    ret
+quot7_end:
+
+; The same with the byte form of IDIV, which C does not emit and hand-written
+; assembly does: AX by BL, the quotient in AL, widened by CBW to return it.
+; n from -902 to -896 gives -128, which an 8088 refuses and a 386 returns;
+; from -903 down neither CPU fits the quotient in a byte. 8 instructions.
+quot7b:
+    frame
+    mov ax, [bp + 4]
+    mov bl, 7
+    idiv bl
+    cbw
+    pop bp
+    ret
+quot7b_end:
 
     align 16, db 0
 

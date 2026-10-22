@@ -114,7 +114,7 @@ def data(which, label):
     return L(which, label) - L(which, "data_start")
 
 
-ROUTINES = ["start", "muldiv", "clamp_store", "rare", "caller", "helper"]
+ROUTINES = ["start", "muldiv", "clamp_store", "rare", "caller", "helper", "quot7", "quot7b"]
 
 
 def instructions(which, lo, hi):
@@ -131,9 +131,12 @@ def export(which="sweep"):
     folder.mkdir()
     exe, labels, _ = BUILT[which]
     ends = {"start": "muldiv", "muldiv": "muldiv_end", "clamp_store": "clamp_store_end",
-            "rare": "rare_end", "caller": "caller_end", "helper": "helper_end"}
+            "rare": "rare_end", "caller": "caller_end", "helper": "helper_end",
+            "quot7": "quot7_end", "quot7b": "quot7b_end"}
     records = []
     for name in ROUTINES:
+        if name not in labels:              # rebuild.asm has only the first four
+            continue
         lo, hi = labels[name], labels[ends[name]] - 1
         records.append({
             "name": name, "entry": f"{LOAD:04x}:{lo:04x}", "size": hi - lo + 1, "thunk": False,
@@ -219,7 +222,9 @@ def muldiv_domain():
     # 601 * 3 * 7 = 12,621 cases. By hand, the divide faults: c = 0 for every
     # a and b, 601 * 3 = 1,803; and the wrapped product -32768 with c = -1,
     # which with b in {1, 3, 128} and |a| <= 300 is a = -256 and a = 256 at
-    # b = 128 (256 * 128 = 32768 wraps to -32768): 2. 1,805 in all.
+    # b = 128 (256 * 128 = 32768 wraps to -32768): 2. 1,805 on a 386. An 8088,
+    # the default, also refuses that product with c = 1, whose quotient is
+    # -32768: 2 more, 1,807.
     return domain("muldiv", {"args": [{"name": "a", "range": [-300, 300]},
                                       {"name": "b", "list": [1, 3, 128]},
                                       {"name": "c", "range": [-3, 3]}],
@@ -264,31 +269,31 @@ def caller_domain():
 def _():
     code, text, env = sweep(at("sweep", "muldiv"), muldiv_domain(), *py("muldiv"))
     r = expect_verified(code, text, env, 12621)
-    if r["faults_on_both_sides"] != {"divide": 1805}:
-        raise AssertionError(f"faults {r['faults_on_both_sides']}, not 1,805 divide faults")
+    if r["faults_on_both_sides"] != {"divide": 1807}:
+        raise AssertionError(f"faults {r['faults_on_both_sides']}, not 1,807 divide faults")
     if r["coverage"]["instructions"] != 8 or instructions("sweep", L("sweep", "muldiv"),
                                                           L("sweep", "muldiv_end")) != 8:
         raise AssertionError(f"coverage {r['coverage']}; muldiv has 8 instructions")
-    return "12,621 cases, exhaustive, 1,805 divide faults on both sides, 8 of 8 instructions"
+    return "12,621 cases, exhaustive, 1,807 divide faults on both sides, 8 of 8 instructions"
 
 
 @case("muldiv against a correct JavaScript port, in one Node process", needs=("node",))
 def _():
     code, text, env = sweep(at("sweep", "muldiv"), muldiv_domain(), *js("muldiv"))
     r = expect_verified(code, text, env, 12621)
-    if r["faults_on_both_sides"] != {"divide": 1805} or r["candidate"]["processes"] != 1:
+    if r["faults_on_both_sides"] != {"divide": 1807} or r["candidate"]["processes"] != 1:
         raise AssertionError(f"faults {r['faults_on_both_sides']}, processes "
                              f"{r['candidate']['processes']}")
-    return f"12,621 cases, 1,805 divide faults, 1 Node process ({r['candidate']['runtime']})"
+    return f"12,621 cases, 1,807 divide faults, 1 Node process ({r['candidate']['runtime']})"
 
 
 @case("muldiv against the rebuild, a binary candidate")
 def _():
     code, text, env = sweep(at("sweep", "muldiv"), muldiv_domain(), *binary("rebuild", "muldiv"))
     r = expect_verified(code, text, env, 12621)
-    if r["faults_on_both_sides"] != {"divide": 1805}:
+    if r["faults_on_both_sides"] != {"divide": 1807}:
         raise AssertionError(f"faults {r['faults_on_both_sides']}")
-    return "12,621 cases, the rebuild's IDIV faults on the same 1,805"
+    return "12,621 cases, the rebuild's IDIV faults on the same 1,807"
 
 
 @case("a Python candidate that forgets -32768 / -1 fails at that input, case 941")
@@ -330,6 +335,134 @@ def _():
     if not str(first["candidate"]["ax"]).startswith("-9045.33"):
         raise AssertionError(f"candidate {first['candidate']}")
     return f"case 15: ax {first['candidate']['ax']!r}"
+
+
+def quot7_domain():
+    # n from -229,390 to -229,370: 21 cases, in order. 7 * -32768 = -229,376,
+    # and IDIV truncates toward zero: n <= -229,383 (cases 1-8) gives a
+    # quotient below -32768, a fault on both CPUs; -229,382..-229,376 (cases
+    # 9-15) gives -32768, which only an 8088 refuses; the last 6 give -32767.
+    return domain("quot7", {"args": [{"name": "n", "range": [-229390, -229370], "size": 4}],
+                            "compare": ["ax"]})
+
+
+def quot7b_domain():
+    # n from -910 to -890: 21 cases. 7 * -128 = -896: n <= -903 (cases 1-8)
+    # overflows a byte on both CPUs; -902..-896 (cases 9-15) gives -128, an
+    # 8088's fault; the last 6 give -127.
+    return domain("quot7b", {"args": [{"name": "n", "range": [-910, -890]}],
+                             "compare": ["ax"]})
+
+
+@case("8088, the default: quot7 across -32768, against a Python candidate that models it")
+def _():
+    code, text, env = sweep(at("sweep", "quot7"), quot7_domain(), *py("quot7"))
+    r = expect_verified(code, text, env, 21)
+    if r["cpu"] != "8088" or r["faults_on_both_sides"] != {"divide": 15}:
+        raise AssertionError(f"cpu {r['cpu']}, faults {r['faults_on_both_sides']}, not 8 + 7")
+    if r["coverage"]["instructions"] != 8 or instructions("sweep", L("sweep", "quot7"),
+                                                          L("sweep", "quot7_end")) != 8:
+        raise AssertionError(f"coverage {r['coverage']}; quot7 has 8 instructions")
+    said = [l for l in text.splitlines() if l.startswith("cpu ")]
+    if said != ["cpu        8088: IDIV faults on a quotient of -32768 or -128"]:
+        raise AssertionError(f"the prose says {said}")
+    if not any(l.startswith("The CPU is an 8088 in one respect only") for l in env["limitations"]):
+        raise AssertionError("the limitations do not say the CPU is an 8088")
+    return "21 cases, 15 divide faults on both sides: 8 that fault anywhere, 7 an 8088's"
+
+
+@case("8088: a Python candidate that divides as a 386 does fails at n = -229,382, case 9")
+def _():
+    code, text, env = sweep(at("sweep", "quot7"), quot7_domain(), *py("quot7_as_a_386_divides"))
+    first = expect_mismatch(code, text, env, 9, {"n": -229382}, ["fault"])
+    if first["original"] != {"fault": "divide"} or first["candidate"].get("ax") != 0x8000:
+        raise AssertionError(f"original {first['original']}, candidate {first['candidate']}")
+    why = "(an 8088 refuses the quotient -32768)"
+    if not first["text"]["original"].endswith(why):
+        raise AssertionError(f"the original's fault reads {first['text']['original']!r}")
+    return f"case 9: {first['text']['original']} vs ax=0x8000"
+
+
+@case("--cpu 386: the 386 candidate verifies, and the 8088 one fails at case 9")
+def _():
+    code, text, env = sweep(at("sweep", "quot7"), quot7_domain(), *py("quot7_as_a_386_divides"),
+                            extra=["--cpu", "386"])
+    r = expect_verified(code, text, env, 21)
+    if r["cpu"] != "386" or r["faults_on_both_sides"] != {"divide": 8}:
+        raise AssertionError(f"cpu {r['cpu']}, faults {r['faults_on_both_sides']}, not 8")
+    if not any(l.startswith("Unicorn implements DIV and IDIV as a later x86 does")
+               for l in env["limitations"]):
+        raise AssertionError("the limitations do not say IDIV is a 386's")
+    code, text, env = sweep(at("sweep", "quot7"), quot7_domain(), *py("quot7"),
+                            extra=["--cpu", "386"])
+    first = expect_mismatch(code, text, env, 9, {"n": -229382}, ["fault"])
+    if first["original"].get("ax") != 0x8000 or first["candidate"] != {"fault": "divide"}:
+        raise AssertionError(f"original {first['original']}, candidate {first['candidate']}")
+    return "8 faults on both sides with the 386 candidate; the 8088 one: ax=0x8000 vs fault"
+
+
+@case("quot7b, the byte divide: -128 is an 8088's fault, at n = -902, case 9")
+def _():
+    code, text, env = sweep(at("sweep", "quot7b"), quot7b_domain(), *py("quot7b"))
+    r = expect_verified(code, text, env, 21)
+    if r["faults_on_both_sides"] != {"divide": 15}:
+        raise AssertionError(f"faults {r['faults_on_both_sides']}")
+    code, text, env = sweep(at("sweep", "quot7b"), quot7b_domain(),
+                            *py("quot7b_as_a_386_divides"))
+    first = expect_mismatch(code, text, env, 9, {"n": -902}, ["fault"])
+    if first["candidate"].get("ax") != 0xFF80 or not first["text"]["original"].endswith(
+            "(an 8088 refuses the quotient -128)"):
+        raise AssertionError(f"{first['text']}")
+    code, text, env = sweep(at("sweep", "quot7b"), quot7b_domain(),
+                            *py("quot7b_as_a_386_divides"), extra=["--cpu", "386"])
+    r = expect_verified(code, text, env, 21)
+    if r["faults_on_both_sides"] != {"divide": 8}:
+        raise AssertionError(f"386: faults {r['faults_on_both_sides']}")
+    return "8088: 15 faults, the 386 candidate wrong at case 9 (ax=0xff80); 386: 8 faults"
+
+
+@case("muldiv under both CPUs: 1,805 faults on a 386, 1,807 on an 8088, case 943 between")
+def _():
+    # a = -256 (index 44), b = 128 (index 2), c = 1 (index 4): (44 * 3 + 2)
+    # * 7 + 4 = 942, case 943 -- the first wrapped -32768 divided by 1.
+    code, text, env = sweep(at("sweep", "muldiv"), muldiv_domain(),
+                            *py("muldiv_as_a_386_divides"), extra=["--cpu", "386"])
+    r = expect_verified(code, text, env, 12621)
+    if r["faults_on_both_sides"] != {"divide": 1805}:
+        raise AssertionError(f"386: faults {r['faults_on_both_sides']}, not 1,805")
+    code, text, env = sweep(at("sweep", "muldiv"), muldiv_domain(),
+                            *py("muldiv_as_a_386_divides"))
+    first = expect_mismatch(code, text, env, 943, {"a": -256, "b": 128, "c": 1}, ["fault"])
+    if first["original"] != {"fault": "divide"} or first["candidate"].get("ax") != 0x8000:
+        raise AssertionError(f"original {first['original']}, candidate {first['candidate']}")
+    return "386: 1,805 on both sides; 8088: case 943, a=-256 b=128 c=1, through a memory operand"
+
+
+@case("the CPU is the binary candidate's too: quot7 against itself, under each")
+def _():
+    out = []
+    for cpu, faults in (("8088", 15), ("386", 8)):
+        code, text, env = sweep(at("sweep", "quot7"), quot7_domain(), *binary("sweep", "quot7"),
+                                extra=["--cpu", cpu])
+        r = expect_verified(code, text, env, 21)
+        if r["faults_on_both_sides"] != {"divide": faults}:
+            raise AssertionError(f"{cpu}: faults {r['faults_on_both_sides']}, not {faults}")
+        out.append(f"{cpu}: {faults} faults on both sides")
+    return "; ".join(out)
+
+
+@case("a JavaScript port of quot7: with the 8088's rule it verifies, without it case 9",
+      needs=("node",))
+def _():
+    code, text, env = sweep(at("sweep", "quot7"), quot7_domain(), *js("quot7"))
+    r = expect_verified(code, text, env, 21)
+    if r["faults_on_both_sides"] != {"divide": 15}:
+        raise AssertionError(f"faults {r['faults_on_both_sides']}")
+    code, text, env = sweep(at("sweep", "quot7"), quot7_domain(), *js("quot7AsA386Divides"))
+    first = expect_mismatch(code, text, env, 9, {"n": -229382}, ["fault"])
+    if first["candidate"].get("ax") != 0x8000:
+        raise AssertionError(f"candidate {first['candidate']}")
+    return "15 faults with the rule; case 9, ax=0x8000, without"
 
 
 @case("clamp_store against Python, JavaScript and the rebuild: writes compared by name")
