@@ -33,11 +33,13 @@ Usage:
 
 import argparse
 import hashlib
+import importlib.util
 import io
 import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -66,6 +68,16 @@ class Skip(Exception):
     pass
 
 
+def unpack_cases():
+    """tests/unpack/regress.py, imported for the EXEPACK layout it tests
+    unpack.py's reader against."""
+    spec = importlib.util.spec_from_file_location(
+        "unpack_regress", ROOT / "tests" / "unpack" / "regress.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 # ------------------------------------------------------------------ fixtures
 
 class Fixtures:
@@ -82,6 +94,7 @@ class Fixtures:
         self.text.parent.mkdir(parents=True, exist_ok=True)
         self.text.write_bytes(b"not an executable\r\n")
         self.folders = self._folders()
+        self.shapes = self._shapes()
 
     @staticmethod
     def _build(nasm, src, out):
@@ -121,8 +134,37 @@ class Fixtures:
         shutil.copy(self.mz["packed"], blocked / "GAME.EXE")
         return {"full": full, "plain": plain, "blocked": blocked}
 
+    def _shapes(self):
+        """The files triage's verdict cases need beyond the fixtures: the
+        fixtures with bytes appended, tests/unpack's EXEPACK layout behind a
+        header, and a file that is neither MZ nor .COM under another suffix.
+        Each folder holds one, so no file is another's opaque sibling."""
+        def place(name, data):
+            path = self.work / "shapes" / name.split(".")[0] / name
+            path.parent.mkdir(parents=True)
+            path.write_bytes(data)
+            return path
+
+        smallc = self.mz["smallc"].read_bytes()
+        blob, at = unpack_cases().exepack_blob()
+        total = 32 + len(blob)
+        header = bytearray(32)
+        header[0:2] = b"MZ"
+        struct.pack_into("<HHHHHHHHHHHH", header, 2, total % 512, (total + 511) // 512,
+                         0, 2, 0, 0xFFFF, 0, 0, 0, at & 0xF, at >> 4, 0x1C)
+        return {
+            "exepack": place("exepack.exe", bytes(header) + blob),
+            # Triage warns past 1,024 bytes and not at them.
+            "appended-1024": place("appended-1024.exe", smallc + bytes(1024)),
+            "appended-1025": place("appended-1025.exe", smallc + bytes(1025)),
+            # Borland's overlay manager marks its overlays with FBOV.
+            "fbov": place("fbov.exe", smallc + b"FBOV" + bytes(2044)),
+            "notes.bin": place("notes.bin", b"not an executable either\r\n"),
+        }
+
     def files(self):
-        return list(self.mz.values()) + list(self.com.values()) + [self.text]
+        return (list(self.mz.values()) + list(self.com.values()) + [self.text]
+                + list(self.shapes.values()))
 
 
 FIX = None
@@ -811,6 +853,191 @@ def _():
     if code != 2 or json.loads(out)["status"] != "error":
         raise AssertionError(f"survey: exit {code}")
     return "status error, exit 2, from both"
+
+
+# ------------------------------------------------------- triage's verdict
+
+# The four lines triage ends its report with, written out here rather than
+# read from triage.py: a test that took them from the code would pass whatever
+# the code said. Prompt 07's mutation run found that flipping the verdict for
+# a packed, non-MZ or .COM file survived every suite; the cases below each
+# pin one shape's verdict line, in_scope, confidence and exit code.
+IN_SCOPE = "VERDICT: in scope. Run tools/pipeline.ps1."
+COM_ROUTE = ("VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it "
+             "either produces a byte-identical rebuild or says why not.")
+WORKABLE = ("VERDICT: probably workable, with caveats above. Expect the measured "
+            "accuracy figures not to hold.")
+OUT_OF_SCOPE = "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+
+# shape, the file, verdict line, verdict, a blocker or warning title the
+# verdict rests on, and a title that must not appear.
+VERDICT_SHAPES = [
+    ("in scope, a small-model C program", lambda: FIX.mz["smallc"], IN_SCOPE,
+     {"in_scope": True, "confidence": "high"}, None, "bytes past the load image"),
+    ("packed, tests/unpack's EXEPACK layout", lambda: FIX.shapes["exepack"], OUT_OF_SCOPE,
+     {"in_scope": False, "confidence": "low"}, ("blocker", "packed with Microsoft EXEPACK"),
+     None),
+    ("packed, an EXEPACK stub with its error message", lambda: FIX.mz["packed"],
+     OUT_OF_SCOPE, {"in_scope": False, "confidence": "low"},
+     ("blocker", "packed with Microsoft EXEPACK"), None),
+    ("overlaid, the header names overlay 1", lambda: FIX.mz["overlay"], OUT_OF_SCOPE,
+     {"in_scope": False, "confidence": "high"}, ("blocker", "overlaid program"), None),
+    ("overlaid, FBOV in the bytes past the image", lambda: FIX.shapes["fbov"],
+     OUT_OF_SCOPE, {"in_scope": False, "confidence": "high"},
+     ("blocker", "overlaid program"), "bytes past the load image"),
+    ("1,025 bytes past the image and no marker: a warning", lambda: FIX.shapes["appended-1025"],
+     IN_SCOPE, {"in_scope": True, "confidence": "high"},
+     ("warn", "1025 bytes past the load image"), "overlaid program"),
+    ("1,024 bytes past the image: not even a warning", lambda: FIX.shapes["appended-1024"],
+     IN_SCOPE, {"in_scope": True, "confidence": "high"}, None, "bytes past the load image"),
+    ("not MZ, a text file", lambda: FIX.text, OUT_OF_SCOPE,
+     {"in_scope": False, "confidence": "high"}, ("blocker", "not an MZ executable"), None),
+    ("not MZ, a suffix that sorts before .com", lambda: FIX.shapes["notes.bin"], OUT_OF_SCOPE,
+     {"in_scope": False, "confidence": "high"}, ("blocker", "not an MZ executable"), None),
+    (".COM, the comrec route", lambda: FIX.com["plain"], COM_ROUTE,
+     {"in_scope": True, "confidence": "high", "route": "comrec"},
+     ("route", "raw .COM image"), None),
+    ("interpreted engine, Sierra SCI's resource names", lambda: FIX.mz["engine"],
+     OUT_OF_SCOPE, {"in_scope": False, "confidence": "high"},
+     ("blocker", "interpreted engine: Sierra SCI"), None),
+    ("warnings only, far pointers and few frames", lambda: FIX.mz["spread"], WORKABLE,
+     {"in_scope": True, "confidence": "low"}, ("warn", "memory model looks"), None),
+    ("beside data files far larger than itself", lambda: FIX.folders["full"] / "GAME.EXE",
+     IN_SCOPE, {"in_scope": True, "confidence": "high"},
+     ("warn", "large opaque data files alongside"), None),
+]
+
+
+def verdict_case(shape, path_of, line, verdict, rests_on, absent):
+    @case(f"triage verdict, {shape}")
+    def _():
+        path = path_of()
+        code, prose, _ = run(TOOLS / "triage.py", path)
+        ecode, out, _ = triage_envelope(path)
+        env = json.loads(out)
+        last = [l for l in prose.decode("utf-8").splitlines() if l.strip()][-1]
+        if last != line:
+            raise AssertionError(f"the report ends {last!r}, not {line!r}")
+        result = env["result"]
+        if result["verdict"] != verdict or result["verdict_text"] != line:
+            raise AssertionError(f"envelope verdict {result['verdict']} "
+                                 f"{result['verdict_text']!r}, not {verdict}")
+        want = 0 if verdict["in_scope"] else 1
+        if (code, ecode) != (want, want):
+            raise AssertionError(f"exit {code} (report), {ecode} (envelope), not {want}")
+        titles = [(i.get("level"), i["claim"]) for i in env["evidence"]]
+        if rests_on and not any(lv == rests_on[0] and c.startswith(rests_on[1])
+                                for lv, c in titles):
+            raise AssertionError(f"no {rests_on[0]} {rests_on[1]!r} among {titles}")
+        if absent and any(absent in c for _, c in titles):
+            raise AssertionError(f"{absent!r} should not be found: {titles}")
+        scope = "in scope" if verdict["in_scope"] else "out of scope"
+        why = f", on {rests_on[0]} {rests_on[1]!r}" if rests_on else ""
+        return f"{scope}, confidence {verdict['confidence']}, exit {want}{why}"
+
+
+for _shape in VERDICT_SHAPES:
+    verdict_case(*_shape)
+
+
+@case("triage verdict, the file triage calls EXEPACK is one unpack.py's reader accepts")
+def _():
+    sys.path.insert(0, str(TOOLS))
+    import unpack
+    path = FIX.shapes["exepack"]
+    data = path.read_bytes()
+    entry = 32 + (struct.unpack_from("<H", data, 0x16)[0] << 4) + struct.unpack_from(
+        "<H", data, 0x14)[0]
+    got = unpack.exepack_header(data, entry)
+    if got is None or (got["cs"] << 4) + got["ip"] != 0x6B2:
+        raise AssertionError(f"unpack.exepack_header read {got}")
+    return f"entry at file 0x{entry:x}; EXEPACK's own header says 0x6B2"
+
+
+EXPECTED_TRIAGE = HERE / "expected-triage.json"
+UPDATE_EXPECTED = False
+
+
+def triage_files():
+    """Every file the triage cases look at, by a name that does not depend
+    on where the fixtures were built."""
+    named = {f"mz/{p.name}": p for p in FIX.mz.values()}
+    named.update({f"com/{p.name}": p for p in FIX.com.values()})
+    named.update({f"shapes/{p.name}": p for p in FIX.shapes.values()})
+    named["other/notes.txt"] = FIX.text
+    named["survey/full/GAME.EXE"] = FIX.folders["full"] / "GAME.EXE"
+    return dict(sorted(named.items()))
+
+
+def without_paths(value, path):
+    """`value` with this run's path to the file written as <FILE>."""
+    if isinstance(value, str):
+        for p in (str(Path(path).resolve()), str(path)):
+            value = value.replace(p, "<FILE>")
+        return value
+    if isinstance(value, list):
+        return [without_paths(v, path) for v in value]
+    if isinstance(value, dict):
+        return {k: without_paths(v, path) for k, v in value.items()}
+    return value
+
+
+def unwrapped(prose):
+    """The report's lines with each finding's detail joined back into one.
+    The report wraps at 68 columns, and a detail that holds the file's path
+    wraps differently in every folder."""
+    lines, in_detail = [], False
+    for line in prose.splitlines():
+        detail = line.startswith(" " * 11)
+        if detail and in_detail:
+            lines[-1] += " " + line.strip()
+        else:
+            lines.append(" " * 11 + line.strip() if detail else line)
+        in_detail = detail
+    return lines
+
+
+def triage_answer(path):
+    """Everything triage says about one file, in both forms, as data."""
+    code, prose, _ = run(TOOLS / "triage.py", path)
+    ecode, out, _ = triage_envelope(path)
+    env = json.loads(out)
+    env = {k: v for k, v in env.items() if k not in ("tool_version", "target")}
+    return without_paths({"exit": [code, ecode],
+                          "report": unwrapped(prose.decode("utf-8")),
+                          "envelope": env}, path)
+
+
+@case("triage's whole answer for every file, against the one written down")
+def _():
+    # The verdict cases above pin the verdict; this pins everything that
+    # leads to it -- every finding's title, detail and value, the evidence and
+    # the questions -- so a changed threshold or a changed message cannot pass
+    # as long as the verdict happens to survive. The answer is written down in
+    # tests/evidence/expected-triage.json; after a deliberate change, rerun
+    # with --update-expected and read the diff before committing it.
+    got = {name: triage_answer(path) for name, path in triage_files().items()}
+    if UPDATE_EXPECTED:
+        EXPECTED_TRIAGE.write_text(json.dumps(got, indent=1, sort_keys=True) + "\n",
+                                   encoding="utf-8", newline="\n")
+        return f"wrote {len(got)} answers to {EXPECTED_TRIAGE.name}"
+    if not EXPECTED_TRIAGE.exists():
+        raise AssertionError(f"{EXPECTED_TRIAGE.name} is missing; run with --update-expected")
+    want = json.loads(EXPECTED_TRIAGE.read_text(encoding="utf-8"))
+    if sorted(got) != sorted(want):
+        raise AssertionError(f"files {sorted(set(got) ^ set(want))} added or missing")
+    for name in want:
+        for part in ("exit", "report", "envelope"):
+            if got[name][part] != want[name][part]:
+                a = json.dumps(want[name][part], indent=1, sort_keys=True).splitlines()
+                b = json.dumps(got[name][part], indent=1, sort_keys=True).splitlines()
+                at = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y),
+                          min(len(a), len(b)))
+                raise AssertionError(f"{name}, {part}, line {at + 1}: written down "
+                                     f"{a[at] if at < len(a) else '(end)'!r}, now "
+                                     f"{b[at] if at < len(b) else '(end)'!r}")
+    lines = sum(len(v["report"]) for v in got.values())
+    return f"{len(got)} files, {lines} report lines and their envelopes, as written down"
 
 
 # ------------------------------------------------------- stale results
@@ -1565,13 +1792,17 @@ def _():
 
 
 def main():
-    global FIX
+    global FIX, UPDATE_EXPECTED
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--nasm")
     ap.add_argument("--only", action="append",
                     help="run only the cases whose name contains this; may be repeated")
+    ap.add_argument("--update-expected", action="store_true",
+                    help="write triage's answers to expected-triage.json instead of "
+                         "comparing them; read the diff before committing it")
     args = ap.parse_args()
+    UPDATE_EXPECTED = args.update_expected
     nasm = args.nasm or os.environ.get("NASM") or shutil.which("nasm")
     if not nasm or not Path(nasm).exists():
         print("evidence regress: nasm not found (set NASM or pass --nasm); "

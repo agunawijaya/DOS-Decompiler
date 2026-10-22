@@ -118,14 +118,22 @@ def _():
 
 
 # --- EXEPACK ----------------------------------------------------------------
-@case("EXEPACK: the 16 bytes before the stub are read")
-def _():
+def exepack_blob():
+    """(bytes, offset of the stub): EXEPACK's 16-byte header, ending in "RB",
+    directly before its stub. tests/evidence wraps it in an MZ header for
+    triage, so the file triage refuses is one these readers accept."""
     blob = bytearray(0x400)
     at = 0x200
     struct.pack_into("<HHHHHHH", blob, at - 16,
                      0x06B2, 0x0000, 0x1000, 0x0120, 0x0800, 0x0700, 0x0900)
     blob[at - 2:at] = b"RB"
-    got = unpack.exepack_header(bytes(blob), at)
+    return bytes(blob), at
+
+
+@case("EXEPACK: the 16 bytes before the stub are read")
+def _():
+    blob, at = exepack_blob()
+    got = unpack.exepack_header(blob, at)
     assert got is not None, "returned nothing"
     assert (got["cs"] << 4) + got["ip"] == 0x6B2, got
     assert got["dest_paragraphs"] == 0x900, got

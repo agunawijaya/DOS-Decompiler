@@ -1,0 +1,2355 @@
+{
+ "com/casetable.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-91f183a8-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/casetable.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/casetable.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/dispatch.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-bf9d6d4a-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/dispatch.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/dispatch.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/encodings.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-8311e747-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/encodings.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/encodings.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/farstub.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-c65d0041-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/farstub.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/farstub.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/fndisi.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-20beaa57-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/fndisi.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/fndisi.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/fneni.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-dc16a938-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/fneni.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/fneni.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/indexed.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-498f0caf-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/indexed.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/indexed.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/interrupt.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-9566887e-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/interrupt.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/interrupt.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/jmpstub.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-a29c6b74-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/jmpstub.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/jmpstub.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/jumptable.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-5e664ce6-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/jumptable.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/jumptable.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/mzdispatchcs.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-028394fa-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 4,168 bytes",
+     "id": "ev-028394fa-4820d042",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x1248",
+      "file_offset": "0x200"
+     },
+     "value": 4168
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-028394fa-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0100:0000, file offset 0x1200",
+     "id": "ev-028394fa-4f0cc487",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x1200"
+     },
+     "value": "0100:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-028394fa-8a111901",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 4168,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "few stack frames (0 prologues, 0.0/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-028394fa-ff105009",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x1248",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.0,
+      "prologues": 0
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0100:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 4168,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 0.0,
+    "prologues": 0,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 4,168 bytes, 0 relocations",
+   "Entry  : 0100:0000",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[WARN   ] few stack frames (0 prologues, 0.0/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+  ]
+ },
+ "com/mzsingle.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-88bbb9bf-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 78 bytes",
+     "id": "ev-88bbb9bf-14f4dfeb",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x24e",
+      "file_offset": "0x200"
+     },
+     "value": 78
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-88bbb9bf-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0002, file offset 0x202",
+     "id": "ev-88bbb9bf-1e322b9c",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x202"
+     },
+     "value": "0000:0002"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-88bbb9bf-6ee41bc1",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 78,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "few stack frames (0 prologues, 0.0/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-88bbb9bf-1a9ce1e6",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x24e",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.0,
+      "prologues": 0
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0002",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 78,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 0.0,
+    "prologues": 0,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 78 bytes, 0 relocations",
+   "Entry  : 0000:0002",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[WARN   ] few stack frames (0 prologues, 0.0/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+  ]
+ },
+ "com/plain.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-f83baf88-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/plain.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/plain.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/timer.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-14321c6c-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/timer.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/timer.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "mz/engine.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-3499b82b-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 34 bytes",
+     "id": "ev-3499b82b-10763a49",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x222",
+      "file_offset": "0x200"
+     },
+     "value": 34
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-3499b82b-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x200",
+     "id": "ev-3499b82b-ab0e054c",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x200"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-3499b82b-4d5ae9db",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 34,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "mixed or frame-pointer-free (1 prologues, 1.0/KB)",
+     "detail": "Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+     "id": "ev-3499b82b-0c6d7410",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x222",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 1.0,
+      "prologues": 1
+     }
+    },
+    {
+     "claim": "interpreted engine: Sierra SCI",
+     "detail": "The executable is an interpreter; the game is bytecode and assets in the data files. Decompiling it yields a virtual machine, not the game. Look for an engine-specific tool instead.",
+     "id": "ev-3499b82b-2b3eaa4a",
+     "kind": "engine-marker",
+     "level": "blocker",
+     "location": {
+      "markers": {
+       "RESOURCE.000": "0x215",
+       "RESOURCE.MAP": "0x208"
+      }
+     },
+     "value": [
+      "Sierra SCI"
+     ]
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 34,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 1.0,
+    "prologues": 1,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 34 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[BLOCKER] interpreted engine: Sierra SCI",
+   "           The executable is an interpreter; the game is bytecode and assets in the data files. Decompiling it yields a virtual machine, not the game. Look for an engine-specific tool instead.",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[WARN   ] mixed or frame-pointer-free (1 prologues, 1.0/KB)",
+   "           Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "mz/overlay.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-f9a6b3d2-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 8 bytes",
+     "id": "ev-f9a6b3d2-729690d3",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x208",
+      "file_offset": "0x200"
+     },
+     "value": 8
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-f9a6b3d2-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x200",
+     "id": "ev-f9a6b3d2-ab0e054c",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x200"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "overlaid program",
+     "detail": "Overlaid code is swapped into a shared region, so several functions occupy the same addresses at different times. Nothing here handles that; each overlay needs its own address space.",
+     "id": "ev-f9a6b3d2-21b1a5fa",
+     "kind": "overlay",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x1a"
+     },
+     "value": {
+      "fbov_marker": false,
+      "overlay_number": 1
+     }
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-f9a6b3d2-a7750531",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 8,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "mixed or frame-pointer-free (1 prologues, 1.0/KB)",
+     "detail": "Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+     "id": "ev-f9a6b3d2-269ecce2",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x208",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 1.0,
+      "prologues": 1
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 8,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 1.0,
+    "prologues": 1,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 8 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[BLOCKER] overlaid program",
+   "           Overlaid code is swapped into a shared region, so several functions occupy the same addresses at different times. Nothing here handles that; each overlay needs its own address space.",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[WARN   ] mixed or frame-pointer-free (1 prologues, 1.0/KB)",
+   "           Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "mz/packed.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-c6d5721e-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 299 bytes",
+     "id": "ev-c6d5721e-d785083f",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x32b",
+      "file_offset": "0x200"
+     },
+     "value": 299
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-c6d5721e-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0102, file offset 0x302",
+     "id": "ev-c6d5721e-5962d91a",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x302"
+     },
+     "value": "0000:0102"
+    },
+    {
+     "claim": "packed with Microsoft EXEPACK",
+     "detail": "The signature 'RB' sits exactly two bytes before the entry point, which is where EXEPACK's packed header ends. The entry point is its decompressor. `tools/unpack.py` handles this format with the original entry point read from the packer's own header, and recovers the image to 99.7% of a known-good unpacked build.",
+     "id": "ev-c6d5721e-409fe907",
+     "kind": "packer-marker",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x300"
+     },
+     "value": "RB"
+    },
+    {
+     "claim": "packed with Microsoft EXEPACK",
+     "detail": "Signature at 0x312, adjacent to the entry point. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py packed.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+     "id": "ev-c6d5721e-437638eb",
+     "kind": "packer-signature",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x312"
+     },
+     "value": {
+      "near_entry": true,
+      "packer": "Microsoft EXEPACK",
+      "prologues_per_kb": 0.0,
+      "relocations": 0,
+      "signature": "Packed file is corrupt"
+     }
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-c6d5721e-e032399e",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 299,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "few stack frames (0 prologues, 0.0/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-c6d5721e-0db3f1eb",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x32b",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.0,
+      "prologues": 0
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0102",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 299,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 0.0,
+    "prologues": 0,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 299 bytes, 0 relocations",
+   "Entry  : 0000:0102",
+   "",
+   "[BLOCKER] packed with Microsoft EXEPACK",
+   "           The signature 'RB' sits exactly two bytes before the entry point, which is where EXEPACK's packed header ends. The entry point is its decompressor. `tools/unpack.py` handles this format with the original entry point read from the packer's own header, and recovers the image to 99.7% of a known-good unpacked build.",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[WARN   ] few stack frames (0 prologues, 0.0/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "mz/smallc.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-7f0599a0-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 165 bytes",
+     "id": "ev-7f0599a0-f9996b18",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": 165
+    },
+    {
+     "claim": "2 relocations",
+     "id": "ev-7f0599a0-232c2ef5",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 2
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x200",
+     "id": "ev-7f0599a0-ab0e054c",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x200"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks small",
+     "detail": "2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+     "id": "ev-7f0599a0-54820198",
+     "kind": "memory-model",
+     "level": "info",
+     "location": {
+      "relocation_targets": [
+       "0x201",
+       "0x206"
+      ]
+     },
+     "value": {
+      "image_bytes": 165,
+      "model": "small",
+      "relocations": 2
+     }
+    },
+    {
+     "claim": "compiled C likely (4 stack prologues, 4.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-7f0599a0-1901ac08",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 4.0,
+      "prologues": 4
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 165,
+    "memory_model_guess": "small",
+    "prologue_density": 4.0,
+    "prologues": 4,
+    "relocations": 2,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 165 bytes, 2 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[INFO   ] memory model looks small",
+   "           2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+   "",
+   "[INFO   ] compiled C likely (4 stack prologues, 4.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
+ "mz/spread.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-43f63130-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 2,048 bytes",
+     "id": "ev-43f63130-070d966f",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0xa00",
+      "file_offset": "0x200"
+     },
+     "value": 2048
+    },
+    {
+     "claim": "3 relocations",
+     "id": "ev-43f63130-edfadbea",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 3
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x200",
+     "id": "ev-43f63130-ab0e054c",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x200"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "PKLITE signature present",
+     "detail": "Found at 0xC00, but the file has 3 relocations and normal frame density, so it does not look packed. Possibly incidental; confirm before acting on it.",
+     "id": "ev-43f63130-3b35384d",
+     "kind": "packer-signature",
+     "level": "warn",
+     "location": {
+      "file_offset": "0xc00"
+     },
+     "value": {
+      "near_entry": false,
+      "packer": "PKLITE",
+      "prologues_per_kb": 1.0,
+      "relocations": 3,
+      "signature": "PKLITE"
+     }
+    },
+    {
+     "claim": "2048 bytes past the load image",
+     "detail": "Could be appended data, could be overlays. The disassembler will not see it unless told to.",
+     "id": "ev-43f63130-749c91ed",
+     "kind": "trailing-data",
+     "level": "warn",
+     "location": {
+      "file_offset": "0xa00"
+     },
+     "value": 2048
+    },
+    {
+     "claim": "memory model looks compact, large or huge",
+     "detail": "3 relocations over 2 KB (1.50/KB): far pointers throughout, so more than one code or data segment",
+     "id": "ev-43f63130-04027752",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": [
+       "0x504",
+       "0x509",
+       "0x50e"
+      ]
+     },
+     "value": {
+      "image_bytes": 2048,
+      "model": "compact, large or huge",
+      "relocations": 3
+     }
+    },
+    {
+     "claim": "mixed or frame-pointer-free (2 prologues, 1.0/KB)",
+     "detail": "Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+     "id": "ev-43f63130-939f73d6",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0xa00",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 1.0,
+      "prologues": 2
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "emuverify.py assumes small model: It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 2048,
+    "memory_model_guess": "compact, large or huge",
+    "prologue_density": 1.0,
+    "prologues": 2,
+    "relocations": 3,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the PKLITE signature at 0xc00 is incidental, or a packer triage did not otherwise recognise",
+    "what the 2048 bytes past the load image are: appended data, overlays, or a packer's payload",
+    "which far-pointer model this is, and how many code and data segments it has",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 2,048 bytes, 3 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] PKLITE signature present",
+   "           Found at 0xC00, but the file has 3 relocations and normal frame density, so it does not look packed. Possibly incidental; confirm before acting on it.",
+   "",
+   "[WARN   ] 2048 bytes past the load image",
+   "           Could be appended data, could be overlays. The disassembler will not see it unless told to.",
+   "",
+   "[WARN   ] memory model looks compact, large or huge",
+   "           3 relocations over 2 KB (1.50/KB): far pointers throughout, so more than one code or data segment",
+   "",
+   "[WARN   ] emuverify.py assumes small model",
+   "           It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption.",
+   "",
+   "[WARN   ] mixed or frame-pointer-free (2 prologues, 1.0/KB)",
+   "           Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+   "",
+   "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+  ]
+ },
+ "other/notes.txt": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "not an MZ executable",
+     "detail": "No MZ signature. Not a DOS executable, or a container of some other kind.",
+     "id": "ev-156d4e13-d435c6e4",
+     "kind": "format",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "6e6f"
+    }
+   ],
+   "limitations": [
+    "Only MZ executables and .COM files are recognised; NE, PE and LE executables, archives and data files are all reported as not MZ."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "not-MZ",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : not-MZ",
+   "",
+   "[BLOCKER] not an MZ executable",
+   "           No MZ signature. Not a DOS executable, or a container of some other kind.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/appended-1024.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-084d9df5-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 165 bytes",
+     "id": "ev-084d9df5-f9996b18",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": 165
+    },
+    {
+     "claim": "2 relocations",
+     "id": "ev-084d9df5-232c2ef5",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 2
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x200",
+     "id": "ev-084d9df5-ab0e054c",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x200"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks small",
+     "detail": "2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+     "id": "ev-084d9df5-54820198",
+     "kind": "memory-model",
+     "level": "info",
+     "location": {
+      "relocation_targets": [
+       "0x201",
+       "0x206"
+      ]
+     },
+     "value": {
+      "image_bytes": 165,
+      "model": "small",
+      "relocations": 2
+     }
+    },
+    {
+     "claim": "compiled C likely (4 stack prologues, 4.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-084d9df5-1901ac08",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 4.0,
+      "prologues": 4
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 165,
+    "memory_model_guess": "small",
+    "prologue_density": 4.0,
+    "prologues": 4,
+    "relocations": 2,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 165 bytes, 2 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[INFO   ] memory model looks small",
+   "           2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+   "",
+   "[INFO   ] compiled C likely (4 stack prologues, 4.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
+ "shapes/appended-1025.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-0f4e7012-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 165 bytes",
+     "id": "ev-0f4e7012-f9996b18",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": 165
+    },
+    {
+     "claim": "2 relocations",
+     "id": "ev-0f4e7012-232c2ef5",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 2
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x200",
+     "id": "ev-0f4e7012-ab0e054c",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x200"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "1025 bytes past the load image",
+     "detail": "Could be appended data, could be overlays. The disassembler will not see it unless told to.",
+     "id": "ev-0f4e7012-2b770599",
+     "kind": "trailing-data",
+     "level": "warn",
+     "location": {
+      "file_offset": "0x2a5"
+     },
+     "value": 1025
+    },
+    {
+     "claim": "memory model looks small",
+     "detail": "2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+     "id": "ev-0f4e7012-54820198",
+     "kind": "memory-model",
+     "level": "info",
+     "location": {
+      "relocation_targets": [
+       "0x201",
+       "0x206"
+      ]
+     },
+     "value": {
+      "image_bytes": 165,
+      "model": "small",
+      "relocations": 2
+     }
+    },
+    {
+     "claim": "compiled C likely (4 stack prologues, 4.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-0f4e7012-1901ac08",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 4.0,
+      "prologues": 4
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 165,
+    "memory_model_guess": "small",
+    "prologue_density": 4.0,
+    "prologues": 4,
+    "relocations": 2,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "what the 1025 bytes past the load image are: appended data, overlays, or a packer's payload"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 165 bytes, 2 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] 1025 bytes past the load image",
+   "           Could be appended data, could be overlays. The disassembler will not see it unless told to.",
+   "",
+   "[INFO   ] memory model looks small",
+   "           2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+   "",
+   "[INFO   ] compiled C likely (4 stack prologues, 4.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
+ "shapes/exepack.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-36dafded-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 1,024 bytes",
+     "id": "ev-36dafded-b68e99f6",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x420",
+      "file_offset": "0x20"
+     },
+     "value": 1024
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-36dafded-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0020:0000, file offset 0x220",
+     "id": "ev-36dafded-170b4f39",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x220"
+     },
+     "value": "0020:0000"
+    },
+    {
+     "claim": "packed with Microsoft EXEPACK",
+     "detail": "The signature 'RB' sits exactly two bytes before the entry point, which is where EXEPACK's packed header ends. The entry point is its decompressor. `tools/unpack.py` handles this format with the original entry point read from the packer's own header, and recovers the image to 99.7% of a known-good unpacked build.",
+     "id": "ev-36dafded-9726097d",
+     "kind": "packer-marker",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x21e"
+     },
+     "value": "RB"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-36dafded-58a6a0ac",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 1024,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "few stack frames (0 prologues, 0.0/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-36dafded-da52544e",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x420",
+      "file_offset": "0x20"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.0,
+      "prologues": 0
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0020:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 1024,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 0.0,
+    "prologues": 0,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 1,024 bytes, 0 relocations",
+   "Entry  : 0020:0000",
+   "",
+   "[BLOCKER] packed with Microsoft EXEPACK",
+   "           The signature 'RB' sits exactly two bytes before the entry point, which is where EXEPACK's packed header ends. The entry point is its decompressor. `tools/unpack.py` handles this format with the original entry point read from the packer's own header, and recovers the image to 99.7% of a known-good unpacked build.",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[WARN   ] few stack frames (0 prologues, 0.0/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/fbov.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-df15bdef-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 165 bytes",
+     "id": "ev-df15bdef-f9996b18",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": 165
+    },
+    {
+     "claim": "2 relocations",
+     "id": "ev-df15bdef-232c2ef5",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 2
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x200",
+     "id": "ev-df15bdef-ab0e054c",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x200"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "overlaid program",
+     "detail": "Overlaid code is swapped into a shared region, so several functions occupy the same addresses at different times. Nothing here handles that; each overlay needs its own address space.",
+     "id": "ev-df15bdef-f652263b",
+     "kind": "overlay",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x2a5"
+     },
+     "value": {
+      "fbov_marker": true,
+      "overlay_number": 0
+     }
+    },
+    {
+     "claim": "memory model looks small",
+     "detail": "2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+     "id": "ev-df15bdef-54820198",
+     "kind": "memory-model",
+     "level": "info",
+     "location": {
+      "relocation_targets": [
+       "0x201",
+       "0x206"
+      ]
+     },
+     "value": {
+      "image_bytes": 165,
+      "model": "small",
+      "relocations": 2
+     }
+    },
+    {
+     "claim": "compiled C likely (4 stack prologues, 4.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-df15bdef-1901ac08",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 4.0,
+      "prologues": 4
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 165,
+    "memory_model_guess": "small",
+    "prologue_density": 4.0,
+    "prologues": 4,
+    "relocations": 2,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 165 bytes, 2 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[BLOCKER] overlaid program",
+   "           Overlaid code is swapped into a shared region, so several functions occupy the same addresses at different times. Nothing here handles that; each overlay needs its own address space.",
+   "",
+   "[INFO   ] memory model looks small",
+   "           2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+   "",
+   "[INFO   ] compiled C likely (4 stack prologues, 4.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/notes.bin": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "not an MZ executable",
+     "detail": "No MZ signature. Not a DOS executable, or a container of some other kind.",
+     "id": "ev-5a718592-d435c6e4",
+     "kind": "format",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "6e6f"
+    }
+   ],
+   "limitations": [
+    "Only MZ executables and .COM files are recognised; NE, PE and LE executables, archives and data files are all reported as not MZ."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "not-MZ",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : not-MZ",
+   "",
+   "[BLOCKER] not an MZ executable",
+   "           No MZ signature. Not a DOS executable, or a container of some other kind.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "survey/full/GAME.EXE": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-7f0599a0-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 165 bytes",
+     "id": "ev-7f0599a0-f9996b18",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": 165
+    },
+    {
+     "claim": "2 relocations",
+     "id": "ev-7f0599a0-232c2ef5",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 2
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x200",
+     "id": "ev-7f0599a0-ab0e054c",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x200"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks small",
+     "detail": "2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+     "id": "ev-7f0599a0-54820198",
+     "kind": "memory-model",
+     "level": "info",
+     "location": {
+      "relocation_targets": [
+       "0x201",
+       "0x206"
+      ]
+     },
+     "value": {
+      "image_bytes": 165,
+      "model": "small",
+      "relocations": 2
+     }
+    },
+    {
+     "claim": "compiled C likely (4 stack prologues, 4.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-7f0599a0-1901ac08",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x2a5",
+      "file_offset": "0x200"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 4.0,
+      "prologues": 4
+     }
+    },
+    {
+     "claim": "large opaque data files alongside",
+     "detail": "Biggest: LEVELS.DAT (40,000 bytes), SOUND.DAT (20,000 bytes). A small executable next to much larger data often means an interpreter with the content elsewhere. Check whether the game's text lives in the binary or in those files before committing.",
+     "id": "ev-7f0599a0-41d195b3",
+     "kind": "data-siblings",
+     "level": "warn",
+     "location": {
+      "beside": "GAME.EXE"
+     },
+     "value": [
+      {
+       "name": "LEVELS.DAT",
+       "size": 40000
+      },
+      {
+       "name": "SOUND.DAT",
+       "size": 20000
+      }
+     ]
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 165,
+    "memory_model_guess": "small",
+    "prologue_density": 4.0,
+    "prologues": 4,
+    "relocations": 2,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the game's text lives in the executable or in the data files beside it"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 165 bytes, 2 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] large opaque data files alongside",
+   "           Biggest: LEVELS.DAT (40,000 bytes), SOUND.DAT (20,000 bytes). A small executable next to much larger data often means an interpreter with the content elsewhere. Check whether the game's text lives in the binary or in those files before committing.",
+   "",
+   "[INFO   ] memory model looks small",
+   "           2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+   "",
+   "[INFO   ] compiled C likely (4 stack prologues, 4.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ }
+}
