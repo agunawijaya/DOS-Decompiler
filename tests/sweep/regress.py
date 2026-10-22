@@ -770,6 +770,10 @@ def _():
         (1, B, {R.UC_X86_REG_AX: 0xFC81, R.UC_X86_REG_BL: 7}, {}, None),     # -895
         (1, B, {R.UC_X86_REG_AX: 0xFC7F, R.UC_X86_REG_BL: 7}, {}, -128),     # -897: -128.1
         (1, B, {R.UC_X86_REG_AX: 0xFC79, R.UC_X86_REG_BL: 7}, {}, None),     # -903: -129
+        # 32768 / -1, the classic, and dividends whose top two bits differ.
+        (2, W, {**dxax(32768), R.UC_X86_REG_CX: 0xFFFF}, {}, -32768),
+        (2, W, {**dxax(0x40000000), R.UC_X86_REG_CX: 0x8000}, {}, -32768),   # 2**30 / -32768
+        (1, B, {R.UC_X86_REG_AX: 0x4000, R.UC_X86_REG_BL: 0x80}, {}, -128),  # 16384 / -128
     ]
     # Memory: [bp + 8] is SS's, [bx + si + 4] DS's, es:[di] ES's, and an
     # offset past 0xFFFF wraps. The wrong segment, or the index left out,
@@ -790,22 +794,31 @@ def _():
          {**decoys, **word_at(0x30010, 7)}, -32768),
         (1, ("mem", None, "bx", None, 0), {R.UC_X86_REG_AX: 896, **seg, R.UC_X86_REG_BX: 0x1000},
          {**decoys, 0x31000: 0xF9}, -128),
+        # An address with no register at all, and SI alone: both DS's. And an
+        # odd one, which a mask one bit short would read a byte early.
+        (2, ("mem", None, None, None, 0x34), {**dxax(-229376), **seg},
+         {**decoys, **word_at(0x30034, 7)}, -32768),
+        (2, ("mem", None, None, None, 0x35), {**dxax(-229376), **seg},
+         {0x30034: 0, **word_at(0x30035, 7)}, -32768),
+        (2, ("mem", None, "si", None, 0), {**dxax(-229376), **seg, R.UC_X86_REG_SI: 0x34},
+         {**decoys, **word_at(0x30034, 7)}, -32768),
     ]
     for size, operand, regs, memory, want in cases:
         got = prog._refused_by_8088(FakeUnicorn(regs, memory), size, operand)
         if got != want:
             raise AssertionError(f"{size}-byte IDIV of {operand} with {regs}: {got}, not {want}")
 
-    # Where it stops: on an 8088 only, only at an IDIV, at the IDIV itself.
+    # Where it stops: on an 8088 only, only at an IDIV, at the IDIV itself --
+    # in a code segment whose base shares bits with the offset, 1234:0567.
     form = (2, ("reg", "cx"))
     for cpu, given, want in (("8088", form, "divide: an 8088 refuses the quotient -32768"),
                              ("386", form, None), ("8088", None, None)):
         prog.cpu, prog.state = cpu, sweep.CaseState(None, None)
         uc = FakeUnicorn({**dxax(-229376), R.UC_X86_REG_CX: 7})
-        prog._on_divide(uc, 0x1000, 0x10023, sweep.Insn("div", 2, given, "idiv cx"))
+        prog._on_divide(uc, 0x1234, 0x12340 + 0x567, sweep.Insn("div", 2, given, "idiv cx"))
         st = prog.state
         if (st.end, uc.stopped) != (want, want is not None) or \
-                (want and st.where != (0x1000, 0x23)):
+                (want and st.where != (0x1234, 0x567)):
             raise AssertionError(f"{cpu}, form {given}: end {st.end!r} at {st.where}, "
                                  f"stopped {uc.stopped}")
 

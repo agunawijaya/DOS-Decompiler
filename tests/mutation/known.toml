@@ -943,3 +943,164 @@ signature = "df4fd69d15922b42"
 kind = "equivalent"
 mutant = "if v[\"in_scope\"] and v[\"confidence\"] <= \"high\":"
 why = "Confidence is only ever \"high\" or \"low\", and \"low\" sorts after \"high\", so <= \"high\" holds exactly when == does."
+
+[[survivor]]
+target = "triage"
+signature = "86ba71cf72bb6ec9"
+kind = "equivalent"
+mutant = "if data[max( -1, mz[\"entry\"] - 2):mz[\"entry\"]] == b\"RB\":"
+why = "The two slices differ only for an entry at file offset 0 or 1, where both are at most the file's first byte, never RB."
+
+[[survivor]]
+target = "triage"
+signature = "57a976768f45b586"
+kind = "equivalent"
+mutant = "and data.find(m) is not -1}"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "52948a132a01d1e6"
+kind = "equivalent"
+mutant = "if v[\"in_scope\"] and v[\"confidence\"] is \"high\":"
+why = "Confidence is only ever set from the literals \"high\" and \"low\", which CPython interns, so `is \"high\"` holds exactly when == does."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "478f6e80a2a0ddc8"
+kind = "equivalent"
+mutant = "if not ops or ops[ -1].size not in REFUSED_BY_8088:"
+why = "IDIV has one operand, so its last operand is its first."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "f3545037e11f3f2e"
+kind = "equivalent"
+mutant = "op = ops[ -1]"
+why = "IDIV has one operand, so its last operand is its first."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "1f42c5c34f4fa06f"
+kind = "equivalent"
+mutant = "if op.type is X86_OP_REG:"
+why = "X86_OP_REG is a small int, of which CPython keeps one object, so `is` is ==."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "cc5c8d0bab97afc5"
+kind = "equivalent"
+mutant = "if op.type <= X86_OP_REG:"
+why = "An IDIV's operand is a register (1) or memory (3), so <= 1 holds exactly for a register."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "5dcc7d1df5969243"
+kind = "equivalent"
+mutant = "if op.type >= X86_OP_MEM:"
+why = "Past the register case an IDIV's operand can only be memory (X86_OP_MEM, 3), so any test memory passes gives the same."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "7b3bd2988be5d8be"
+kind = "equivalent"
+mutant = "if op.type <= X86_OP_MEM:"
+why = "Past the register case an IDIV's operand can only be memory (X86_OP_MEM, 3), so any test memory passes gives the same."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "4f79b49a9f70bb53"
+kind = "equivalent"
+mutant = "if op.type is X86_OP_MEM:"
+why = "Past the register case an IDIV's operand can only be memory (X86_OP_MEM, 3), so any test memory passes gives the same."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "9ae6361fe65f049e"
+kind = "equivalent"
+mutant = "if self.cpu < \"8088\" or not insn.form:"
+why = "The CPU is 8088 or 386 (Program refuses any other), and \"386\" sorts before \"8088\", so < \"8088\" holds exactly when != does."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "369e3ec4fe67ff4d"
+kind = "equivalent"
+mutant = "st.where = (cs, linear % (cs << 4))"
+why = "A sweep's CS is 0x1000 or above, so CS * 16 exceeds every offset, and the remainder is the offset, as the difference is."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "82cbf29ad5940d07"
+kind = "equivalent"
+mutant = "if operand[0] >= \"reg\":"
+why = "The operand is \"reg\" or \"mem\", and \"mem\" sorts before \"reg\", so >= is ==."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "49e58c7618b79a39"
+kind = "equivalent"
+mutant = "reg = (BYTE_REGISTERS if size <= 1 else REGISTERS)[operand[1]]"
+why = "The size is 1 or 2, the only ones idiv_form returns, so the two tests agree on both."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "dc27c952a8a4fb27"
+kind = "equivalent"
+mutant = "if size >= 2:"
+why = "The size is 1 or 2, the only ones idiv_form returns, so the two tests agree on both."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "20e01b9dc923ffd2"
+kind = "equivalent"
+mutant = "dividend = signed((uc.reg_read(UC_X86_REG_DX) << 16) ^ uc.reg_read(UC_X86_REG_AX), 32)"
+why = "DX shifted left by 16 has no bit in common with AX, a 16-bit register, so adding or xor-ing them is or-ing them."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "84c7f688819e7576"
+kind = "equivalent"
+mutant = "dividend = signed((uc.reg_read(UC_X86_REG_DX) << 16) + uc.reg_read(UC_X86_REG_AX), 32)"
+why = "DX shifted left by 16 has no bit in common with AX, a 16-bit register, so adding or xor-ing them is or-ing them."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "d53a84201ca9c31e"
+kind = "equivalent"
+mutant = "if (dividend < 0) != (divisor <= 0):"
+why = "A divisor of 0 returns before this line, so the two comparisons agree on every divisor that reaches it."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "8bb8ba79d54c87fb"
+kind = "equivalent"
+mutant = "if (dividend < 0) != (divisor < 1):"
+why = "A divisor of 0 returns before this line, so the two comparisons agree on every divisor that reaches it."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "7d05c08fbe00b280"
+kind = "equivalent"
+mutant = "if (dividend < 1) != (divisor < 0):"
+why = "It differs only for a dividend of 0, whose quotient, 0, is never refused."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "114cf78c156b6cbb"
+kind = "equivalent"
+mutant = "if (dividend <= 0) != (divisor < 0):"
+why = "It differs only for a dividend of 0, whose quotient, 0, is never refused."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "1907903a0523fbd7"
+kind = "equivalent"
+mutant = "if (dividend < -1) != (divisor < 0):"
+why = "It differs only for a dividend of -1, whose quotient is -1, 0 or 1, never -32768 or -128."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "7dc56e0279f8a112"
+kind = "equivalent"
+mutant = "if (dividend < 0) is not (divisor < 0):"
+why = "Both sides are booleans, and CPython has one True and one False, so `is not` is !=."
