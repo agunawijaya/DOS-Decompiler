@@ -45,6 +45,7 @@ import json
 import os
 import shlex
 import shutil
+import signal
 import socket
 import sqlite3
 import subprocess
@@ -134,6 +135,32 @@ def wait_for(port, seconds=60):
         except OSError:
             time.sleep(0.2)
     return False
+
+
+def end_strays(work):
+    """End every process still running a program from the copies, and say how
+    many there were. A test cosmic-ray stops at its timeout is killed alone:
+    the tools it started run on. Measured in prompt 08: twenty comrec.py
+    processes, each looping on a mutant of the round trip, still running
+    hours after two runs ended, a core each, and slowing every run after."""
+    marker = str(work)
+    if os.name == "nt":
+        script = ("Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $PID -and "
+                  "$_.CommandLine -and $_.CommandLine.Contains('" + marker.replace("'", "''")
+                  + "') } | ForEach-Object { $_.ProcessId }")
+        found = subprocess.run(["powershell", "-NoProfile", "-Command", script],
+                               capture_output=True, text=True).stdout.split()
+    else:
+        found = [line.split(None, 1)[0] for line in subprocess.run(
+            ["ps", "-eo", "pid=,args="], capture_output=True, text=True).stdout.splitlines()
+            if marker in line]
+    pids = [int(p) for p in found if p.isdigit() and int(p) != os.getpid()]
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError:
+            pass
+    return len(pids)
 
 
 def tool(cosmic_ray, name):
@@ -355,9 +382,14 @@ def main():
             except RuntimeError as e:
                 print(f"  {t['name']}: {e}", flush=True)
                 tally = None
+            strays = end_strays(work)
+            if strays:
+                print(f"  {t['name']}: ended {strays} process(es) a timed-out test left "
+                      f"running", flush=True)
             if tally is None:
                 failed = True
                 continue
+            tally["strays_ended"] = strays
             results[t["name"]] = tally
             print(f"  {t['name']:<14} {tally['scope']:4} mutants  {tally['killed']:4} killed "
                   f"({tally['timeout']} by timeout)  {tally['survived']:3} survived  "
@@ -369,6 +401,7 @@ def main():
             w.kill()
         for w in workers:
             w.wait()
+        end_strays(work)
         shutil.rmtree(work, ignore_errors=True)
 
     (out / "summary.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
