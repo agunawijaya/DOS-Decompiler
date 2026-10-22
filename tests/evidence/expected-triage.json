@@ -1005,6 +1005,126 @@
    "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
   ]
  },
+ "mz/numbers.exe": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-4f965aeb-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 1,024 bytes",
+     "id": "ev-4f965aeb-0383a531",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": 1024
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-4f965aeb-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-4f965aeb-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-4f965aeb-58a6a0ac",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 1024,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "compiled C likely (2 stack prologues, 2.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-4f965aeb-1a84b348",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 2.0,
+      "prologues": 2
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 1024,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 2.0,
+    "prologues": 2,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 1,024 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[INFO   ] compiled C likely (2 stack prologues, 2.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
  "mz/overlay.exe": {
   "envelope": {
    "evidence": [
@@ -1628,7 +1748,7 @@
    "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
   ]
  },
- "shapes/appended-1024.exe": {
+ "shapes/appended-1024": {
   "envelope": {
    "evidence": [
     {
@@ -1749,7 +1869,7 @@
    "VERDICT: in scope. Run tools/pipeline.ps1."
   ]
  },
- "shapes/appended-1025.exe": {
+ "shapes/appended-1025": {
   "envelope": {
    "evidence": [
     {
@@ -1886,7 +2006,539 @@
    "VERDICT: in scope. Run tools/pipeline.ps1."
   ]
  },
- "shapes/exepack.exe": {
+ "shapes/beside-2000": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-4f965aeb-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 1,024 bytes",
+     "id": "ev-4f965aeb-0383a531",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": 1024
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-4f965aeb-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-4f965aeb-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-4f965aeb-58a6a0ac",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 1024,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "compiled C likely (2 stack prologues, 2.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-4f965aeb-1a84b348",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 2.0,
+      "prologues": 2
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 1024,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 2.0,
+    "prologues": 2,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 1,024 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[INFO   ] compiled C likely (2 stack prologues, 2.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
+ "shapes/beside-4096": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-4f965aeb-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 1,024 bytes",
+     "id": "ev-4f965aeb-0383a531",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": 1024
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-4f965aeb-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-4f965aeb-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-4f965aeb-58a6a0ac",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 1024,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "compiled C likely (2 stack prologues, 2.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-4f965aeb-1a84b348",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 2.0,
+      "prologues": 2
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 1024,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 2.0,
+    "prologues": 2,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 1,024 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[INFO   ] compiled C likely (2 stack prologues, 2.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
+ "shapes/beside-4097": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-4f965aeb-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 1,024 bytes",
+     "id": "ev-4f965aeb-0383a531",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": 1024
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-4f965aeb-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-4f965aeb-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-4f965aeb-58a6a0ac",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 1024,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "compiled C likely (2 stack prologues, 2.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-4f965aeb-1a84b348",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 2.0,
+      "prologues": 2
+     }
+    },
+    {
+     "claim": "large opaque data files alongside",
+     "detail": "Biggest: DATA0.DAT (4,097 bytes). A small executable next to much larger data often means an interpreter with the content elsewhere. Check whether the game's text lives in the binary or in those files before committing.",
+     "id": "ev-4f965aeb-a776e60b",
+     "kind": "data-siblings",
+     "level": "warn",
+     "location": {
+      "beside": "GAME.EXE"
+     },
+     "value": [
+      {
+       "name": "DATA0.DAT",
+       "size": 4097
+      }
+     ]
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 1024,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 2.0,
+    "prologues": 2,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both",
+    "whether the game's text lives in the executable or in the data files beside it"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 1,024 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[WARN   ] large opaque data files alongside",
+   "           Biggest: DATA0.DAT (4,097 bytes). A small executable next to much larger data often means an interpreter with the content elsewhere. Check whether the game's text lives in the binary or in those files before committing.",
+   "",
+   "[INFO   ] compiled C likely (2 stack prologues, 2.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
+ "shapes/beside-four": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-4f965aeb-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 1,024 bytes",
+     "id": "ev-4f965aeb-0383a531",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": 1024
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-4f965aeb-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-4f965aeb-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-4f965aeb-58a6a0ac",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 1024,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "compiled C likely (2 stack prologues, 2.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-4f965aeb-1a84b348",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 2.0,
+      "prologues": 2
+     }
+    },
+    {
+     "claim": "large opaque data files alongside",
+     "detail": "Biggest: DATA0.DAT (6,000 bytes), DATA1.DAT (3,000 bytes), DATA2.DAT (2,000 bytes). A small executable next to much larger data often means an interpreter with the content elsewhere. Check whether the game's text lives in the binary or in those files before committing.",
+     "id": "ev-4f965aeb-8039d9d4",
+     "kind": "data-siblings",
+     "level": "warn",
+     "location": {
+      "beside": "GAME.EXE"
+     },
+     "value": [
+      {
+       "name": "DATA0.DAT",
+       "size": 6000
+      },
+      {
+       "name": "DATA1.DAT",
+       "size": 3000
+      },
+      {
+       "name": "DATA2.DAT",
+       "size": 2000
+      },
+      {
+       "name": "DATA3.DAT",
+       "size": 1500
+      }
+     ]
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 1024,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 2.0,
+    "prologues": 2,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both",
+    "whether the game's text lives in the executable or in the data files beside it"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 1,024 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[WARN   ] large opaque data files alongside",
+   "           Biggest: DATA0.DAT (6,000 bytes), DATA1.DAT (3,000 bytes), DATA2.DAT (2,000 bytes). A small executable next to much larger data often means an interpreter with the content elsewhere. Check whether the game's text lives in the binary or in those files before committing.",
+   "",
+   "[INFO   ] compiled C likely (2 stack prologues, 2.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
+ "shapes/exepack": {
   "envelope": {
    "evidence": [
     {
@@ -2021,7 +2673,7 @@
    "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
   ]
  },
- "shapes/fbov.exe": {
+ "shapes/fbov": {
   "envelope": {
    "evidence": [
     {
@@ -2159,6 +2811,367 @@
    "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
   ]
  },
+ "shapes/frames-0.5": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-02d539e4-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 2,048 bytes",
+     "id": "ev-02d539e4-e9f08006",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x840",
+      "file_offset": "0x40"
+     },
+     "value": 2048
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-02d539e4-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-02d539e4-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-02d539e4-eb75df05",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 2048,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "mixed or frame-pointer-free (1 prologues, 0.5/KB)",
+     "detail": "Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+     "id": "ev-02d539e4-4934c404",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x840",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.5,
+      "prologues": 1
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 2048,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 0.5,
+    "prologues": 1,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 2,048 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[WARN   ] mixed or frame-pointer-free (1 prologues, 0.5/KB)",
+   "           Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
+ "shapes/frames-2.0": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-d88568e1-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 960 bytes",
+     "id": "ev-d88568e1-bc852ec1",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x400",
+      "file_offset": "0x40"
+     },
+     "value": 960
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-d88568e1-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-d88568e1-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-d88568e1-7a688318",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 960,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "compiled C likely (2 stack prologues, 2.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-d88568e1-892293bb",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x400",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 2.0,
+      "prologues": 2
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 960,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 2.0,
+    "prologues": 2,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 960 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[INFO   ] compiled C likely (2 stack prologues, 2.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
+ "shapes/frames-2.33": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-3687b309-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 3,072 bytes",
+     "id": "ev-3687b309-73208d33",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0xc40",
+      "file_offset": "0x40"
+     },
+     "value": 3072
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-3687b309-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-3687b309-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-3687b309-a511b00c",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 3072,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "compiled C likely (7 stack prologues, 2.3/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-3687b309-d6fb72d1",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0xc40",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 2.33,
+      "prologues": 7
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 3072,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 2.33,
+    "prologues": 7,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 3,072 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[INFO   ] compiled C likely (7 stack prologues, 2.3/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: in scope. Run tools/pipeline.ps1."
+  ]
+ },
  "shapes/notes.bin": {
   "envelope": {
    "evidence": [
@@ -2204,6 +3217,1317 @@
    "           No MZ signature. Not a DOS executable, or a container of some other kind.",
    "",
    "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/pklite-0.1": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-40468486-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 10,240 bytes",
+     "id": "ev-40468486-b57c141c",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x2840",
+      "file_offset": "0x40"
+     },
+     "value": 10240
+    },
+    {
+     "claim": "3 relocations",
+     "id": "ev-40468486-edfadbea",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 3
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-40468486-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "packed with PKLITE",
+     "detail": "Signature at 0x840, 3 relocations and 0.1 prologues/KB -- the visible code is a decompressor, not the program. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-0.1.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+     "id": "ev-40468486-a983d317",
+     "kind": "packer-signature",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x840"
+     },
+     "value": {
+      "near_entry": false,
+      "packer": "PKLITE",
+      "prologues_per_kb": 0.1,
+      "relocations": 3,
+      "signature": "PKLITE"
+     }
+    },
+    {
+     "claim": "memory model looks small or medium",
+     "detail": "3 relocations over 10 KB (0.30/KB): few far references",
+     "id": "ev-40468486-3283c723",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": [
+       "0x440",
+       "0x540",
+       "0x640"
+      ]
+     },
+     "value": {
+      "image_bytes": 10240,
+      "model": "small or medium",
+      "relocations": 3
+     }
+    },
+    {
+     "claim": "few stack frames (1 prologues, 0.1/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-40468486-85a4c43a",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x2840",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.1,
+      "prologues": 1
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "emuverify.py assumes small model: It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 10240,
+    "memory_model_guess": "small or medium",
+    "prologue_density": 0.1,
+    "prologues": 1,
+    "relocations": 3,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the memory model is small or medium; the relocations fit both",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 10,240 bytes, 3 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[BLOCKER] packed with PKLITE",
+   "           Signature at 0x840, 3 relocations and 0.1 prologues/KB -- the visible code is a decompressor, not the program. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-0.1.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+   "",
+   "[WARN   ] memory model looks small or medium",
+   "           3 relocations over 10 KB (0.30/KB): few far references",
+   "",
+   "[WARN   ] emuverify.py assumes small model",
+   "           It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption.",
+   "",
+   "[WARN   ] few stack frames (1 prologues, 0.1/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/pklite-0.2": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-4cbe6573-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 5,120 bytes",
+     "id": "ev-4cbe6573-212ab1aa",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x1440",
+      "file_offset": "0x40"
+     },
+     "value": 5120
+    },
+    {
+     "claim": "3 relocations",
+     "id": "ev-4cbe6573-edfadbea",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 3
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-4cbe6573-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "PKLITE signature present",
+     "detail": "Found at 0x840, but the file has 3 relocations and normal frame density, so it does not look packed. Possibly incidental; confirm before acting on it.",
+     "id": "ev-4cbe6573-8f441abc",
+     "kind": "packer-signature",
+     "level": "warn",
+     "location": {
+      "file_offset": "0x840"
+     },
+     "value": {
+      "near_entry": false,
+      "packer": "PKLITE",
+      "prologues_per_kb": 0.2,
+      "relocations": 3,
+      "signature": "PKLITE"
+     }
+    },
+    {
+     "claim": "memory model looks compact, large or huge",
+     "detail": "3 relocations over 5 KB (0.60/KB): far pointers throughout, so more than one code or data segment",
+     "id": "ev-4cbe6573-48d69c72",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": [
+       "0x440",
+       "0x540",
+       "0x640"
+      ]
+     },
+     "value": {
+      "image_bytes": 5120,
+      "model": "compact, large or huge",
+      "relocations": 3
+     }
+    },
+    {
+     "claim": "few stack frames (1 prologues, 0.2/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-4cbe6573-47be31af",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x1440",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.2,
+      "prologues": 1
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "emuverify.py assumes small model: It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 5120,
+    "memory_model_guess": "compact, large or huge",
+    "prologue_density": 0.2,
+    "prologues": 1,
+    "relocations": 3,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the PKLITE signature at 0x840 is incidental, or a packer triage did not otherwise recognise",
+    "which far-pointer model this is, and how many code and data segments it has",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 5,120 bytes, 3 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] PKLITE signature present",
+   "           Found at 0x840, but the file has 3 relocations and normal frame density, so it does not look packed. Possibly incidental; confirm before acting on it.",
+   "",
+   "[WARN   ] memory model looks compact, large or huge",
+   "           3 relocations over 5 KB (0.60/KB): far pointers throughout, so more than one code or data segment",
+   "",
+   "[WARN   ] emuverify.py assumes small model",
+   "           It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption.",
+   "",
+   "[WARN   ] few stack frames (1 prologues, 0.2/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+  ]
+ },
+ "shapes/pklite-0.23": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-48b515e9-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 13,312 bytes",
+     "id": "ev-48b515e9-d9ef40c2",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x3440",
+      "file_offset": "0x40"
+     },
+     "value": 13312
+    },
+    {
+     "claim": "3 relocations",
+     "id": "ev-48b515e9-edfadbea",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 3
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-48b515e9-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "PKLITE signature present",
+     "detail": "Found at 0x840, but the file has 3 relocations and normal frame density, so it does not look packed. Possibly incidental; confirm before acting on it.",
+     "id": "ev-48b515e9-e10932c4",
+     "kind": "packer-signature",
+     "level": "warn",
+     "location": {
+      "file_offset": "0x840"
+     },
+     "value": {
+      "near_entry": false,
+      "packer": "PKLITE",
+      "prologues_per_kb": 0.23,
+      "relocations": 3,
+      "signature": "PKLITE"
+     }
+    },
+    {
+     "claim": "memory model looks small or medium",
+     "detail": "3 relocations over 13 KB (0.23/KB): few far references",
+     "id": "ev-48b515e9-db882c1d",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": [
+       "0x440",
+       "0x540",
+       "0x640"
+      ]
+     },
+     "value": {
+      "image_bytes": 13312,
+      "model": "small or medium",
+      "relocations": 3
+     }
+    },
+    {
+     "claim": "few stack frames (3 prologues, 0.2/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-48b515e9-928b7db0",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x3440",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.23,
+      "prologues": 3
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "emuverify.py assumes small model: It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 13312,
+    "memory_model_guess": "small or medium",
+    "prologue_density": 0.23,
+    "prologues": 3,
+    "relocations": 3,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the PKLITE signature at 0x840 is incidental, or a packer triage did not otherwise recognise",
+    "whether the memory model is small or medium; the relocations fit both",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 13,312 bytes, 3 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] PKLITE signature present",
+   "           Found at 0x840, but the file has 3 relocations and normal frame density, so it does not look packed. Possibly incidental; confirm before acting on it.",
+   "",
+   "[WARN   ] memory model looks small or medium",
+   "           3 relocations over 13 KB (0.23/KB): few far references",
+   "",
+   "[WARN   ] emuverify.py assumes small model",
+   "           It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption.",
+   "",
+   "[WARN   ] few stack frames (3 prologues, 0.2/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+  ]
+ },
+ "shapes/pklite-1-reloc": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-6f784b1b-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 2,048 bytes",
+     "id": "ev-6f784b1b-e9f08006",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x840",
+      "file_offset": "0x40"
+     },
+     "value": 2048
+    },
+    {
+     "claim": "1 relocation",
+     "id": "ev-6f784b1b-37c5d743",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 1
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-6f784b1b-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "packed with PKLITE",
+     "detail": "Signature at 0x740, 1 relocations and 0.5 prologues/KB -- the visible code is a decompressor, not the program. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-1-reloc.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+     "id": "ev-6f784b1b-dea1f464",
+     "kind": "packer-signature",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x740"
+     },
+     "value": {
+      "near_entry": false,
+      "packer": "PKLITE",
+      "prologues_per_kb": 0.5,
+      "relocations": 1,
+      "signature": "PKLITE"
+     }
+    },
+    {
+     "claim": "memory model looks small",
+     "detail": "1 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+     "id": "ev-6f784b1b-5bd2c45d",
+     "kind": "memory-model",
+     "level": "info",
+     "location": {
+      "relocation_targets": [
+       "0x440"
+      ]
+     },
+     "value": {
+      "image_bytes": 2048,
+      "model": "small",
+      "relocations": 1
+     }
+    },
+    {
+     "claim": "mixed or frame-pointer-free (1 prologues, 0.5/KB)",
+     "detail": "Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+     "id": "ev-6f784b1b-4934c404",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x840",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.5,
+      "prologues": 1
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 2048,
+    "memory_model_guess": "small",
+    "prologue_density": 0.5,
+    "prologues": 1,
+    "relocations": 1,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 2,048 bytes, 1 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[BLOCKER] packed with PKLITE",
+   "           Signature at 0x740, 1 relocations and 0.5 prologues/KB -- the visible code is a decompressor, not the program. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-1-reloc.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+   "",
+   "[WARN   ] mixed or frame-pointer-free (1 prologues, 0.5/KB)",
+   "           Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+   "",
+   "[INFO   ] memory model looks small",
+   "           1 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/pklite-1023": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-3a2aa9f0-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 4,096 bytes",
+     "id": "ev-3a2aa9f0-0599698f",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x1040",
+      "file_offset": "0x40"
+     },
+     "value": 4096
+    },
+    {
+     "claim": "3 relocations",
+     "id": "ev-3a2aa9f0-edfadbea",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 3
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-3a2aa9f0-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "packed with PKLITE",
+     "detail": "Signature at 0x43F, adjacent to the entry point. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-1023.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+     "id": "ev-3a2aa9f0-0636dd1a",
+     "kind": "packer-signature",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x43f"
+     },
+     "value": {
+      "near_entry": true,
+      "packer": "PKLITE",
+      "prologues_per_kb": 0.25,
+      "relocations": 3,
+      "signature": "PKLITE"
+     }
+    },
+    {
+     "claim": "memory model looks compact, large or huge",
+     "detail": "3 relocations over 4 KB (0.75/KB): far pointers throughout, so more than one code or data segment",
+     "id": "ev-3a2aa9f0-b11f12d2",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": [
+       "0x440",
+       "0x540",
+       "0x640"
+      ]
+     },
+     "value": {
+      "image_bytes": 4096,
+      "model": "compact, large or huge",
+      "relocations": 3
+     }
+    },
+    {
+     "claim": "few stack frames (1 prologues, 0.2/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-3a2aa9f0-008534d5",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x1040",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.25,
+      "prologues": 1
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "emuverify.py assumes small model: It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 4096,
+    "memory_model_guess": "compact, large or huge",
+    "prologue_density": 0.25,
+    "prologues": 1,
+    "relocations": 3,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "which far-pointer model this is, and how many code and data segments it has",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 4,096 bytes, 3 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[BLOCKER] packed with PKLITE",
+   "           Signature at 0x43F, adjacent to the entry point. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-1023.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+   "",
+   "[WARN   ] memory model looks compact, large or huge",
+   "           3 relocations over 4 KB (0.75/KB): far pointers throughout, so more than one code or data segment",
+   "",
+   "[WARN   ] emuverify.py assumes small model",
+   "           It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption.",
+   "",
+   "[WARN   ] few stack frames (1 prologues, 0.2/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/pklite-1024": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-45c3fe6b-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 4,096 bytes",
+     "id": "ev-45c3fe6b-0599698f",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x1040",
+      "file_offset": "0x40"
+     },
+     "value": 4096
+    },
+    {
+     "claim": "3 relocations",
+     "id": "ev-45c3fe6b-edfadbea",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 3
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-45c3fe6b-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "PKLITE signature present",
+     "detail": "Found at 0x440, but the file has 3 relocations and normal frame density, so it does not look packed. Possibly incidental; confirm before acting on it.",
+     "id": "ev-45c3fe6b-cf799083",
+     "kind": "packer-signature",
+     "level": "warn",
+     "location": {
+      "file_offset": "0x440"
+     },
+     "value": {
+      "near_entry": false,
+      "packer": "PKLITE",
+      "prologues_per_kb": 0.25,
+      "relocations": 3,
+      "signature": "PKLITE"
+     }
+    },
+    {
+     "claim": "memory model looks compact, large or huge",
+     "detail": "3 relocations over 4 KB (0.75/KB): far pointers throughout, so more than one code or data segment",
+     "id": "ev-45c3fe6b-b11f12d2",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": [
+       "0x440",
+       "0x540",
+       "0x640"
+      ]
+     },
+     "value": {
+      "image_bytes": 4096,
+      "model": "compact, large or huge",
+      "relocations": 3
+     }
+    },
+    {
+     "claim": "few stack frames (1 prologues, 0.2/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-45c3fe6b-008534d5",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x1040",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.25,
+      "prologues": 1
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "emuverify.py assumes small model: It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 4096,
+    "memory_model_guess": "compact, large or huge",
+    "prologue_density": 0.25,
+    "prologues": 1,
+    "relocations": 3,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the PKLITE signature at 0x440 is incidental, or a packer triage did not otherwise recognise",
+    "which far-pointer model this is, and how many code and data segments it has",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 4,096 bytes, 3 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] PKLITE signature present",
+   "           Found at 0x440, but the file has 3 relocations and normal frame density, so it does not look packed. Possibly incidental; confirm before acting on it.",
+   "",
+   "[WARN   ] memory model looks compact, large or huge",
+   "           3 relocations over 4 KB (0.75/KB): far pointers throughout, so more than one code or data segment",
+   "",
+   "[WARN   ] emuverify.py assumes small model",
+   "           It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption.",
+   "",
+   "[WARN   ] few stack frames (1 prologues, 0.2/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+  ]
+ },
+ "shapes/pklite-near": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-e4740af6-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 2,048 bytes",
+     "id": "ev-e4740af6-e9f08006",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x840",
+      "file_offset": "0x40"
+     },
+     "value": 2048
+    },
+    {
+     "claim": "3 relocations",
+     "id": "ev-e4740af6-edfadbea",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 3
+    },
+    {
+     "claim": "entry point 003B:0000, file offset 0x3F0",
+     "id": "ev-e4740af6-f3a11884",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x3f0"
+     },
+     "value": "003B:0000"
+    },
+    {
+     "claim": "packed with PKLITE",
+     "detail": "Signature at 0x410, adjacent to the entry point. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-near.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+     "id": "ev-e4740af6-222fc4ea",
+     "kind": "packer-signature",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x410"
+     },
+     "value": {
+      "near_entry": true,
+      "packer": "PKLITE",
+      "prologues_per_kb": 0.5,
+      "relocations": 3,
+      "signature": "PKLITE"
+     }
+    },
+    {
+     "claim": "memory model looks compact, large or huge",
+     "detail": "3 relocations over 2 KB (1.50/KB): far pointers throughout, so more than one code or data segment",
+     "id": "ev-e4740af6-2394a27d",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": [
+       "0x440",
+       "0x540",
+       "0x640"
+      ]
+     },
+     "value": {
+      "image_bytes": 2048,
+      "model": "compact, large or huge",
+      "relocations": 3
+     }
+    },
+    {
+     "claim": "mixed or frame-pointer-free (1 prologues, 0.5/KB)",
+     "detail": "Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+     "id": "ev-e4740af6-4934c404",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x840",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.5,
+      "prologues": 1
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "emuverify.py assumes small model: It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "003B:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 2048,
+    "memory_model_guess": "compact, large or huge",
+    "prologue_density": 0.5,
+    "prologues": 1,
+    "relocations": 3,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "which far-pointer model this is, and how many code and data segments it has",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 2,048 bytes, 3 relocations",
+   "Entry  : 003B:0000",
+   "",
+   "[BLOCKER] packed with PKLITE",
+   "           Signature at 0x410, adjacent to the entry point. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-near.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+   "",
+   "[WARN   ] memory model looks compact, large or huge",
+   "           3 relocations over 2 KB (1.50/KB): far pointers throughout, so more than one code or data segment",
+   "",
+   "[WARN   ] emuverify.py assumes small model",
+   "           It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption.",
+   "",
+   "[WARN   ] mixed or frame-pointer-free (1 prologues, 0.5/KB)",
+   "           Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/scumm": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-0b331ee7-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 1,024 bytes",
+     "id": "ev-0b331ee7-0383a531",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": 1024
+    },
+    {
+     "claim": "0 relocations",
+     "id": "ev-0b331ee7-a2aec33e",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 0
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-0b331ee7-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks tiny or packed",
+     "detail": "no relocations at all: either a single-segment program or a packed one",
+     "id": "ev-0b331ee7-58a6a0ac",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": []
+     },
+     "value": {
+      "image_bytes": 1024,
+      "model": "tiny or packed",
+      "relocations": 0
+     }
+    },
+    {
+     "claim": "compiled C likely (2 stack prologues, 2.0/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-0b331ee7-1a84b348",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x440",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 2.0,
+      "prologues": 2
+     }
+    },
+    {
+     "claim": "interpreted engine: LucasArts SCUMM",
+     "detail": "The executable is an interpreter; the game is bytecode and assets in the data files. Decompiling it yields a virtual machine, not the game. Look for an engine-specific tool instead.",
+     "id": "ev-0b331ee7-c72cd054",
+     "kind": "engine-marker",
+     "level": "blocker",
+     "location": {
+      "markers": {
+       "SCUMM": "0x140"
+      }
+     },
+     "value": [
+      "LucasArts SCUMM"
+     ]
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 1024,
+    "memory_model_guess": "tiny or packed",
+    "prologue_density": 2.0,
+    "prologues": 2,
+    "relocations": 0,
+    "verdict": {
+     "confidence": "high",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the program is a single segment or packed; no relocations fits both"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 1,024 bytes, 0 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[BLOCKER] interpreted engine: LucasArts SCUMM",
+   "           The executable is an interpreter; the game is bytecode and assets in the data files. Decompiling it yields a virtual machine, not the game. Look for an engine-specific tool instead.",
+   "",
+   "[WARN   ] memory model looks tiny or packed",
+   "           no relocations at all: either a single-segment program or a packed one",
+   "",
+   "[INFO   ] compiled C likely (2 stack prologues, 2.0/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/small-or-medium": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-bad69cc3-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 20,480 bytes",
+     "id": "ev-bad69cc3-ca60adf4",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x5040",
+      "file_offset": "0x40"
+     },
+     "value": 20480
+    },
+    {
+     "claim": "9 relocations",
+     "id": "ev-bad69cc3-d00176ce",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 9
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-bad69cc3-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "memory model looks small or medium",
+     "detail": "9 relocations over 20 KB (0.45/KB): few far references",
+     "id": "ev-bad69cc3-3f3ea255",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": [
+       "0x440",
+       "0x540",
+       "0x640",
+       "0x740",
+       "0x840",
+       "0x940",
+       "0xa40",
+       "0xb40",
+       "0xc40"
+      ]
+     },
+     "value": {
+      "image_bytes": 20480,
+      "model": "small or medium",
+      "relocations": 9
+     }
+    },
+    {
+     "claim": "compiled C likely (50 stack prologues, 2.5/KB)",
+     "detail": "Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+     "id": "ev-bad69cc3-ee2e925d",
+     "kind": "prologue-density",
+     "level": "info",
+     "location": {
+      "file_end": "0x5040",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 2.5,
+      "prologues": 50
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "emuverify.py assumes small model: It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 20480,
+    "memory_model_guess": "small or medium",
+    "prologue_density": 2.5,
+    "prologues": 50,
+    "relocations": 9,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": true
+    },
+    "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "whether the memory model is small or medium; the relocations fit both"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 20,480 bytes, 9 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] memory model looks small or medium",
+   "           9 relocations over 20 KB (0.45/KB): few far references",
+   "",
+   "[WARN   ] emuverify.py assumes small model",
+   "           It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption.",
+   "",
+   "[INFO   ] compiled C likely (50 stack prologues, 2.5/KB)",
+   "           Dense frame setup is what a period C compiler emits. Function recovery and library signatures both work well here.",
+   "",
+   "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
   ]
  },
  "survey/full/GAME.EXE": {

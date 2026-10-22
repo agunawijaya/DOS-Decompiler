@@ -68,6 +68,50 @@ class Skip(Exception):
     pass
 
 
+# fixtures/numbers.asm, built once per entry with its numbers on one of
+# triage's thresholds. Offsets in the image; the header is 0x40 bytes, so a
+# file offset is 0x40 more.
+NUMBERS = {
+    # Prologues per KB exactly 2.0 (compiled C), 7/3, and exactly 0.5 (mixed).
+    # 960 bytes is 0x3C0, with the header's 0x40 bit set: image_end ^
+    # image_start would not be its length.
+    "frames-2.0": ["IMAGE=960", "PROLOGUES=2"],
+    "frames-2.33": ["IMAGE=3072", "PROLOGUES=7"],
+    "frames-0.5": ["IMAGE=2048", "PROLOGUES=1"],
+    # Nine relocations over 20 KB, none near the entry: 0.45 per KB.
+    "small-or-medium": ["IMAGE=20480", "PROLOGUES=50", "RELOCS=9"],
+    # A signature 0x20 bytes past the entry, across 0x400 (file 0x3F0 and
+    # 0x410), in a file that is not stripped: packed, because it is near.
+    "pklite-near": ["IMAGE=2048", "PROLOGUES=1", "RELOCS=3", "ENTRY=0x3B0",
+                    "SIG='PKLITE'", "SIG_AT=0x3D0"],
+    # 1,023 bytes from the entry is near; 1,024 is not.
+    "pklite-1023": ["IMAGE=4096", "PROLOGUES=1", "RELOCS=3", "SIG='PKLITE'",
+                    "SIG_AT=1023"],
+    "pklite-1024": ["IMAGE=4096", "PROLOGUES=1", "RELOCS=3", "SIG='PKLITE'",
+                    "SIG_AT=1024"],
+    # Far from the entry: 0.2 prologues per KB is not stripped, 0.1 is; 3/13
+    # is not, and its density has three places to round; one relocation is.
+    "pklite-0.2": ["IMAGE=5120", "PROLOGUES=1", "RELOCS=3", "SIG='PKLITE'",
+                   "SIG_AT=0x800"],
+    "pklite-0.1": ["IMAGE=10240", "PROLOGUES=1", "RELOCS=3", "SIG='PKLITE'",
+                   "SIG_AT=0x800"],
+    "pklite-0.23": ["IMAGE=13312", "PROLOGUES=3", "RELOCS=3", "SIG='PKLITE'",
+                    "SIG_AT=0x800"],
+    "pklite-1-reloc": ["IMAGE=2048", "PROLOGUES=1", "RELOCS=1", "SIG='PKLITE'",
+                       "SIG_AT=0x700"],
+    # SCUMM spelled one way of the two triage knows.
+    "scumm": ["SIG='SCUMM'", "SIG_AT=0x100"],
+}
+# The default build is a 1,024-byte image in a 1,088-byte file, so four times
+# its image is 4,096 bytes, and a data file counts beside it from 1,089.
+SIBLINGS = {
+    "beside-4096": [4096],
+    "beside-4097": [4097],
+    "beside-2000": [2000],
+    "beside-four": [6000, 3000, 2000, 1500],
+}
+
+
 def unpack_cases():
     """tests/unpack/regress.py, imported for the EXEPACK layout it tests
     unpack.py's reader against."""
@@ -84,7 +128,7 @@ class Fixtures:
     """Everything assembled once, in one temporary folder."""
 
     def __init__(self, nasm, work):
-        self.work = work
+        self.work, self.nasm = work, nasm
         self.mz, self.com = {}, {}
         for asm in sorted((HERE / "fixtures").glob("*.asm")):
             self.mz[asm.stem] = self._build(nasm, asm, work / "mz" / f"{asm.stem}.exe")
@@ -97,10 +141,10 @@ class Fixtures:
         self.shapes = self._shapes()
 
     @staticmethod
-    def _build(nasm, src, out):
+    def _build(nasm, src, out, defines=()):
         out.parent.mkdir(parents=True, exist_ok=True)
-        r = subprocess.run([nasm, "-f", "bin", "-o", str(out), str(src)],
-                           capture_output=True, text=True)
+        r = subprocess.run([nasm, "-f", "bin", *[f"-D{d}" for d in defines], "-o", str(out),
+                            str(src)], capture_output=True, text=True)
         if r.returncode != 0:
             raise SystemExit(f"nasm could not build {src.name}:\n{r.stderr}")
         return out
@@ -152,7 +196,7 @@ class Fixtures:
         header[0:2] = b"MZ"
         struct.pack_into("<HHHHHHHHHHHH", header, 2, total % 512, (total + 511) // 512,
                          0, 2, 0, 0xFFFF, 0, 0, 0, at & 0xF, at >> 4, 0x1C)
-        return {
+        shapes = {
             "exepack": place("exepack.exe", bytes(header) + blob),
             # Triage warns past 1,024 bytes and not at them.
             "appended-1024": place("appended-1024.exe", smallc + bytes(1024)),
@@ -161,6 +205,20 @@ class Fixtures:
             "fbov": place("fbov.exe", smallc + b"FBOV" + bytes(2044)),
             "notes.bin": place("notes.bin", b"not an executable either\r\n"),
         }
+        for name, defines in NUMBERS.items():
+            path = self.work / "shapes" / name / f"{name}.exe"
+            shapes[name] = self._build(self.nasm, HERE / "fixtures" / "numbers.asm", path,
+                                       defines)
+        # A game beside data files: of exactly four times its image, one byte
+        # more, less (but larger than the game), and four of them, of which
+        # only the largest is over.
+        for name, sizes in SIBLINGS.items():
+            folder = self.work / "shapes" / name
+            shapes[name] = self._build(self.nasm, HERE / "fixtures" / "numbers.asm",
+                                       folder / "GAME.EXE")
+            for i, size in enumerate(sizes):
+                (folder / f"DATA{i}.DAT").write_bytes(bytes(size))
+        return shapes
 
     def files(self):
         return (list(self.mz.values()) + list(self.com.values()) + [self.text]
@@ -963,7 +1021,7 @@ def triage_files():
     on where the fixtures were built."""
     named = {f"mz/{p.name}": p for p in FIX.mz.values()}
     named.update({f"com/{p.name}": p for p in FIX.com.values()})
-    named.update({f"shapes/{p.name}": p for p in FIX.shapes.values()})
+    named.update({f"shapes/{name}": p for name, p in FIX.shapes.items()})
     named["other/notes.txt"] = FIX.text
     named["survey/full/GAME.EXE"] = FIX.folders["full"] / "GAME.EXE"
     return dict(sorted(named.items()))
