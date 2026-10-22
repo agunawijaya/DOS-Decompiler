@@ -1440,16 +1440,20 @@ def _():
 @case("with -NoLoadCorrection the two stop exactly as they did in prompt 02",
       ghidra=True)
 def _():
-    # The lines prompt 02 printed, copied from its report.
+    # The lines prompt 02 printed, copied from its report, but for the counts:
+    # prompt 08 added mappings.failures, one check more. It fails for the
+    # duplicated relocation, whose wrong word lies in a mapping's bytes (prompt
+    # 02 printed "4 of 28"), and passes for the dropped page, which no mapping
+    # covers at all ("2 of 28"). The first failure and its byte are prompt 02's.
     wants = {"DUPLICATED": [
-                 "load image: mismatch, 4 of 28 checks failed",
+                 "load image: mismatch, 5 of 29 checks failed",
                  "first failing check: relocations.words: expected each patched word "
                  "holds its value after every fixup to it, observed "
                  "['1006:0016: 0x1004 not 0x2004']",
                  "first differing byte: file 0xb7, 1006:0017 (linear 0x10077): "
                  "expected 0x20, observed 0x10"],
              "FULL_LAST_PAGE": [
-                 "load image: mismatch, 2 of 28 checks failed",
+                 "load image: mismatch, 2 of 29 checks failed",
                  "first failing check: module.coverage: expected file 0x40..0x3ff, "
                  "once, observed ['file 0x200..0x3ff not loaded']"]}
     for variant, lines in wants.items():
