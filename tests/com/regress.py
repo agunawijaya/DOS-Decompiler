@@ -16,6 +16,13 @@ come back as instructions, and a list of things the output has to contain.
 Those are what catch a regression that is still technically correct but has
 stopped being a decompilation.
 
+The claim has a second half: when the rebuild is not identical, comrec says
+so and names the first byte that differs. Two fixtures exist for that alone
+(REFUSALS): programs comrec cannot rebuild, where every instruction matches its
+own encoding and the file still differs, so only its last check -- the
+whole-file comparison -- can catch it. The byte it names is checked against an
+independent rebuild of the attempt it leaves behind.
+
 The fixtures are written here rather than taken from a real game because games
 from the period are still under copyright. They reproduce the patterns that
 made a real reconstruction hard -- ParaTrooper's measured figures are recorded
@@ -199,6 +206,20 @@ FORBIDDEN = {
 }
 
 
+# Fixtures comrec cannot rebuild, and must say so from its last check: every
+# instruction matched its own encoding, and the file still differs. name ->
+# (the bytes the file holds once, where the rebuild first differs; whether the
+# rebuild's byte there is above the original's). One of each direction, so a
+# comparison that only notices a larger byte, or only a smaller one, misses
+# the difference in one of them.
+REFUSALS = {
+    "fneni": (b"\xDB\xE0", True),       # CLD (FC) where the original has DB
+    "fndisi": (b"\xDB\xE1", False),     # MOV AX (B8) where the original has DB
+}
+LAST_CHECK = re.compile(r"FAILED: byte 0x([0-9A-F]+) differs though every "
+                        r"instruction matched its original encoding")
+
+
 def sha(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -260,6 +281,74 @@ def run_case(nasm, name, workdir):
     return True, f"byte-identical, {pct:.1f}% as instructions"
 
 
+def first_difference(a, b):
+    """Where two byte strings first differ, a shorter one differing at its end;
+    None when they are the same. Written here, not borrowed from comrec."""
+    for i, (x, y) in enumerate(zip(a, b)):
+        if x != y:
+            return i
+    return None if len(a) == len(b) else min(len(a), len(b))
+
+
+def run_refusal(nasm, name, workdir):
+    """comrec must refuse the file, name the first byte that differs, and be
+    right about it: the attempt it leaves behind is assembled here and
+    compared with the original independently."""
+    src = FIXTURES / f"{name}.asm"
+    original = workdir / f"{name}.com"
+    nasm_build(nasm, src, original)
+    asm = workdir / f"{name}.rec.asm"
+    r = subprocess.run([sys.executable, str(COMREC), str(original),
+                        "--out", str(asm), "--nasm", nasm],
+                       capture_output=True, text=True)
+    stdout = r.stdout
+    if r.returncode == 0 or "BYTE-IDENTICAL" in stdout:
+        return False, f"comrec claimed a rebuild it cannot make\n{stdout}{r.stderr}"
+    m = LAST_CHECK.search(stdout)
+    if not m:
+        return False, f"comrec refused, but not from its last check\n{stdout}{r.stderr}"
+    named = int(m.group(1), 16)
+
+    attempt = workdir / f"{name}.attempt.com"
+    nasm_build(nasm, asm, attempt)
+    data, built = original.read_bytes(), attempt.read_bytes()
+    actual = first_difference(data, built)
+    marker, above = REFUSALS[name]
+    if data.count(marker) != 1:
+        return False, f"{marker.hex()} is in the fixture {data.count(marker)} times, not once"
+    where = data.find(marker)
+    if (named, actual) != (where, where):
+        return False, (f"comrec named byte 0x{named:X}; the attempt first differs at "
+                       f"{actual if actual is None else hex(actual)}, the 8087 "
+                       f"instruction is at 0x{where:X}")
+    if (built[where] > data[where]) != above:
+        return False, (f"the rebuild has {built[where]:02X} where the original has "
+                       f"{data[where]:02X}: not the direction this fixture is for")
+    return True, (f"refused: byte 0x{named:X} differs (rebuild {built[where]:02X}, "
+                  f"original {data[where]:02X}), {len(data) - len(built)} bytes short")
+
+
+def first_mismatch_cases():
+    """The two outcomes no fixture reaches: a rebuild that is the original cut
+    short, and one longer than it. NASM never emits more than its listing
+    shows, and the 8087 fixtures differ before they end."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import comrec
+    r = comrec.Reconstructor.__new__(comrec.Reconstructor)
+    r.image = bytes([0x10, 0x20, 0x30])
+    cases = [(bytes([0x10, 0x20, 0x30]), None, "identical"),
+             (bytes([0x10, 0x20]), 2, "cut short"),
+             (bytes([0x10, 0x20, 0x30, 0x40]), 3, "one byte longer"),
+             (bytes([0x10, 0x21, 0x30]), 1, "a larger byte"),
+             (bytes([0x10, 0x1F, 0x30]), 1, "a smaller byte"),
+             (b"", 0, "empty")]
+    wrong = [f"{why}: {got!r}, not {want!r}" for built, want, why in cases
+             if (got := r.first_mismatch(built)) != want]
+    if wrong:
+        return False, "; ".join(wrong)
+    return True, f"{len(cases)} cases: identical, shorter, longer, larger, smaller, empty"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -285,12 +374,27 @@ def main():
             print(f"  {'PASS' if ok else 'FAIL'}  {name:<12} {detail}")
             if not ok:
                 failures += 1
+        for name in sorted(REFUSALS):
+            try:
+                ok, detail = run_refusal(nasm, name, work)
+            except SystemExit as e:
+                ok, detail = False, str(e)
+            print(f"  {'PASS' if ok else 'FAIL'}  {name:<12} {detail}")
+            if not ok:
+                failures += 1
+        ok, detail = first_mismatch_cases()
+        print(f"  {'PASS' if ok else 'FAIL'}  {'last check':<12} {detail}")
+        if not ok:
+            failures += 1
 
+    total = len(EXPECTATIONS) + len(REFUSALS) + 1
     print()
     if failures:
-        print(f"{failures} of {len(EXPECTATIONS)} fixtures failed.")
+        print(f"{failures} of {total} cases failed.")
         return 1
-    print(f"All {len(EXPECTATIONS)} .COM fixtures rebuild byte-identically.")
+    print(f"All {len(EXPECTATIONS)} .COM fixtures rebuild byte-identically; "
+          f"{len(REFUSALS)} it cannot rebuild are refused at the right byte; "
+          f"the last check's edges hold.")
     return 0
 
 
