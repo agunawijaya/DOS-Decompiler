@@ -58,6 +58,7 @@ python tools/emuverify.py sweep ORIGINAL.EXE SEG:OFF --domain domain.json
         | --candidate-exe REBUILT.EXE --candidate-entry SEG:OFF)
        [--functions out/functions.json] [--all] [--trace-on-divergence N]
        [--evidence result.json] [--dgroup PARA] [--max-cases N] [--seed S]
+       [--cpu 8088|386]
 ```
 
 Exit 0 verified, 1 mismatch, 3 blocked: the domain or the candidate could not
@@ -69,7 +70,9 @@ be read, or the candidate answered outside the contract.
 compiled the way a C compiler of the period does it: `IMUL`, keep the low
 word, `CWD`, `IDIV`. The product wraps at 16 bits. `IDIV` faults when `c` is
 0, and when the wrapped product is -32768 and `c` is -1, because +32768 does
-not fit.
+not fit. On an 8088, the sweep's default CPU, it also faults when that product
+meets `c = 1`: the quotient -32768 fits, and an 8088 refuses it all the same
+(below, "The CPU").
 
 The domain, `muldiv.json`:
 
@@ -94,15 +97,18 @@ def int16(value):
     return value - 0x10000 if value & 0x8000 else value
 
 
+def idiv(dividend, divisor):
+    """IDIV's quotient, truncated toward zero, where Python's // rounds down."""
+    quotient = abs(dividend) // abs(divisor)
+    return -quotient if (dividend < 0) != (divisor < 0) else quotient
+
+
 def muldiv(args, ctx):
     a, b, c = args
     product = int16(a * b)                  # IMUL, of which C keeps AX
-    if c == 0 or (product == -32768 and c == -1):
-        return {"fault": "divide"}          # IDIV: zero, or a quotient that does not fit
-    quotient = abs(product) // abs(c)       # IDIV truncates toward zero;
-    if (product < 0) != (c < 0):            # Python's // rounds down
-        quotient = -quotient
-    return {"ax": quotient}
+    if c == 0 or not -32768 < idiv(product, c) <= 32767:
+        return {"fault": "divide"}          # zero, out of range, or -32768 on an 8088
+    return {"ax": idiv(product, c)}
 ```
 
 The run, verbatim:
@@ -110,21 +116,24 @@ The run, verbatim:
 ```
 > python tools/emuverify.py sweep SWEEP.EXE 1000:0024 --domain muldiv.json \
          --candidate tests/sweep/fixtures/ref.py:muldiv --functions out/functions.json
-original   SWEEP.EXE 1000:0024, near; DGROUP 0x000b (the segment the startup loads into DS, at 1000:0003)
+original   SWEEP.EXE 1000:0024, near; DGROUP 0x000c (the segment the startup loads into DS, at 1000:0003)
 candidate  ref.py:muldiv (Python 3.11.9, in this process)
 domain     a range -300..300, b list of 3, c range -3..3; 12,621 cases in all
 cases      12,621 run of 12,621 (exhaustive)
 compared   ax, and faults
-agree      12,621 (1,805 divide faults on both sides)
+cpu        8088: IDIV faults on a quotient of -32768 or -128
+agree      12,621 (1,807 divide faults on both sides)
 coverage   8 of 8 instructions in the body (100.0%)
-time       0.75 s, 16,779 cases/s
+time       0.88 s, 14,375 cases/s
 
 VERIFIED over 12621 cases (exhaustive), 100.0% of the body exercised
 ```
 
-The 1,805 faults can be checked by hand. `c = 0` faults for every `a` and
+The 1,807 faults can be checked by hand. `c = 0` faults for every `a` and
 `b`: 601 × 3 = 1,803. A wrapped product of -32768 with `c = -1` happens only
 at `b = 128` and `a = ±256`, because 256 × 128 = 32768 wraps to -32768: 2 more.
+The same product with `c = 1` is the 8088's two: 1,807. Under `--cpu 386`,
+with a candidate that divides as a 386 does, it is 1,805.
 
 ### The JavaScript example, complete
 
@@ -141,6 +150,7 @@ where it wraps:
 | a product (exact where `a * b` may not be) | `Math.imul(a, b)` |
 | `IDIV`'s quotient, toward zero | `Math.trunc(p / q)` |
 | a divide fault | `return { fault: "divide" }`; JavaScript divides by zero without complaint |
+| the quotients an 8088's word `IDIV` returns | `-32768 < q && q <= 32767`; -32768 is a fault (-128 for a byte) |
 
 `clamp_store` uses two globals, presets a third and shifts unsigned:
 
@@ -174,12 +184,17 @@ The candidate, in `port.mjs`, with `muldiv` beside it for the wrapping:
 ```js
 const int16 = (v) => (v << 16) >> 16;
 
+// IDIV on an 8088: null for the divide fault, else the quotient.
+const idiv8088 = (dividend, divisor, low, high) => {
+  if (divisor === 0) return null;
+  const q = Math.trunc(dividend / divisor);
+  return low < q && q <= high ? q : null;
+};
+
 export function muldiv([a, b, c], ctx) {
   const product = int16(Math.imul(a, b));          // IMUL, of which C keeps AX
-  if (c === 0 || (product === -32768 && c === -1)) {
-    return { fault: "divide" };                    // what IDIV does instead
-  }
-  return { ax: Math.trunc(product / c) };
+  const q = idiv8088(product, c, -32768, 32767);
+  return q === null ? { fault: "divide" } : { ax: q };
 }
 
 export function clampStore([x], ctx) {
@@ -196,14 +211,15 @@ The run:
 ```
 > python tools/emuverify.py sweep SWEEP.EXE 1000:0033 --domain clamp_store.json \
          --candidate tests/sweep/fixtures/port.mjs:clampStore --functions out/functions.json
-original   SWEEP.EXE 1000:0033, near; DGROUP 0x000b (the segment the startup loads into DS, at 1000:0003)
+original   SWEEP.EXE 1000:0033, near; DGROUP 0x000c (the segment the startup loads into DS, at 1000:0003)
 candidate  port.mjs:clampStore (Node v22.17.0, one process for the sweep)
 domain     x range -50..50, g_limit list of 2; 202 cases in all
 cases      202 run of 202 (exhaustive)
 compared   writes, calls, and faults
+cpu        8088: IDIV faults on a quotient of -32768 or -128
 agree      202
 coverage   14 of 14 instructions in the body (100.0%)
-time       0.03 s, 6,172 cases/s
+time       0.03 s, 7,703 cases/s
 
 VERIFIED over 202 cases (exhaustive), 100.0% of the body exercised
 ```
@@ -304,9 +320,10 @@ had it.
 ## What the original does that a port must match
 
 **A divide fault is an outcome, not a crash.** `IDIV` by zero, and a quotient
-that does not fit — -32768 / -1 for a word — end the case as `divide`. The
-candidate must say `fault: "divide"` for exactly the same inputs. Forgetting
-the second condition is the classic port error. In the tests a Python
+that does not fit — -32768 / -1 for a word — end the case as `divide`, and on
+an 8088 so does a quotient of exactly -32768 (below). The candidate must say
+`fault: "divide"` for exactly the same inputs. Forgetting the second condition
+is the classic port error. In the tests a Python
 candidate that knows only about zero fails at case 941, `a=-256 b=128 c=-1`:
 
 ```
@@ -347,7 +364,7 @@ call fewer at `a=-2 b=0`.
 routine that depends on DOS or the BIOS is compared with that dependency
 removed, and the envelope's `limitations` says so.
 
-### Where Unicorn is not an 8088
+### The CPU: an 8088, unless `--cpu 386`
 
 Unicorn implements `IDIV` as the 80386 does. Intel's own list of the
 differences says: "The 80386 can generate the largest negative number as a
@@ -357,17 +374,94 @@ From 8086"](https://flint.cs.yale.edu/cs422/readings/i386/s14_07.htm).)
 [Ken Shirriff's reading of the 8086's divide
 microcode](http://www.righto.com/2023/04/reverse-engineering-8086-divide-microcode.html)
 explains why: it divides unsigned and fixes the sign afterwards, so a quotient
-of -32768 counts as an overflow. In the sweep, `-32768 / 1` returns -32768
-(measured: no interrupt, AX = 0x8000), where an 8088 would raise the divide
-fault. A port matched against the sweep will match a 386 there, not the PC
-the game shipped for. The quotient has to be exactly -32768 (or -128 for a
-byte), which a game seldom divides its way into. But when one does, the sweep
-cannot see it.
+of -32768 counts as an overflow. Left to Unicorn, `-32768 / 1` returns -32768
+(measured: no interrupt, AX = 0x8000), where an 8088 raises the divide fault.
+A port matched against that would match a 386, not the PC the game shipped
+for.
 
-The same section notes a second difference, which does not reach a sweep: "On
-the 8086/8088, the CS:IP value points to the next instruction", where the 386
-saves the one that failed. It matters only to a program with its own `INT 0`
-handler, and the sweep stops at the fault.
+So the sweep is an 8088 by default (prompt 08). A hook on every `IDIV` reads
+the divisor from its operand -- a register, or memory through the
+instruction's own segment, base, index and displacement -- takes the dividend
+from `DX:AX` (a word divide) or `AX` (a byte divide), and works the quotient
+out, truncated toward zero. When it is exactly -32768 for a word or -128 for a
+byte, the case ends as `divide` on that `IDIV`, after the same number of
+instructions as a fault Unicorn raises itself. Division by zero and a
+quotient that fits neither CPU are left to Unicorn. `DIV` is not touched: the
+two CPUs agree on it. The prose says which CPU it was, on a line of its own,
+and so do the envelope's `result.cpu` and its `limitations`. The original's
+fault says why when only an 8088 would raise it:
+
+```
+first divergence, case 9:
+  input      n=-229382
+  original   divide fault at 1000:00af (an 8088 refuses the quotient -32768)
+  candidate  ax=0x8000 (-32768)
+  differs    fault
+```
+
+`--cpu 386` is the old behaviour, for a program known to have needed a 286 or
+later. A binary candidate runs on the same CPU as the original. The
+comparison mode of `emuverify.py` is not touched: its output on three runs
+was byte-identical to that from before the change.
+
+**What a candidate has to do.** Divide as an 8088 does. A quotient is a divide
+fault when it is out of range or exactly the most negative value:
+
+```python
+def idiv(dividend, divisor):
+    quotient = abs(dividend) // abs(divisor)        # toward zero, not down
+    return -quotient if (dividend < 0) != (divisor < 0) else quotient
+
+def quot7(args, ctx):
+    (n,) = args
+    if not -32768 < idiv(n, 7) <= 32767:            # -32768 included: an 8088 refuses it
+        return {"fault": "divide"}
+    return {"ax": idiv(n, 7)}
+```
+
+```js
+// IDIV on an 8088: null for the divide fault, else the quotient.
+const idiv8088 = (dividend, divisor, low, high) => {
+  if (divisor === 0) return null;
+  const q = Math.trunc(dividend / divisor);
+  return low < q && q <= high ? q : null;          // -32768 < q <= 32767 for a word
+};
+
+export function quot7([n], ctx) {
+  const q = idiv8088(n, 7, -32768, 32767);
+  return q === null ? { fault: "divide" } : { ax: q };
+}
+```
+
+For a byte divide the bounds are -128 and 127. The comparison is `low < q`,
+not `low <= q`: written the 386's way, the port verifies under `--cpu 386`
+and fails under the default at the first input whose quotient is the most
+negative value, which is what the tests check.
+
+**The fixture.** `tests/sweep/fixtures/sweep.asm` has `quot7(long n)`, `n /
+7` by a word `IDIV` of `DX:AX` by `CX`, and `quot7b`, the same by a byte
+`IDIV` of `AX` by `BL`. Swept over the 21 values either side of the boundary,
+7 × -32768 = -229,376:
+
+| n | quotient | 8088 | 386 |
+|---|---|---|---|
+| -229,390 .. -229,383 (cases 1-8) | below -32768 | fault | fault |
+| -229,382 .. -229,376 (cases 9-15) | -32768 | **fault** | 0x8000 |
+| -229,375 .. -229,370 (cases 16-21) | -32767 | 0x8001 | 0x8001 |
+
+Under the default, a candidate that models the 8088 verifies with 15 faults
+on both sides; one that divides as a 386 does fails at case 9, `n=-229382`.
+Under `--cpu 386` the reverse: 8 faults, and the 8088 candidate fails at case
+9 with the original returning 0x8000. The byte form gives the same table at n
+= -910 .. -890, around 7 × -128 = -896. `muldiv` meets the rule too, through
+a memory operand: its wrapped product -32768 divided by 1 is two more faults
+on an 8088, 1,807 where a 386 has 1,805.
+
+The same section of Intel's list notes a second difference, which does not
+reach a sweep: "On the 8086/8088, the CS:IP value points to the next
+instruction", where the 386 saves the one that failed. It matters only to a
+program with its own `INT 0` handler, and the sweep stops at the fault. Other
+ways an 8088 differs from a 386 are not modelled either.
 
 ## Exhaustive and sampled
 
@@ -401,15 +495,16 @@ never reached:
 ```
 > python tools/emuverify.py sweep SWEEP.EXE 1000:0055 --domain rare.json \
          --candidate tests/sweep/fixtures/ref.py:rare --functions out/functions.json
-original   SWEEP.EXE 1000:0055, near; DGROUP 0x000b (the segment the startup loads into DS, at 1000:0003)
+original   SWEEP.EXE 1000:0055, near; DGROUP 0x000c (the segment the startup loads into DS, at 1000:0003)
 candidate  ref.py:rare (Python 3.11.9, in this process)
 domain     x range 0..1000; 1,001 cases in all
 cases      1,001 run of 1,001 (exhaustive)
 compared   ax, and faults
+cpu        8088: IDIV faults on a quotient of -32768 or -128
 agree      1,001
 coverage   8 of 10 instructions in the body (80.0%)
              never reached: 1000:0060..1000:0064 (2 instructions)
-time       0.06 s, 16,516 cases/s
+time       0.06 s, 17,794 cases/s
 
 VERIFIED over 1001 cases (exhaustive), 80.0% of the body exercised
 ```
@@ -437,6 +532,7 @@ And `--evidence` writes the envelope (`17-evidence.md`): tool
 not start). The `result` holds:
 
 - the original and candidate, with each one's DGROUP and how it was found;
+- `cpu`, `8088` or `386`;
 - the domain, with each dimension's boundary values;
 - `mode`, `seed`, `cases_run` and `agree`;
 - `faults_on_both_sides`;
@@ -452,18 +548,25 @@ last N instructions the original executed.
 On the machine this was built on (Windows 11, Python 3.11.9, Unicorn 2.1.4,
 Node 22.17.0): the arithmetic fixture's `muldiv` (12,621 cases, exhaustive)
 and `rare` over every `int16` (65,536 cases), each run twice, without
-`--functions`. The rate is the sweep's own `time` line, cases only:
+`--functions`. The rate is the sweep's own `time` line, cases only. Measured
+again in prompt 08, on an 8088, the default:
 
 | candidate | muldiv, cases/s | 65,536 cases, s |
 |---|---|---|
-| Python | 16,774 – 16,899 | 4.10 – 4.17 |
-| JavaScript, one Node process | 13,896 – 14,790 | 4.64 – 4.72 |
-| binary (two emulations a case) | 8,626 – 8,668 | 8.04 – 8.86 |
+| Python | 13,349 – 14,611 | 4.05 – 4.11 |
+| JavaScript, one Node process | 12,607 – 13,049 | 4.36 – 4.52 |
+| binary (two emulations a case) | 7,732 – 8,045 | 6.90 – 7.26 |
+
+Before the 8088 (prompt 05) the muldiv rates were 16,774 – 16,899, 13,896 –
+14,790 and 8,626 – 8,668. The difference is the 8088's hook: muldiv runs one
+`IDIV` a case, and three runs of each measured 14,050 – 14,198 cases a second
+under `--cpu 8088` against 16,602 – 17,177 under `--cpu 386`, about 12 µs an
+`IDIV`. `rare` has no `IDIV` and runs as fast as before.
 
 Most of the cost is the emulation, not the candidate: a binary candidate,
 which runs the emulator a second time per case, takes about twice as long as
 a Python one. Node's rate is lower on a short sweep, where its start-up is a
-larger share (202 cases at about 6,000 a second).
+larger share (202 cases at about 7,700 a second).
 
 **One emulator instance serves a whole sweep, and that has a trap,
 measured.** A divide fault ended with `emu_stop`

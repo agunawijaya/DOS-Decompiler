@@ -291,6 +291,38 @@ the pipeline. Synthetic dumps and exports, with every check's answer written
 down (`tests/loadimage/expected-checks.json`,
 `tests/bodies/expected-analyse.json`), now cover them without Ghidra.
 
+**A check no input reaches is as good as no check.** comrec's whole-file
+comparison runs after every instruction has matched its own encoding, so with
+an honest assembler it never saw a difference, and its byte loop could go.
+What reaches it was found by measuring, not reasoning: every spelling
+Capstone gives the one-byte opcodes, the x87 escapes and the group opcodes,
+2,794 of them, assembled one at a time. Two assembled to nothing
+(`08-com-reconstruction.md`), and the fixtures built on them kill the loop's
+removal and both of its one-sided comparisons.
+
+**A rule tested only far from its threshold passes wherever the threshold
+is.** Prompt 08's cases pinned triage's verdict for thirteen file shapes, and
+59 of its 315 mutants still survived (on a loaded machine, so some of the
+kills were timeouts). Nearly every survivor was a threshold moved or flipped
+where no fixture sat on it: 2.0 prologues per KB, 0x400 bytes from the entry,
+two relocations, a data file four times the image.
+`tests/evidence/fixtures/numbers.asm` takes each of triage's numbers from
+NASM's command line, so the suite builds it once per threshold with the number
+exactly on it. With those builds every one of the 295 mutants that is not
+equivalent is killed. The same held for the 8088's rule in the sweep: its
+fixtures divided by 7, a divisor too small to show a register read at the
+wrong width, and it took divisors that need all sixteen bits to show it.
+
+**A timed-out test's children run on.** cosmic-ray kills the test process at
+its timeout, and only that process. A tool the test started -- `comrec.py`,
+looping on a mutant of its round trip -- keeps running. Twenty were found
+still running hours after two runs had ended, a core each. Every
+measurement taken meanwhile shared the machine with them, and a loaded
+machine turns slow tests into timeouts, which count as kills: one triage run,
+with Ghidra exports running beside it, counted 38; the next, without them,
+none. `mutate.py` now ends such processes after each target. Do not run
+anything heavy beside a mutation run.
+
 **cosmic-ray's baseline does not run under the HTTP distributor.** Asked for a
 baseline with no worker listening, it reported success in 3.4 seconds without
 running a test. `tests/mutation/mutate.py` runs the unmutated suite itself.

@@ -144,7 +144,7 @@ nasm -f bin -o rebuilt.com src/game.asm
 # then compare SHA-256 of rebuilt.com against the original
 ```
 
-Two things to know before reporting results:
+Three things to know before reporting results:
 
 - **It produces assembly, not C.** Check for stack-frame prologues first
   (`tools/triage.py` reports prologue density). A program with none was written
@@ -153,6 +153,10 @@ Two things to know before reporting results:
   mostly artwork and lookup tables. ParaTrooper comes back at 28.6% of the file
   but 87.7% of the region that actually holds code; the first number describes
   the game, the second describes the recovery.
+- **An MZ's bytes past its load image are not rebuilt,** and comrec prints
+  `BYTE-IDENTICAL` anyway, about the image and header. `mzinfo.py` reports
+  such bytes; when it does, compare the rebuilt file's length with the
+  original's and say what is missing (`knowledge/08-com-reconstruction.md`).
 
 A `.COM` reconstruction is static: nothing is executed. When you need a
 reference to check a static reading against — a screen drawn from the file, a
@@ -502,6 +506,17 @@ code is a question to read, not a function to create. On Crimson Crown those
 runs were real handlers, reached through a table in data that recovery does not
 read (`knowledge/03-what-works.md`).
 
+The share to quote for a hand-written program is `claimed_of_code_region`,
+not `claimed`. `claimed` is a share of every block holding a function, and
+those blocks are mostly data. The code region is each block's range from the
+first code evidence to the last, and the report lists what each range rests
+on. A range whose only evidence is functions recovered from a prologue is
+listed and not counted. On the real programs measured, those were blocks of
+data, and the "functions" in them held instructions an 8088 does not have.
+Talisman claims 8.1% of its blocks and 65.8% of its code region. The region
+is a floor: code nothing claims, broken up by fill, can lie past its edge,
+as 1.4 KB of Talisman's does.
+
 ---
 
 ## Step 3b — Identify by matching, when reference source exists
@@ -653,7 +668,7 @@ outcomes the candidate must reproduce, not crashes. That is how a port's
 arithmetic is shown to be the original's: the 16-bit wraparound, the unsigned
 shift and the off-by-one comparison each show up at one input.
 
-Report three things with the verdict:
+Report four things with the verdict:
 
 - **Exhaustive or sampled.** A domain bigger than `max_cases` is sampled:
   boundary values, then random ones, with the seed. A sampled pass is not a
@@ -662,6 +677,10 @@ Report three things with the verdict:
   reached a fifth of the routine, and the sweep proved nothing about that
   fifth. It lists the ranges.
 - **The DGROUP it used,** which it prints with how it found it.
+- **The CPU.** The default is an 8088, whose `IDIV` also faults on a quotient
+  of exactly -32768 (or -128 for a byte), where Unicorn, like a 386, returns
+  it. A port of an 8088 game has to fault there too. `--cpu 386` is the old
+  behaviour, for a program that needed a later processor.
 
 `knowledge/18-oracle-sweeps.md` has the candidate contract, complete examples
 in both languages, and how to model 16-bit arithmetic in JavaScript.

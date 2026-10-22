@@ -953,6 +953,8 @@ that override is exactly the case being looked for.
 bodies: BODIES.EXE  (16 functions, load image verified)
 code        : 256 bytes in 1 block(s) holding functions (CODE_0 1000:0000..1000:00ff)
 claimed     : 220 bytes by some function's body (85.9%)
+code region : 248 bytes from the first code evidence to the last in 1 of 1 block(s) (96.9% of them); claimed 88.7% of it
+  1000:0000..1000:00f7      248 of 256 in CODE_0: bodies 12 ghidra-analysis, 2 recovered-code-pointer, 1 recovered-prologue, 1 recovered-split, 1 looks like code, 1 tail calls
 origins     : 12 ghidra-analysis, 2 recovered-code-pointer, 1 recovered-prologue, 1 recovered-split
 non-contiguous: 2
   1000:0070  FUN_1000_0070  2 ranges, 18 of 26 bytes
@@ -978,6 +980,55 @@ when the load verified. A word counts as a near pointer "into the code" when
 it lands in some function's body, not merely somewhere in those blocks. In a
 hand-written program the one block is code and data together, and with the
 block as the test every word of Talisman's data landed "in code" (measured).
+
+**The code region** (prompt 08) is what `claimed` should have been measured
+against in such a program. In each block that holds a body, one range, from
+the first byte of code evidence to the last. The evidence is what the export
+and this tool already have:
+
+| evidence | where it comes from |
+|---|---|
+| a function's body | every range of `body.ranges`, tagged with the function's `origin` |
+| an unclaimed run that looks like code | the classification above |
+| a tail call's instruction and its target | `tail_calls`: `via` and `target` |
+
+Data before the first piece and after the last is outside the range. Data
+between two pieces is inside it, as in comrec's code region, which trims data
+only off the ends. A body or a run that goes on into the next block is split
+between the two. Each range records the piece it starts with and the piece it
+ends with (the longer, where two share the byte), and what it rests on: its
+bodies counted by origin, its runs that look like code, its tail calls. Tail calls never lie outside a body in an
+export (the walk that finds them stays inside bodies), so they add evidence
+but, measured on five programs, no bytes.
+
+A range is **not counted** when every piece of evidence in it is a body
+RecoverFunctions guessed from a prologue alone (`origin`
+`recovered-prologue`). Three bytes, `55 8B EC`, are then all that says the
+block holds code. It is listed with `counted: false`, the reason, and each
+function's instructions that an 8088 does not have or a program of the
+period has no reason to contain (`residue.py`'s two lists). Each such range
+is an `unknowns` entry. On the four real programs that have them, every
+range like that was a block of data, and each of its eleven guesses held at
+least `ENTER`, an 80186 instruction (`03-what-works.md`). A tail call into a
+guess makes its block count: the target is a function some instruction
+calls.
+
+`claimed_of_code_region` is the share of the counted ranges some body
+covers, beside `claimed_percent`, which is unchanged. `code_region` has the
+ranges, their total, the share of the code blocks they make, and `how`, the
+rule above in one paragraph. Nothing else in the output changed: the twelve
+answers in `tests/bodies/expected-analyse.json` gained these two fields and a
+`code-region` evidence item per range, and nothing else.
+
+On the fixture above, the region ends with the routine nothing reaches,
+`1000:00ea..1000:00f7`, which no body claims and which looks like code, and
+leaves out the eight bytes of fill after it.
+
+The region is a floor, not a measurement of the code. Code no body claims
+and that does not look like code falls outside it. Talisman's first block
+ends 1.4 KB further on than its region, in routines a recovered function
+calls but nothing analysed, broken by zero fill into a run called "other"
+(`03-what-works.md`).
 
 Unclaimed runs are classified by `tools/residue.py`, the rules `comrec.py`
 classifies its residue by (`11-unreached-code.md`). They were moved there

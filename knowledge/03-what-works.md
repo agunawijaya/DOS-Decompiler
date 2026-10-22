@@ -65,6 +65,46 @@ share the blocks, and most of what is unclaimed is data. Talisman's 8.1% says
 that 92 KB of blocks hold 7.5 KB of functions, not that 85 KB of code was
 missed. The column worth reading is the last one.
 
+**The code region, since prompt 08.** Talisman is not one block. Three of its
+five blocks hold a function: `CODE_0` (11,888 B) and two of 51,984 and
+28,653 B that are data, each holding only functions RecoverFunctions guessed
+from a `55 8B EC` in it, two and three of them. Every such guess in
+Ootopos's and Transylvania's second blocks is the same, and every one of the
+eleven holds an instruction an 8088 does not have (`ENTER`, and `BOUND`,
+`ARPL`, `FISTTP` among others). `bodies.py` now derives, in each block, the
+range from the first code evidence to the last, and does not count a range
+whose only evidence is such guesses (`17-evidence.md`). Measured on the same
+five programs, exported again at prompt 08 (claimed unchanged):
+
+| program | load image | blocks holding a body | claimed | code region | of the blocks | of the image | claimed of the region |
+|---|---|---|---|---|---|---|---|
+| `adventur.exe` | 63,660 B | 2: 63,660 B | 72.1% | 61,869 B | 97.2% | 97.2% | **74.1%** |
+| Crimson Crown | 51,392 B | 1: 14,592 B | 66.0% | 11,749 B | 80.5% | 22.9% | **81.9%** |
+| Ootopos | 110,108 B | 2: 31,340 B | 21.8% | 10,775 B | 34.4% | 9.8% | **61.1%** |
+| Talisman | 171,405 B | 3: 92,525 B | 8.1% | 10,485 B | 11.3% | 6.1% | **65.8%** |
+| Transylvania | 102,764 B | 2: 23,916 B | 30.9% | 10,213 B | 42.7% | 9.9% | **68.5%** |
+
+Every counted range holds bodies Ghidra's own analysis found: 98 to 259 in
+each program's first block, and one in `adventur.exe`'s 316-byte second. No
+unclaimed run that looks like code, and no tail call, moved an edge in any of
+the five. The ranges not counted: Ootopos `2623:40e6..45cd`
+(1,256 B), Talisman `2629:8029..9db3` (7,563 B) and `32da:2f16..5786`
+(10,353 B), Transylvania `2616:1274..2197` (3,876 B).
+
+The edges were read in two programs. Crimson Crown's, its one block, are
+exact: 16 zero bytes, then the first body at `1000:0010`; the last body ends
+at `1000:2df4`, then zero fill to the block's end, and the next block opens
+with the text `a:cctitle.ms1`. Talisman's low edge is its entry, `1000:0000`.
+Its high edge, `1000:28f4`, is about 1.4 KB short. The last function,
+`1000:2629` (recovered from a code pointer), calls `1000:2da0`, and
+`1000:2900..2e6f` is code: routines on the same globals, ending in `ret`.
+Nothing claims it, because recovery runs after analysis and nothing analyses
+what it adds. And `bodies.py` calls the run "other", because zero fill inside
+it (`1000:2e08..2e0f`) breaks the decode. The block's own end is the code's
+end: the next block opens with `POLARWARE` and `Copyright 1987`. So the
+region is a floor, and its 65.8% an upper bound: with the whole block as
+code, 6,896 of 11,888 bytes are claimed, 58.0%.
+
 None of the five says "nothing unclaimed looks like code", unlike the four
 `.COM` reconstructions. The runs that do were read, not counted. A sample of
 the longest in two programs were plainly code:

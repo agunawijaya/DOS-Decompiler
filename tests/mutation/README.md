@@ -34,41 +34,48 @@ It is not part of `tests/run-all.ps1`, because it is slow (below).
 
 `scope.toml` lists the targets, each a module or a set of its functions, and
 the suite that should catch a change there. The first five decide `verified`
-against `mismatch`; the last three were added after them.
+against `mismatch`; the last four were added after them.
 
-Measured on Windows 11, an i9-14900HX (24 cores), 24 workers, before prompt
-07's tests were added; the new tests make the evidence, load-image and bodies
-suites slower, so a run now takes somewhat longer.
+Measured on Windows 11, an i9-14900HX (24 cores), 24 workers. The first five
+rows, placements' and the evidence suite's figures are from before prompt 07's
+tests were added, which made those suites slower; the loadimage, bodies,
+comrec, triage and 8088 rows are prompt 08's. Its loadimage and comrec runs
+shared the machine with orphaned processes (below), so those two times are
+high.
 
 | Target | Code | Tests | Mutants | Time |
 |---|---|---|---:|---:|
 | `evidence` | all of `tools/evidence.py` | `tests/evidence` | 304 | 1,549 s |
-| `loadimage` | the comparison in `tools/loadimage.py` | `tests/loadimage` | 1,049 | 386 s |
-| `bodies` | ranges and classification in `tools/bodies.py` | `tests/bodies` | 857 | 75 s |
+| `loadimage` | the comparison in `tools/loadimage.py` | `tests/loadimage` | 1,050 | 1,451 s |
+| `bodies` | ranges, classification and the code region in `tools/bodies.py` | `tests/bodies` | 1,202 | 192 s |
 | `sweep` | the sweep's comparison and coverage in `tools/sweep.py` | `tests/sweep` | 411 | 1,169 s |
 | `handshake` | the profile handshake in `tools/analysis_profile.py` | the handshake cases of `tests/evidence` | 87 | 142 s |
 | `placements` | all of `tools/placements.py` | `tests/placements` | 2,182 | 97 s |
-| `comrec` | the round trip that proves a rebuild in `tools/comrec.py` | `tests/com` | 295 | 185 s |
-| `triage` | the verdict in `tools/triage.py` | the triage cases of `tests/evidence` | 315 | 420 s |
+| `comrec` | the round trip that proves a rebuild in `tools/comrec.py` | `tests/com` | 295 | 252 s |
+| `triage` | the verdict in `tools/triage.py` | the triage cases of `tests/evidence` | 315 | 1,295 s |
+| `sweep-8088` | the 8088's `IDIV` rule in `tools/sweep.py` | `tests/sweep` | 336 | 1,615 s |
 
-The first five took 58 minutes of wall time together (the handshake's 142 s
-in a run of its own), the last three 12. `-Retest` runs only the survivors of
+The first five took 58 minutes of wall time together in prompt 07 (the
+handshake's 142 s in a run of its own); the last four take about an hour
+more, most of it triage's and the 8088's, whose suites build many fixtures
+or run many sweeps for every mutant. `-Retest` runs only the survivors of
 an earlier run, which is how new tests are checked: on the first five, after
 this prompt's tests, it took 29 minutes for their 1,049 survivors.
 
 The scores, as killed out of the mutants that are neither equivalent nor dead
 code (`known.toml`):
 
-| Target | Before prompt 07's tests | After |
-|---|---:|---:|
-| `evidence` | 182 / 280 (65.0%) | 280 / 280 |
-| `loadimage` | 634 / 1,030 (61.6%) | 1,030 / 1,030 |
-| `bodies` | 491 / 787 (62.4%) | 787 / 787 |
-| `sweep` | 302 / 405 (74.6%) | 405 / 405 |
-| `handshake` | 49 / 87 (56.3%) | 87 / 87 |
-| `placements` | 797 / 2,182 (36.5%), survivors not classified | not worked on |
-| `comrec` | 193 / 295 (65.4%), survivors not classified | not worked on |
-| `triage` | 101 / 315 (32.1%), survivors not classified | not worked on |
+| Target | Before prompt 07's tests | After prompt 07 | After prompt 08 |
+|---|---:|---:|---:|
+| `evidence` | 182 / 280 (65.0%) | 280 / 280 | not run again; `evidence.py` did not change |
+| `loadimage` | 634 / 1,030 (61.6%) | 1,030 / 1,030 | 1,034 / 1,034: `mappings.failures` replaced the dead count |
+| `bodies` | 491 / 787 (62.4%) | 787 / 787 | 1,126 / 1,126, with the code region |
+| `sweep` | 302 / 405 (74.6%) | 405 / 405 | not run again; its functions did not change |
+| `handshake` | 49 / 87 (56.3%) | 87 / 87 | not run again |
+| `placements` | 797 / 2,182 (36.5%), survivors not classified | not worked on | not worked on |
+| `comrec` | 193 / 295 (65.4%), survivors not classified | not worked on | 199 / 294 (67.7%): `first_mismatch` done, the rest not classified |
+| `triage` | 101 / 315 (32.1%), survivors not classified | not worked on | 295 / 295 |
+| `sweep-8088` | | | 316 / 316 |
 
 The scripts, and the suites that need Ghidra, are out of its reach; each of
 those tests was shown able to fail once by hand, with an injected fault
@@ -83,7 +90,7 @@ puts the file back; the working tree is never written. Before a target's
 mutants are sent out, its tests are run once on the unmutated code, and the
 target is skipped unless they pass.
 
-Two things about cosmic-ray that cost time to find:
+Four things about cosmic-ray that cost time to find:
 
 - **Its baseline does not run with the HTTP distributor.** `cosmic-ray
   baseline` sends the unmutated run to the workers like any other, and when no
@@ -91,6 +98,17 @@ Two things about cosmic-ray that cost time to find:
   `mutate.py` runs the baseline itself.
 - **It splits the test command the POSIX way**, so a Windows path with
   backslashes loses them. `mutate.py` passes forward slashes.
+- **A test it stops at its timeout is killed alone.** A tool the test started
+  runs on: in prompt 08, twenty `comrec.py` processes, each looping on a
+  mutant of the round trip, were still running hours after two runs ended, a
+  core each, and every run after them was slower for it. `mutate.py` now ends
+  every process whose command line names its copies, after each target, and
+  prints how many (`strays_ended` in `summary.json`).
+- **A machine that sleeps breaks a run.** A sleep on battery in prompt 08 left
+  the mutants in flight `ABNORMAL`, neither killed nor survived, and the next
+  target's worker connections gone. Run it on mains power, and run nothing
+  heavy beside it: a loaded machine turns slow tests into timeouts, which
+  count as kills.
 
 And two about the suites:
 

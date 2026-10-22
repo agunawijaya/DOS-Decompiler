@@ -137,6 +137,41 @@ flowchart TB
 The loop ends when the rebuilt file matches the original exactly. It cannot end
 any other way, so the output is either right or absent.
 
+### The last check, and the one place it is the only one
+
+After every instruction has matched, the whole rebuild is compared with the
+file once more, and a difference ends the run with `FAILED: byte 0x... differs
+though every instruction matched its original encoding`. Until prompt 08 no
+input reached that line, so its byte loop could be removed without a test
+noticing. One input does, with an honest assembler: Capstone 5.0.7 names the
+8087's `FNENI` (`DB E0`) `feni8087_nop` and `FNDISI` (`DB E1`)
+`fdisi8087_nop`. NASM 2.16.03 reads each as a label without a colon, a warning
+and not an error, and assembles it to nothing. A line that emits nothing has
+no listing row, so the per-instruction check has nothing to compare, and the
+file comes out two bytes short. Assembling all 2,794 spellings Capstone gives
+the one-byte opcodes, the second bytes after `0F`, the x87 escapes and the
+group opcodes, each on its own, found only these two.
+
+`tests/com/fixtures/fneni.asm` and `fndisi.asm` hold one each, and comrec
+refuses both at byte 0x9, the 8087 instruction. The suite rebuilds the attempt
+comrec leaves behind and checks that byte independently. A program for an
+8087 that enables or masks its interrupts this way is therefore refused, not
+mis-rebuilt. Teaching comrec the two spellings, or counting a line with no
+listing row as a mismatch, would rebuild it, and would leave the last check
+unreached again.
+
+### Bytes past an MZ's image are not rebuilt, and nothing says so
+
+For an MZ, the source covers the load image and the header is written beside
+it. Bytes in the file after the image (appended data, an overlay) are in
+neither. comrec still prints `BYTE-IDENTICAL`, because the image did rebuild,
+but the file put back together is short by exactly those bytes. Measured
+(prompt 08): `tests/com/fixtures/mzsingle.asm` with 100 bytes appended came
+back 590 bytes of 690. That claim is about less than the file the user handed
+over, which is what this route promises not to do. Until that changes,
+compare the length, or run `mzinfo.py` first: it reports bytes past the
+image.
+
 Asking NASM for a listing is what makes step 4 possible. Comparing the finished
 binary only reveals the *first* byte that differs, and a re-encoding shifts
 everything after it, so a whole-file diff cannot name the instruction at fault

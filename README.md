@@ -641,7 +641,9 @@ python tools\loadimage.py map out\loadimage.json --address 1000:0001
 
 # 1b. Which code no function claims, and whether any of it reads as code.
 #     Each function in functions.json carries its body as address ranges
-#     (ends inclusive) and its origin; see knowledge/17-evidence.md.
+#     (ends inclusive) and its origin; see knowledge/17-evidence.md. For a
+#     hand-written program read claimed_of_code_region, the share of the
+#     range the code evidence spans, not claimed, which counts the data too.
 python tools\bodies.py out\functions.json --evidence out\bodies.json
 
 # 2. Names from evidence alone — no reference source needed.
@@ -670,7 +672,8 @@ python tools\match.py src.json out\functions.json --align `
 #    original on every input of a domain against a JavaScript port, a Python
 #    reference (ref.py:fn) or a rebuild (--candidate-exe, --candidate-entry).
 #    Stops at the first input where they disagree; reports coverage of the
-#    routine's body. Exit 0 verified, 1 mismatch, 3 blocked.
+#    routine's body. Exit 0 verified, 1 mismatch, 3 blocked. The CPU is an
+#    8088 unless --cpu 386: IDIV also faults on a quotient of -32768 or -128.
 python tools\emuverify.py sweep path\to\GAME.EXE 1000:0024 --domain muldiv.json `
        --candidate port.mjs:muldiv --functions out\functions.json
 ```
@@ -1049,9 +1052,11 @@ knowledge/
 signatures/                  C runtime fingerprints: MS C 5.0, MS C 5.1, Watcom
 tests/run-all.ps1            every suite this machine can run; skips say why
 tests/sopwith/               the validation fixture and full case study
-tests/com/                   .COM fixtures, rebuilt byte-identically on every run
+tests/com/                   .COM fixtures, rebuilt byte-identically on every run;
+                             two it cannot rebuild, refused at the right byte
 tests/libscan/               entry-point recovery, checked against the MZ header
-tests/evidence/              envelopes, the handshake's logic, stale-result refusal
+tests/evidence/              envelopes, the handshake's logic, stale-result refusal;
+                             triage's verdict for every shape, and every threshold
 tests/handshake/             the profile handshake run through Ghidra itself
 tests/loadimage/             load-image correction and verification: correct,
                              corrected, tampered, malformed
@@ -1060,10 +1065,11 @@ tests/applynames/            names refused, applied, read back and rolled back,
 tests/farcall/               a far function in a second segment, for libsig.py
                              and emuverify.py: DGROUP from the startup, a
                              linker map's far code
-tests/bodies/                function bodies, origins, shared code, and what
-                             no function claims
+tests/bodies/                function bodies, origins, shared code, what no
+                             function claims, and the code region
 tests/sweep/                 sweeps against Python, JavaScript and a rebuild;
-                             wrong candidates caught at the planted input
+                             wrong candidates caught at the planted input; the
+                             8088's IDIV under both CPUs
 tests/mcp/                   the MCP server over stdio, through the SDK's client
 tests/mutation/              mutation testing of the comparison code: can the
                              tests fail? Slow, so not in run-all.ps1
@@ -1101,9 +1107,9 @@ and checks that some test notices each change:
 .\tests\mutation\run.ps1 -CosmicRay C:\path\to\cosmic-ray.exe
 ```
 
-Those five take about an hour with 24 workers, and the three others in
-`tests/mutation/scope.toml` (placements, comrec's proof, triage's verdict)
-twelve minutes more, so it is not part of `run-all.ps1`;
+Those five take about an hour with 24 workers, and the four others in
+`tests/mutation/scope.toml` (placements, comrec's proof, triage's verdict, the
+sweep's 8088) about an hour more, so it is not part of `run-all.ps1`;
 `tests/mutation/README.md` has the times, the scores and how to read the
 output. A change
 no test notices is a *survivor*: a gap in the tests, a change that makes no
@@ -1148,7 +1154,9 @@ python tests\com\regress.py
 ```
 
 Each fixture is reassembled and compared by SHA-256, so a regression cannot
-pass by accident. They are written rather than taken from a real game — games
+pass by accident. Two more, `fneni` and `fndisi`, hold an 8087 instruction
+comrec cannot spell for NASM; they must be refused, with the first byte that
+differs, which the suite checks against its own rebuild of the attempt. They are written rather than taken from a real game — games
 of the period are still under copyright — and two of the four bugs found while
 building this route were caught by a fixture rather than by the game, because a
 real binary only exercises the paths it happens to use.
