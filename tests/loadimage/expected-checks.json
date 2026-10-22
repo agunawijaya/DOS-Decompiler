@@ -234,6 +234,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -540,6 +550,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -856,6 +876,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -1164,6 +1194,16 @@
     "value": {
      "expected": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
      "observed": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -1500,6 +1540,16 @@
     "value": {
      "expected": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
      "observed": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -1847,6 +1897,16 @@
     "value": {
      "expected": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
      "observed": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -2215,6 +2275,18 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "1 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_3 1006:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "mismatch",
@@ -2328,6 +2400,7 @@
    "relocations.original",
    "relocations.words",
    "mapping CODE_3 1006:0000.digest",
+   "mappings.failures",
    "module.loaded",
    "file.modified"
   ],
@@ -2575,6 +2648,16 @@
     "value": {
      "expected": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
      "observed": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -2915,6 +2998,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -3250,6 +3343,16 @@
     "value": {
      "expected": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
      "observed": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -3598,6 +3701,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -3942,6 +4055,18 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "1 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_0 0ffe:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "mismatch",
@@ -4012,6 +4137,342 @@
   "failed": [
    "module.coverage",
    "mapping CODE_0 0ffe:0000.digest",
+   "mappings.failures",
+   "module.loaded"
+  ],
+  "limitations": 3,
+  "reason": null,
+  "status": "mismatch",
+  "unknowns": []
+ },
+ "a byte changed in each of two mappings": {
+  "checks": [
+   {
+    "claim": "dumper.script_sha256",
+    "detail": "which DumpLoadImage.java wrote the dump",
+    "level": "ok",
+    "value": {
+     "expected": "<DumpLoadImage.java>",
+     "observed": "<DumpLoadImage.java>",
+     "ok": true
+    }
+   },
+   {
+    "claim": "dumper.helper_sha256",
+    "level": "ok",
+    "value": {
+     "expected": "<LoadImageMap.java>",
+     "observed": "<LoadImageMap.java>",
+     "ok": true
+    }
+   },
+   {
+    "claim": "loader",
+    "level": "ok",
+    "value": {
+     "expected": "Old-style DOS Executable (MZ)",
+     "observed": "Old-style DOS Executable (MZ)",
+     "ok": true
+    }
+   },
+   {
+    "claim": "load-segment",
+    "detail": "the segment image byte 0 landed at, against the profile",
+    "level": "ok",
+    "value": {
+     "expected": "0x1000",
+     "observed": "0x1000",
+     "ok": true
+    }
+   },
+   {
+    "claim": "file.size",
+    "detail": "Ghidra's copy of the file",
+    "level": "ok",
+    "value": {
+     "expected": 188,
+     "observed": 188,
+     "ok": true
+    }
+   },
+   {
+    "claim": "file.original",
+    "level": "ok",
+    "value": {
+     "expected": "e3b585f582c01aab78c7bfa2c7598feed1b39201925625e5bfee2161e193aeb3",
+     "observed": "e3b585f582c01aab78c7bfa2c7598feed1b39201925625e5bfee2161e193aeb3",
+     "ok": true
+    }
+   },
+   {
+    "claim": "executable.sha256",
+    "detail": "the hash Ghidra recorded at import",
+    "level": "ok",
+    "value": {
+     "expected": "e3b585f582c01aab78c7bfa2c7598feed1b39201925625e5bfee2161e193aeb3",
+     "observed": "e3b585f582c01aab78c7bfa2c7598feed1b39201925625e5bfee2161e193aeb3",
+     "ok": true
+    }
+   },
+   {
+    "claim": "header.mapping",
+    "level": "ok",
+    "value": {
+     "expected": "only file 0x0..0x3f, unchanged",
+     "observed": "as expected",
+     "ok": true
+    }
+   },
+   {
+    "claim": "module.coverage",
+    "detail": "every byte of the load module mapped once, and nothing else",
+    "level": "ok",
+    "value": {
+     "expected": "file 0x40..0xbb, once",
+     "observed": "as expected",
+     "ok": true
+    }
+   },
+   {
+    "claim": "module.as-stored",
+    "detail": "the module bytes in Ghidra's copy of the file, before fixups",
+    "level": "ok",
+    "value": {
+     "expected": "d6b95240781ac9f9a723df51d00290db53d59499d3714b3c8afb7a91c6416f13",
+     "observed": "d6b95240781ac9f9a723df51d00290db53d59499d3714b3c8afb7a91c6416f13",
+     "ok": true
+    }
+   },
+   {
+    "claim": "relocations.set",
+    "level": "ok",
+    "value": {
+     "expected": [
+      "1001:0005",
+      "1001:000e",
+      "1004:0004",
+      "1006:0016"
+     ],
+     "observed": "as expected",
+     "ok": true
+    }
+   },
+   {
+    "claim": "relocations.multiplicity",
+    "detail": "entries per patched word",
+    "level": "ok",
+    "value": {
+     "expected": "one entry each",
+     "observed": "as expected",
+     "ok": true
+    }
+   },
+   {
+    "claim": "relocations.status",
+    "level": "ok",
+    "value": {
+     "expected": "every one APPLIED",
+     "observed": "as expected",
+     "ok": true
+    }
+   },
+   {
+    "claim": "relocations.original",
+    "level": "ok",
+    "value": {
+     "expected": "each record's original bytes are the file's word",
+     "observed": "as expected",
+     "ok": true
+    }
+   },
+   {
+    "claim": "relocations.words",
+    "level": "ok",
+    "value": {
+     "expected": "each patched word holds its value after every fixup to it",
+     "observed": "as expected",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mapping CODE_0 1000:0000.address",
+    "detail": "file 0x40 must land at load segment * 16 + image offset",
+    "level": "ok",
+    "value": {
+     "expected": "0x10000",
+     "observed": "0x10000",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mapping CODE_0 1000:0000.digest",
+    "detail": "file 0x40..0x4f with fixups applied",
+    "level": "mismatch",
+    "location": {
+     "address": "1000:0000",
+     "expected": "0x4c",
+     "file_offset": "0x40",
+     "linear": "0x10000",
+     "observed": "0x16"
+    },
+    "value": {
+     "expected": "96cc7c0539ac87847b8b1c694c1f292082dcbb7395584c63ca9b2dcde06b3fcf",
+     "observed": "a290b78ca1fe4dcb324cb529c3ba95fbe6d28ec3e4191d224dad0afebb3e7c0a",
+     "ok": false
+    }
+   },
+   {
+    "claim": "mapping CODE_1 1001:0000.address",
+    "detail": "file 0x50 must land at load segment * 16 + image offset",
+    "level": "ok",
+    "value": {
+     "expected": "0x10010",
+     "observed": "0x10010",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mapping CODE_1 1001:0000.digest",
+    "detail": "file 0x50..0x7f with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "043aafef7b61c6eb1c281c0cf55a0a5e7aff22976942349ccd5b2817d4b429d4",
+     "observed": "043aafef7b61c6eb1c281c0cf55a0a5e7aff22976942349ccd5b2817d4b429d4",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mapping CODE_2 1004:0000.address",
+    "detail": "file 0x80 must land at load segment * 16 + image offset",
+    "level": "ok",
+    "value": {
+     "expected": "0x10040",
+     "observed": "0x10040",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mapping CODE_2 1004:0000.digest",
+    "detail": "file 0x80..0x9f with fixups applied",
+    "level": "mismatch",
+    "location": {
+     "address": "1004:0000",
+     "expected": "0x55",
+     "file_offset": "0x80",
+     "linear": "0x10040",
+     "observed": "0x0f"
+    },
+    "value": {
+     "expected": "9d4812ec7f24f8dd3dac1dc615cfa81afe487e717b828bf69f535077ad7ba204",
+     "observed": "6d3f2f1d4e6052264fd8458d205527a7b8fb729234c7895541c10bcd5f00486d",
+     "ok": false
+    }
+   },
+   {
+    "claim": "mapping CODE_3 1006:0000.address",
+    "detail": "file 0xa0 must land at load segment * 16 + image offset",
+    "level": "ok",
+    "value": {
+     "expected": "0x10060",
+     "observed": "0x10060",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mapping CODE_3 1006:0000.digest",
+    "detail": "file 0xa0..0xbb with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "2 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_0 1000:0000",
+      "mapping CODE_2 1004:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
+    "claim": "module.loaded",
+    "detail": "the module as it sits in memory, fixups applied",
+    "level": "mismatch",
+    "location": {
+     "address": "1000:0000",
+     "expected": "0x4c",
+     "file_offset": "0x40",
+     "linear": "0x10000",
+     "observed": "0x16"
+    },
+    "value": {
+     "expected": "ac9f617f0435c0cf9347c7fecafbc4532984cf2e9e64bd7d0f77dcf3f9aa29e0",
+     "observed": "081933a6cbee6657ec53a26180372bbddae277c9fd77f9aa56cb6fd0ec19f3d3",
+     "ok": false
+    }
+   },
+   {
+    "claim": "file.modified",
+    "detail": "Ghidra's copy of the file after its fixups",
+    "level": "ok",
+    "value": {
+     "expected": "70601825dd1c767d79649d28b306d992220cbc7f5cf8fb19ec8e29708b64e5f5",
+     "observed": "70601825dd1c767d79649d28b306d992220cbc7f5cf8fb19ec8e29708b64e5f5",
+     "ok": true
+    }
+   },
+   {
+    "claim": "overlay.excluded",
+    "detail": "appended bytes stay outside the module",
+    "level": "ok",
+    "value": {
+     "expected": "nothing loaded from past file 0xbb",
+     "observed": "nothing",
+     "ok": true
+    }
+   },
+   {
+    "claim": "entry",
+    "level": "ok",
+    "value": {
+     "expected": "1001:0004 (0x10014)",
+     "observed": [
+      "1001:0004"
+     ],
+     "ok": true
+    }
+   },
+   {
+    "claim": "stack",
+    "detail": "SS and SP as the loader set them at the entry",
+    "level": "ok",
+    "value": {
+     "expected": {
+      "sp": 512,
+      "ss": 4102
+     },
+     "observed": {
+      "sp": 512,
+      "ss": 4102
+     },
+     "ok": true
+    }
+   }
+  ],
+  "correction_record": null,
+  "corrections": null,
+  "corrections_made": [],
+  "failed": [
+   "mapping CODE_0 1000:0000.digest",
+   "mapping CODE_2 1004:0000.digest",
+   "mappings.failures",
    "module.loaded"
   ],
   "limitations": 3,
@@ -4250,6 +4711,16 @@
     "value": {
      "expected": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
      "observed": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -4588,6 +5059,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -4915,6 +5396,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -5238,6 +5729,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -5576,6 +6077,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -5879,6 +6390,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -6203,6 +6724,18 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "1 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_1 1001:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "mismatch",
@@ -6273,6 +6806,7 @@
   "failed": [
    "relocations.words",
    "mapping CODE_1 1001:0000.digest",
+   "mappings.failures",
    "module.loaded"
   ],
   "limitations": 3,
@@ -6515,6 +7049,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -6825,6 +7369,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -7150,6 +7704,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 5 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -7430,6 +7994,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 3 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -7702,6 +8276,16 @@
     "value": {
      "expected": "c0bc375735011a71a37dc7e95615ecc74fe09eb38130c119c64ea0fae62e7f2c",
      "observed": "c0bc375735011a71a37dc7e95615ecc74fe09eb38130c119c64ea0fae62e7f2c",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 3 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -7998,6 +8582,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -8312,6 +8906,16 @@
     "value": {
      "expected": "9d4812ec7f24f8dd3dac1dc615cfa81afe487e717b828bf69f535077ad7ba204",
      "observed": "9d4812ec7f24f8dd3dac1dc615cfa81afe487e717b828bf69f535077ad7ba204",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 3 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -8639,6 +9243,18 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "1 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_3 1006:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "mismatch",
@@ -8714,6 +9330,7 @@
   "failed": [
    "relocations.words",
    "mapping CODE_3 1006:0000.digest",
+   "mappings.failures",
    "module.loaded",
    "file.modified"
   ],
@@ -8968,6 +9585,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 5 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -9275,6 +9902,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -9574,6 +10211,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -9881,6 +10528,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -10179,6 +10836,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -10482,6 +11149,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -10758,6 +11435,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 3 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -11088,6 +11775,18 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "1 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_3 1006:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "mismatch",
@@ -11163,6 +11862,7 @@
   "failed": [
    "relocations.words",
    "mapping CODE_3 1006:0000.digest",
+   "mappings.failures",
    "module.loaded",
    "file.modified"
   ],
@@ -11400,6 +12100,16 @@
     "value": {
      "expected": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
      "observed": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -11744,6 +12454,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -12053,6 +12773,16 @@
     "value": {
      "expected": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
      "observed": "c3a00f490daa79623c87876cdc925b897f2345128c67ddd9ed4725316d1cb71e",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -12435,6 +13165,18 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "1 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_3 1006:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "mismatch",
@@ -12549,6 +13291,7 @@
    "relocations.original",
    "relocations.words",
    "mapping CODE_3 1006:0000.digest",
+   "mappings.failures",
    "module.loaded",
    "file.modified"
   ],
@@ -12783,6 +13526,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -13087,6 +13840,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -13384,6 +14147,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -13707,6 +14480,18 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "1 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_3 1006:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "mismatch",
@@ -13783,6 +14568,7 @@
    "relocations.multiplicity",
    "relocations.words",
    "mapping CODE_3 1006:0000.digest",
+   "mappings.failures",
    "module.loaded",
    "file.modified"
   ],
@@ -14021,6 +14807,16 @@
     "value": {
      "expected": "5d063cc268838ae372af75b8fc3910b0ad3c1494d5b4f2b16b51af9e8da07e3b",
      "observed": "5d063cc268838ae372af75b8fc3910b0ad3c1494d5b4f2b16b51af9e8da07e3b",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -14299,6 +15095,18 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "1 of 2 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_1 0009:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "mismatch",
@@ -14374,6 +15182,7 @@
   "failed": [
    "relocations.words",
    "mapping CODE_1 0009:0000.digest",
+   "mappings.failures",
    "module.loaded",
    "file.modified"
   ],
@@ -14608,6 +15417,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -14931,6 +15750,18 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "1 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "mismatch",
+    "value": {
+     "expected": "none",
+     "observed": [
+      "mapping CODE_1 1001:0000"
+     ],
+     "ok": false
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "mismatch",
@@ -15000,6 +15831,7 @@
   "corrections_made": [],
   "failed": [
    "mapping CODE_1 1001:0000.digest",
+   "mappings.failures",
    "module.loaded"
   ],
   "limitations": 3,
@@ -15233,6 +16065,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -15533,6 +16375,16 @@
     "value": {
      "expected": "352153c7152ef09819dd06c82b01fa2802604333038adcb499788508088fbeb7",
      "observed": "352153c7152ef09819dd06c82b01fa2802604333038adcb499788508088fbeb7",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -15844,6 +16696,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -16145,6 +17007,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -16439,6 +17311,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },
@@ -16742,6 +17624,16 @@
     }
    },
    {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
+     "ok": true
+    }
+   },
+   {
     "claim": "module.loaded",
     "detail": "the module as it sits in memory, fixups applied",
     "level": "ok",
@@ -17038,6 +17930,16 @@
     "value": {
      "expected": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
      "observed": "03caed570c39c46eb160d5c51291dc3577e63502f5dd8c61d2fe2589bdb05715",
+     "ok": true
+    }
+   },
+   {
+    "claim": "mappings.failures",
+    "detail": "0 of 4 mappings whose bytes are not the file's with fixups applied",
+    "level": "ok",
+    "value": {
+     "expected": "none",
+     "observed": "none",
      "ok": true
     }
    },

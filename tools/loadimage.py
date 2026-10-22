@@ -517,7 +517,10 @@ def compare(exp, obs, profile=None, restored=(), trusted=False):
 
     loaded = bytearray(len(exp.module))
     filled = bytearray(len(exp.module))
-    mapping_failures = 0
+    # Every mapping whose bytes are not the file's, by name. Each fails its
+    # own digest check as well; this is the one place that says how many and
+    # which. Until prompt 08 the count was kept here and never read.
+    mapping_failures = []
     for lo, hi, b, m in segmented:
         got = obs.memory(b, m)
         lin = mapping_linear(m)
@@ -528,18 +531,23 @@ def compare(exp, obs, profile=None, restored=(), trusted=False):
               f"file 0x{lo:x} must land at load segment * 16 + image offset")
         if got is None:
             c.add(f"{label}.digest", False, "initialised bytes", "none")
+            mapping_failures.append(label)
             continue
         lo_c, hi_c = max(lo, hdr), min(hi, exp.image_end)
         want = exp.relocated[lo_c - hdr:hi_c - hdr]
         mine = got[lo_c - lo:hi_c - lo]
         ok = want == mine
-        mapping_failures += not ok
+        if not ok:
+            mapping_failures.append(label)
         c.add(f"{label}.digest", ok, sha256(want), sha256(mine),
               f"file 0x{lo_c:x}..0x{hi_c - 1:x} with fixups applied",
               None if ok else first_difference(want, mine, lo_c, lin + (lo_c - lo), seg))
         for i in range(lo_c, hi_c):
             loaded[i - hdr] = got[i - lo]
             filled[i - hdr] = 1
+    c.add("mappings.failures", not mapping_failures, "none", mapping_failures or "none",
+          f"{len(mapping_failures)} of {len(segmented)} mappings whose bytes are not "
+          f"the file's with fixups applied")
 
     whole_ok = bytes(loaded) == exp.relocated and all(filled)
     first = None

@@ -382,6 +382,61 @@ def tamper_byte(folder):
                                  "address": f"{seg:04x}:{lin - seg * 16:04x}"}}
 
 
+def tamper_blocks(folder, which):
+    """Flip one byte, away from any relocated word, in each code block named
+    by its index in `which`. Returns the mappings changed, as the checks
+    name them."""
+    obs = json.loads((folder / "observed.json").read_text(encoding="utf-8"))
+    touched = set()
+    for r in obs["relocations"]:
+        touched |= {r["offset"], r["offset"] + 1}
+    named = []
+    for n in which:
+        block = code_blocks(obs)[n]
+        m = block["mappings"][0]
+        seg, off = loadimage.parse_address(m["min"])
+        i = next(i for i in range(m["length"]) if seg * 16 + off + i not in touched)
+        path = folder / block["dump"]
+        data = bytearray(path.read_bytes())
+        data[m["offset_in_block"] + i] ^= 0x5A
+        path.write_bytes(data)
+        block["sha256"] = hashlib.sha256(data).hexdigest()
+        named.append(f"mapping {block['name']} {m['min']}")
+    (folder / "observed.json").write_text(json.dumps(obs, indent=1), encoding="utf-8")
+    return named
+
+
+@case("mappings.failures names every mapping whose bytes are wrong, and only those")
+def _():
+    exp = loadimage.Expected(EXE["plain"])
+
+    def failures(folder):
+        env = loadimage.verify(EXE["plain"], folder)
+        check = next(i for i in env["evidence"] if i["claim"] == "mappings.failures")
+        return env, check
+    env, check = failures(synthetic_dump(exp, WORK / "failures-none"))
+    if env["status"] != "verified" or check["level"] != "ok" \
+            or check["value"]["observed"] != "none":
+        raise AssertionError(f"a right load: {env['status']}, {check}")
+    seen = []
+    for which in ([1], [0, 2]):
+        folder = synthetic_dump(exp, WORK / f"failures-{len(which)}")
+        named = tamper_blocks(folder, which)
+        env, check = failures(folder)
+        if env["status"] != "mismatch" or check["level"] != "mismatch" \
+                or check["value"]["observed"] != named:
+            raise AssertionError(f"{len(which)} changed: {check}, wanted {named}")
+        if not check["detail"].startswith(f"{len(which)} of "):
+            raise AssertionError(f"{len(which)} changed: detail {check['detail']!r}")
+        seen.append(len(named))
+    folder = edit_observed(synthetic_dump(exp, WORK / "failures-no-bytes"),
+                           lambda obs: code_blocks(obs)[1].pop("dump"))
+    env, check = failures(folder)
+    if check["level"] != "mismatch" or len(check["value"]["observed"]) != 1:
+        raise AssertionError(f"a block with no bytes: {check}")
+    return f"none of a right load; {seen[0]}, then {seen[1]}, by name; a block with no bytes"
+
+
 def tamper_relocation(folder, mode):
     obs = json.loads((folder / "observed.json").read_text(encoding="utf-8"))
     relocations = obs["relocations"]
@@ -703,6 +758,9 @@ def scenarios():
     folder = dump("plain", "tampered-byte")
     tamper_byte(folder)
     add("one byte changed in memory", "plain", folder)
+    folder = dump("plain", "tampered-two")
+    tamper_blocks(folder, [0, 2])
+    add("a byte changed in each of two mappings", "plain", folder)
     for mode in ("missing", "extra"):
         folder = dump("plain", f"relocation-{mode}")
         tamper_relocation(folder, mode)

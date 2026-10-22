@@ -817,24 +817,3 @@ signature = "8a78a124a73b87d1"
 kind = "equivalent"
 mutant = "return out[0] + (out[1] << 8)"
 why = "The low byte and the high byte shifted left by 8 share no bit, so adding them is or-ing them."
-
-[[survivor]]
-target = "loadimage"
-signature = "89545c4aa265d065"
-kind = "code-problem"
-mutant = "mapping_failures = 1"
-why = "mapping_failures is counted in compare and never read: what it counts reaches the result through each mapping's digest check instead. Dead code, listed rather than removed."
-
-[[survivor]]
-target = "loadimage"
-signature = "7439743f8cd050e2"
-kind = "code-problem"
-mutant = "mapping_failures = -1"
-why = "mapping_failures is counted in compare and never read: what it counts reaches the result through each mapping's digest check instead. Dead code, listed rather than removed."
-
-[[survivor]]
-target = "loadimage"
-signature = "4370435eee1207c8"
-kind = "code-problem"
-mutant = "mapping_failures +=  ok"
-why = "mapping_failures is counted in compare and never read: what it counts reaches the result through each mapping's digest check instead. Dead code, listed rather than removed."
