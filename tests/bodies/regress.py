@@ -215,16 +215,19 @@ def mapping(block, segment, lo, hi):
 def synthetic_export(folder, functions, overlaps=(), exe=None, mappings=None):
     """functions.json and loadimage.json shaped like the pipeline's, for the
     assembled fixture (or `exe`), from (name, entry offset, [(lo, hi)])
-    triples. The mappings are the fixture's code and data blocks unless
-    given."""
+    triples, or with a fourth item, fields the record has instead of the
+    defaults (an origin, mnemonics). The mappings are the fixture's code and
+    data blocks unless given."""
     exe = exe or EXE
     folder.mkdir(parents=True, exist_ok=True)
     records = []
-    for name, entry, ranges in functions:
+    for name, entry, ranges, *extra in functions:
         total = sum(hi - lo + 1 for lo, hi in ranges)
         span = max(hi for _, hi in ranges) - min(lo for lo, _ in ranges) + 1
         records.append({
-            "name": name, "entry": a(entry), "size": total, "origin": "ghidra-analysis",
+            **(extra[0] if extra else {}),
+            "name": name, "entry": a(entry), "size": total,
+            "origin": (extra[0] if extra else {}).get("origin", "ghidra-analysis"),
             "body": {"available": True, "provenance": "ghidra-function-body-address-set",
                      "ranges": [{"start": a(lo), "end": a(hi),
                                  "start_linear": f"0x{LOAD * 16 + lo:x}",
@@ -313,6 +316,75 @@ def _():
     if last != "nothing unclaimed looks like code" or env["unknowns"]:
         raise AssertionError(f"{last!r}, unknowns {env['unknowns']}")
     return last
+
+
+@case("the code region runs from the first code evidence to the last, guesses not counted")
+def _():
+    want = expected_bodies()
+    D = L("data_start")
+    unclaimed = sum(hi - lo + 1 for lo, hi, _ in expected_unclaimed())
+    guess = ("guess", D + 2, [(D + 2, D + 5)],
+             {"origin": "recovered-prologue", "mnemonics": ["ARPL", "ENTER", "MOV"]})
+    # The labels' bodies, and in the data block one function RecoverFunctions
+    # guessed from a prologue. In the code block the range starts with
+    # start's body and ends with the orphan, which no body claims but which
+    # looks like code; every claimed byte lies inside it. The data block's
+    # range is the guess alone, so it is listed and not counted. One byte
+    # between the blocks is unmapped, or the orphan's run would go on into
+    # the data block and be data.
+    blocks = [mapping("CODE_0", LOAD, 0, D - 1),
+              mapping("CODE_1", LOAD + D // 16, D + 1, len(image()) - 1)]
+    env = bodies.analyse(synthetic_export(WORK / "region",
+                                          [(n, L(n), r) for n, r in want.items()] + [guess],
+                                          mappings=blocks))
+    r = env["result"]
+    code, data = r["code_region"]["ranges"]
+    region = L(".found") - L("start") + 1
+    expect = {"start": a(L("start")), "end": a(L(".found")), "bytes": region,
+              "claimed_bytes": D - unclaimed, "counted": True,
+              "starts_with": "start's body (ghidra-analysis)",
+              "ends_with": "an unclaimed run that looks like code"}
+    got = {k: code[k] for k in expect}
+    if got != expect or code["rests_on"] != {"bodies": {"ghidra-analysis": len(want)},
+                                             "looks_like_code": 1, "tail_calls": 0}:
+        raise AssertionError(f"the code block's range: {got} {code['rests_on']}, not {expect}")
+    if (data["bytes"], data["counted"], data["unlikely_instructions"]) != \
+            (4, False, {a(D + 2): ["ARPL", "ENTER"]}):
+        raise AssertionError(f"the data block's range: {data}")
+    share = round(100.0 * (D - unclaimed) / region, 1)
+    if r["code_region"]["bytes"] != region or r["claimed_of_code_region"] != share:
+        raise AssertionError(f"region {r['code_region']['bytes']}, claimed "
+                             f"{r['claimed_of_code_region']}%, not {region} and {share}%")
+    if r["claimed_percent"] != round(100.0 * (D - unclaimed + 4) / (len(image()) - 1), 1):
+        raise AssertionError(f"claimed {r['claimed_percent']}% moved")
+    if not any("guessed from a prologue alone (1)" in u and "arpl, enter" in u
+               for u in env["unknowns"]):
+        raise AssertionError(f"unknowns {env['unknowns']}")
+    line = next(l for l in bodies.summary(env) if l.startswith("code region"))
+    if line != (f"code region : {region:,} bytes from the first code evidence to the last in "
+                f"1 of 2 block(s) ({r['code_region']['of_code_percent']}% of them); claimed "
+                f"{share}% of it"):
+        raise AssertionError(f"prose {line!r}")
+
+    # Without start's body, a tail call from its second byte to three bytes
+    # past the orphan moves both ends; one into the guess makes its block
+    # count, because a tail call's target is a function something calls.
+    path = synthetic_export(WORK / "region-tails",
+                            [(n, L(n), r) for n, r in want.items() if n != "start"] + [guess],
+                            mappings=blocks)
+    edit_json(path, lambda d: d.update(tail_calls=[
+        {"caller": a(L("main")), "via": a(L("start") + 1), "target": a(L(".found") + 3)},
+        {"caller": a(L("tailer")), "via": a(L("tailer")), "target": a(D + 2)}]))
+    code, data = bodies.analyse(path)["result"]["code_region"]["ranges"]
+    if (code["start"], code["end"], code["starts_with"], code["ends_with"],
+            code["rests_on"]["tail_calls"]) != (a(L("start") + 1), a(L(".found") + 3),
+                                                "a tail call's instruction",
+                                                "a tail call's target", 2):
+        raise AssertionError(f"with tail calls: {code}")
+    if not data["counted"] or "why_not" in data:
+        raise AssertionError(f"the guess with a tail call into it: {data}")
+    return (f"{region} bytes, {share}% claimed; a guess alone not counted; tail calls move "
+            f"both ends and make the guess count")
 
 
 @case("an export from before function bodies is refused, with what to do")

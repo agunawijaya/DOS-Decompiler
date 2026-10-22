@@ -32,8 +32,8 @@ test = ["tests/loadimage/regress.py"]
 [[target]]
 name = "bodies"
 module = "tools/bodies.py"
-functions = ["merge", "subtract", "body_ranges", "looks_like_code", "kind_of", "classify",
-             "describe", "analyse"]
+functions = ["merge", "subtract", "body_ranges", "linear_of", "code_region", "looks_like_code",
+             "kind_of", "classify", "describe", "analyse"]
 test = ["tests/bodies/regress.py"]
 
 # The sweep (emuverify.py sweep): comparing the original's outcome with the

@@ -24,6 +24,18 @@ What it reports
                verified module layout in loadimage.json
   claimed      the bytes of those blocks some function's body covers, as a
                percentage
+  code region  in each of those blocks, the range from the first byte of code
+               evidence to the last: function bodies, unclaimed runs that look
+               like code (below), the instruction and target of each tail
+               call. Each range says which evidence it rests on, by kind and
+               by origin. A range whose only evidence is functions
+               RecoverFunctions guessed from a prologue is listed and not
+               counted: on the real programs measured those were data, and
+               every such function held an instruction an 8088 does not have.
+               `claimed_of_code_region` is the share of the counted ranges
+               some body covers. In a hand-written program most of a block
+               is data, so `claimed` mostly measures the data and this is the
+               figure to read; `claimed` is unchanged beside it
   shapes       functions whose body is not contiguous, bytes more than one
                function claims (from body_overlaps), and functions whose body
                does not contain their own entry
@@ -138,6 +150,96 @@ def subtract(ranges, holes):
 def body_ranges(function):
     return [(int(r["start_linear"], 16), int(r["end_linear"], 16))
             for r in function["body"]["ranges"]]
+
+
+def linear_of(address):
+    """segment:offset, as functions.json writes it, as a linear address."""
+    seg, _, off = address.partition(":")
+    return (int(seg, 16) << 4) + int(off, 16)
+
+
+# RecoverFunctions' weakest origin: three bytes, 55 8B EC, and nothing else
+# saying the bytes are code. In a block of data it finds them anyway --
+# measured on four of the five real programs, in the blocks that are data.
+GUESS = "recovered-prologue"
+
+# Instructions residue.py calls implausible for a program of the period, and
+# the ones an 8088 does not have, as functions.json spells them.
+UNLIKELY = {m.upper() for m in residue.IMPLAUSIBLE | residue.NOT_8088}
+
+REGION_HOW = (
+    "In each block holding a function's body: from the first byte to the last of any "
+    "function body, unclaimed run that looks like code, or tail call's instruction or "
+    "target. Data between them is inside; a block whose only evidence is functions "
+    "RecoverFunctions guessed from a prologue is listed and not counted. Code that no "
+    "body claims and that does not look like code -- because fill inside it breaks the "
+    "decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.")
+
+
+def code_region(code_maps, functions, code_like, tail_calls, claimed):
+    """The region of each block that some evidence says is code.
+
+    In each block that holds a function's body, the range runs from the first
+    byte of evidence to the last: every function body, every unclaimed run
+    that looks like code, and the instruction and the target of every tail
+    call. Data before the first and after the last is outside it; data
+    between two pieces of code is inside, as in comrec.py's code region.
+
+    A range counts unless every piece of evidence in it is a body that
+    RecoverFunctions guessed from a prologue alone: then nothing else says
+    the block holds code, and the range is listed, and not counted."""
+    ranges = []
+    for m in code_maps:
+        lo, hi = m["linear_start"], m["linear_end_inclusive"]
+        seg = int(m["segment"], 16)
+        pieces = []                 # (start, end, evidence, a guess?)
+        origins, unlikely = Counter(), {}
+        for f in functions:
+            mine = [(max(a, lo), min(b, hi)) for a, b in body_ranges(f) if a <= hi and b >= lo]
+            if not mine:
+                continue
+            origin = f.get("origin", "unknown")
+            origins[origin] += 1
+            odd = sorted(set(f.get("mnemonics") or []) & UNLIKELY)
+            if odd:
+                unlikely[f["entry"]] = odd
+            for a, b in mine:
+                pieces.append((a, b, f"{f['name']}'s body ({origin})", origin == GUESS))
+        for u in code_like:
+            a, b = int(u["start_linear"], 16), int(u["end_linear"], 16)
+            if lo <= a <= hi:
+                pieces.append((a, b, "an unclaimed run that looks like code", False))
+        tails = 0
+        for t in tail_calls:
+            for what in ("via", "target"):
+                at = t.get(what)
+                if at and lo <= linear_of(at) <= hi:
+                    tails += what == "via"
+                    pieces.append((linear_of(at), linear_of(at),
+                                   f"a tail call's {'instruction' if what == 'via' else 'target'}",
+                                   False))
+        start = min(pieces, key=lambda p: (p[0], p[1]))
+        end = max(pieces, key=lambda p: (p[1], -p[0]))
+        a, b = start[0], end[1]
+        counted = not all(guess for *_, guess in pieces)
+        inside = sum(min(hi_c, b) - max(lo_c, a) + 1 for lo_c, hi_c in claimed
+                     if lo_c <= b and hi_c >= a)
+        r = {"block": m["block"], "segment": m["segment"],
+             "start": seg_address(seg, a), "end": seg_address(seg, b),
+             "start_linear": f"0x{a:x}", "end_linear": f"0x{b:x}",
+             "bytes": b - a + 1, "block_bytes": m["length"], "claimed_bytes": inside,
+             "starts_with": start[2], "ends_with": end[2],
+             "rests_on": {"bodies": dict(sorted(origins.items())),
+                          "looks_like_code": sum(1 for p in pieces
+                                                 if p[2].startswith("an unclaimed")),
+                          "tail_calls": tails},
+             "counted": counted}
+        if not counted:
+            r["why_not"] = (f"every function in it was guessed from a prologue alone "
+                            f"({origins[GUESS]})")
+            r["unlikely_instructions"] = unlikely
+        ranges.append(r)
+    return ranges
 
 
 class Bytes:
@@ -305,6 +407,11 @@ def analyse(functions_path, exe=None, loadimage_path=None, min_instructions=3,
     by_kind = Counter()
     for u in unclaimed:
         by_kind[u["kind"]] += u["bytes"]
+    region = code_region(code_maps, functions, code_like, data.get("tail_calls") or [],
+                         claimed)
+    counted = [r for r in region if r["counted"]]
+    region_bytes = sum(r["bytes"] for r in counted)
+    region_claimed = sum(r["claimed_bytes"] for r in counted)
 
     result = {
         "functions_json": str(functions_path),
@@ -332,6 +439,15 @@ def analyse(functions_path, exe=None, loadimage_path=None, min_instructions=3,
         "looks_like_code": len(code_like),
         "min_instructions": min_instructions,
         "load_image": record.get("status"),
+        # Added in prompt 08: the share of the code region, not of the blocks,
+        # which in a hand-written program are mostly data.
+        "code_region": {"bytes": region_bytes,
+                        "of_code_percent": round(100.0 * region_bytes / code_bytes, 1)
+                        if code_bytes else 0.0,
+                        "how": REGION_HOW,
+                        "ranges": region},
+        "claimed_of_code_region": round(100.0 * region_claimed / region_bytes, 1)
+        if region_bytes else 0.0,
     }
 
     items = [{"kind": "code-claimed",
@@ -355,8 +471,25 @@ def analyse(functions_path, exe=None, loadimage_path=None, min_instructions=3,
                "claim": f"{u['bytes']} unclaimed bytes, {u['kind']}",
                "location": {"address": u["start"], "end": u["end"]},
                "value": u["kind"], "detail": u["detail"]} for u in unclaimed]
+    items += [{"kind": "code-region", "level": "info" if r["counted"] else "warn",
+               "claim": f"{r['bytes']:,} bytes of {r['block']} from the first code evidence "
+                        f"to the last" + ("" if r["counted"] else ", not counted"),
+               "location": {"address": r["start"], "end": r["end"]},
+               "value": {"rests_on": r["rests_on"], "claimed_bytes": r["claimed_bytes"]},
+               "detail": f"starts with {r['starts_with']}, ends with {r['ends_with']}"}
+              for r in region]
     unknowns = [f"is {u['start']}..{u['end']} ({u['bytes']} bytes) code that nothing "
                 f"reaches? It decodes cleanly: {u['detail']}." for u in code_like]
+    for r in region:
+        if not r["counted"]:
+            odd = r["unlikely_instructions"]
+            unknowns.append(
+                f"is {r['start']}..{r['end']} ({r['bytes']:,} bytes) code? Every function in "
+                f"it was guessed from a prologue alone ({r['rests_on']['bodies'][GUESS]})"
+                + (f", and {len(odd)} of them hold instructions a program of the period has "
+                   f"no reason to contain ("
+                   + "; ".join(f"{e}: {', '.join(m.lower() for m in ms)}" for e, ms in odd.items())
+                   + ")" if odd else "") + ".")
     limitations = list(LIMITATIONS)
     if record.get("status") != "verified":
         limitations.append(f"The load image did not verify ({record.get('status')}), so "
@@ -377,6 +510,20 @@ def summary(env, show=40):
                f"{len(r['code']['blocks'])} block(s) holding functions ({blocks})")
     out.append(f"claimed     : {r['claimed_bytes']:,} bytes by some function's body "
                f"({r['claimed_percent']}%)")
+    region = r.get("code_region")
+    if region is not None:
+        counted = [g for g in region["ranges"] if g["counted"]]
+        out.append(f"code region : {region['bytes']:,} bytes from the first code evidence to "
+                   f"the last in {len(counted)} of {len(region['ranges'])} block(s) "
+                   f"({region['of_code_percent']}% of them); claimed "
+                   f"{r['claimed_of_code_region']}% of it")
+        for g in region["ranges"]:
+            rests = ", ".join(f"{n} {o}" for o, n in g["rests_on"]["bodies"].items())
+            extra = [f"{g['rests_on'][k]} {k.replace('_', ' ')}" for k in
+                     ("looks_like_code", "tail_calls") if g["rests_on"][k]]
+            out.append(f"  {g['start']}..{g['end']}  {g['bytes']:>7,} of {g['block_bytes']:,} "
+                       f"in {g['block']}: bodies {rests}" + "".join(f", {e}" for e in extra)
+                       + ("" if g["counted"] else f"; not counted, {g['why_not']}"))
     out.append("origins     : " + ", ".join(f"{n} {o}" for o, n in r["origins"].items()))
     out.append(f"non-contiguous: {len(r['non_contiguous'])}")
     for s in r["non_contiguous"]:

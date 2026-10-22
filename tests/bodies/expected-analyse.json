@@ -18,6 +18,27 @@
      "end": "1000:01ff"
     },
     "value": "pointer table"
+   },
+   {
+    "claim": "65,793 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with big's body (ghidra-analysis), ends with big's body (ghidra-analysis)",
+    "id": "ev-89261a38-19d8777a",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:0100"
+    },
+    "value": {
+     "claimed_bytes": 65793,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 1
+      },
+      "looks_like_code": 0,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -28,6 +49,7 @@
   ],
   "result": {
    "claimed_bytes": 65793,
+   "claimed_of_code_region": 100.0,
    "claimed_percent": 99.6,
    "code": {
     "blocks": [
@@ -40,6 +62,34 @@
      }
     ],
     "bytes": 66048
+   },
+   "code_region": {
+    "bytes": 65793,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 99.6,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 66048,
+      "bytes": 65793,
+      "claimed_bytes": 65793,
+      "counted": true,
+      "end": "1000:0100",
+      "end_linear": "0x20100",
+      "ends_with": "big's body (ghidra-analysis)",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 1
+       },
+       "looks_like_code": 0,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0000",
+      "start_linear": "0x10000",
+      "starts_with": "big's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 1,
@@ -176,6 +226,48 @@
      "end": "1000:00ff"
     },
     "value": "padding"
+   },
+   {
+    "claim": "208 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with start's body (ghidra-analysis), ends with fallen's body (ghidra-analysis)",
+    "id": "ev-0d081a65-a9393afe",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:00cf"
+    },
+    "value": {
+     "claimed_bytes": 202,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 14
+      },
+      "looks_like_code": 0,
+      "tail_calls": 0
+     }
+    }
+   },
+   {
+    "claim": "34 bytes of CODE_1 from the first code evidence to the last",
+    "detail": "starts with lonely's body (ghidra-analysis), ends with an unclaimed run that looks like code",
+    "id": "ev-0d081a65-8b67a409",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:00d6",
+     "end": "1000:00f7"
+    },
+    "value": {
+     "claimed_bytes": 18,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 2
+      },
+      "looks_like_code": 1,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -186,6 +278,7 @@
   ],
   "result": {
    "claimed_bytes": 220,
+   "claimed_of_code_region": 90.9,
    "claimed_percent": 86.3,
    "code": {
     "blocks": [
@@ -205,6 +298,55 @@
      }
     ],
     "bytes": 255
+   },
+   "code_region": {
+    "bytes": 242,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 94.9,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 210,
+      "bytes": 208,
+      "claimed_bytes": 202,
+      "counted": true,
+      "end": "1000:00cf",
+      "end_linear": "0x100cf",
+      "ends_with": "fallen's body (ghidra-analysis)",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 14
+       },
+       "looks_like_code": 0,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0000",
+      "start_linear": "0x10000",
+      "starts_with": "start's body (ghidra-analysis)"
+     },
+     {
+      "block": "CODE_1",
+      "block_bytes": 45,
+      "bytes": 34,
+      "claimed_bytes": 18,
+      "counted": true,
+      "end": "1000:00f7",
+      "end_linear": "0x100f7",
+      "ends_with": "an unclaimed run that looks like code",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 2
+       },
+       "looks_like_code": 1,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:00d6",
+      "start_linear": "0x100d6",
+      "starts_with": "lonely's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 16,
@@ -394,6 +536,48 @@
      "end": "1000:00ff"
     },
     "value": "padding"
+   },
+   {
+    "claim": "215 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with start's body (ghidra-analysis), ends with lonely's body (ghidra-analysis)",
+    "id": "ev-0d081a65-b3deae6b",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:00d6"
+    },
+    "value": {
+     "claimed_bytes": 203,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 15
+      },
+      "looks_like_code": 0,
+      "tail_calls": 0
+     }
+    }
+   },
+   {
+    "claim": "32 bytes of CODE_1 from the first code evidence to the last",
+    "detail": "starts with lonely's body (ghidra-analysis), ends with an unclaimed run that looks like code",
+    "id": "ev-0d081a65-05bf798b",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:00d8",
+     "end": "1000:00f7"
+    },
+    "value": {
+     "claimed_bytes": 16,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 2
+      },
+      "looks_like_code": 1,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -404,6 +588,7 @@
   ],
   "result": {
    "claimed_bytes": 219,
+   "claimed_of_code_region": 88.7,
    "claimed_percent": 85.9,
    "code": {
     "blocks": [
@@ -423,6 +608,55 @@
      }
     ],
     "bytes": 255
+   },
+   "code_region": {
+    "bytes": 247,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 96.9,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 215,
+      "bytes": 215,
+      "claimed_bytes": 203,
+      "counted": true,
+      "end": "1000:00d6",
+      "end_linear": "0x100d6",
+      "ends_with": "lonely's body (ghidra-analysis)",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 15
+       },
+       "looks_like_code": 0,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0000",
+      "start_linear": "0x10000",
+      "starts_with": "start's body (ghidra-analysis)"
+     },
+     {
+      "block": "CODE_1",
+      "block_bytes": 40,
+      "bytes": 32,
+      "claimed_bytes": 16,
+      "counted": true,
+      "end": "1000:00f7",
+      "end_linear": "0x100f7",
+      "ends_with": "an unclaimed run that looks like code",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 2
+       },
+       "looks_like_code": 1,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:00d8",
+      "start_linear": "0x100d8",
+      "starts_with": "lonely's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 16,
@@ -603,6 +837,27 @@
      "end": "1000:00ff"
     },
     "value": "padding"
+   },
+   {
+    "claim": "248 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with start's body (ghidra-analysis), ends with an unclaimed run that looks like code",
+    "id": "ev-0d081a65-c1c4f3e2",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:00f7"
+    },
+    "value": {
+     "claimed_bytes": 220,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 16
+      },
+      "looks_like_code": 1,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -614,6 +869,7 @@
   ],
   "result": {
    "claimed_bytes": 220,
+   "claimed_of_code_region": 88.7,
    "claimed_percent": 85.9,
    "code": {
     "blocks": [
@@ -626,6 +882,34 @@
      }
     ],
     "bytes": 256
+   },
+   "code_region": {
+    "bytes": 248,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 96.9,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 256,
+      "bytes": 248,
+      "claimed_bytes": 220,
+      "counted": true,
+      "end": "1000:00f7",
+      "end_linear": "0x100f7",
+      "ends_with": "an unclaimed run that looks like code",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 16
+       },
+       "looks_like_code": 1,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0000",
+      "start_linear": "0x10000",
+      "starts_with": "start's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 16,
@@ -758,6 +1042,27 @@
      "end": "1000:01df"
     },
     "value": "padding"
+   },
+   {
+    "claim": "66,048 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with head's body (ghidra-analysis), ends with tail's body (ghidra-analysis)",
+    "id": "ev-89261a38-e8a9ba9b",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:01ff"
+    },
+    "value": {
+     "claimed_bytes": 64,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 2
+      },
+      "looks_like_code": 0,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -768,6 +1073,7 @@
   ],
   "result": {
    "claimed_bytes": 64,
+   "claimed_of_code_region": 0.1,
    "claimed_percent": 0.1,
    "code": {
     "blocks": [
@@ -780,6 +1086,34 @@
      }
     ],
     "bytes": 66048
+   },
+   "code_region": {
+    "bytes": 66048,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 100.0,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 66048,
+      "bytes": 66048,
+      "claimed_bytes": 64,
+      "counted": true,
+      "end": "1000:01ff",
+      "end_linear": "0x201ff",
+      "ends_with": "tail's body (ghidra-analysis)",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 2
+       },
+       "looks_like_code": 0,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0000",
+      "start_linear": "0x10000",
+      "starts_with": "head's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 2,
@@ -923,6 +1257,48 @@
      "end": "1000:00ff"
     },
     "value": "padding"
+   },
+   {
+    "claim": "208 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with start's body (ghidra-analysis), ends with fallen's body (ghidra-analysis)",
+    "id": "ev-0d081a65-edf7a2ea",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "0f00:1000",
+     "end": "0f00:10cf"
+    },
+    "value": {
+     "claimed_bytes": 202,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 14
+      },
+      "looks_like_code": 0,
+      "tail_calls": 0
+     }
+    }
+   },
+   {
+    "claim": "34 bytes of CODE_1 from the first code evidence to the last",
+    "detail": "starts with lonely's body (ghidra-analysis), ends with an unclaimed run that looks like code",
+    "id": "ev-0d081a65-8b67a409",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:00d6",
+     "end": "1000:00f7"
+    },
+    "value": {
+     "claimed_bytes": 18,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 2
+      },
+      "looks_like_code": 1,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -933,6 +1309,7 @@
   ],
   "result": {
    "claimed_bytes": 220,
+   "claimed_of_code_region": 90.9,
    "claimed_percent": 85.9,
    "code": {
     "blocks": [
@@ -952,6 +1329,55 @@
      }
     ],
     "bytes": 256
+   },
+   "code_region": {
+    "bytes": 242,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 94.5,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 209,
+      "bytes": 208,
+      "claimed_bytes": 202,
+      "counted": true,
+      "end": "0f00:10cf",
+      "end_linear": "0x100cf",
+      "ends_with": "fallen's body (ghidra-analysis)",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 14
+       },
+       "looks_like_code": 0,
+       "tail_calls": 0
+      },
+      "segment": "0f00",
+      "start": "0f00:1000",
+      "start_linear": "0x10000",
+      "starts_with": "start's body (ghidra-analysis)"
+     },
+     {
+      "block": "CODE_1",
+      "block_bytes": 47,
+      "bytes": 34,
+      "claimed_bytes": 18,
+      "counted": true,
+      "end": "1000:00f7",
+      "end_linear": "0x100f7",
+      "ends_with": "an unclaimed run that looks like code",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 2
+       },
+       "looks_like_code": 1,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:00d6",
+      "start_linear": "0x100d6",
+      "starts_with": "lonely's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 16,
@@ -1120,6 +1546,69 @@
      "end": "100c:003f"
     },
     "value": "padding"
+   },
+   {
+    "claim": "1 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with main's body (ghidra-analysis), ends with main's body (ghidra-analysis)",
+    "id": "ev-0d081a65-c067d8ee",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0015",
+     "end": "1000:0015"
+    },
+    "value": {
+     "claimed_bytes": 1,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 1
+      },
+      "looks_like_code": 0,
+      "tail_calls": 0
+     }
+    }
+   },
+   {
+    "claim": "184 bytes of CODE_1 from the first code evidence to the last",
+    "detail": "starts with main's body (ghidra-analysis), ends with fallen's body (ghidra-analysis)",
+    "id": "ev-0d081a65-7b63f852",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0016",
+     "end": "1000:00cd"
+    },
+    "value": {
+     "claimed_bytes": 178,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 13
+      },
+      "looks_like_code": 0,
+      "tail_calls": 0
+     }
+    }
+   },
+   {
+    "claim": "41 bytes of CODE_2 from the first code evidence to the last",
+    "detail": "starts with fallen's body (ghidra-analysis), ends with an unclaimed run that looks like code",
+    "id": "ev-0d081a65-29f854ff",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "100c:000f",
+     "end": "100c:0037"
+    },
+    "value": {
+     "claimed_bytes": 1,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 1
+      },
+      "looks_like_code": 1,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -1130,6 +1619,7 @@
   ],
   "result": {
    "claimed_bytes": 180,
+   "claimed_of_code_region": 79.6,
    "claimed_percent": 70.6,
    "code": {
     "blocks": [
@@ -1156,6 +1646,76 @@
      }
     ],
     "bytes": 255
+   },
+   "code_region": {
+    "bytes": 226,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 88.6,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 22,
+      "bytes": 1,
+      "claimed_bytes": 1,
+      "counted": true,
+      "end": "1000:0015",
+      "end_linear": "0x10015",
+      "ends_with": "main's body (ghidra-analysis)",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 1
+       },
+       "looks_like_code": 0,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0015",
+      "start_linear": "0x10015",
+      "starts_with": "main's body (ghidra-analysis)"
+     },
+     {
+      "block": "CODE_1",
+      "block_bytes": 184,
+      "bytes": 184,
+      "claimed_bytes": 178,
+      "counted": true,
+      "end": "1000:00cd",
+      "end_linear": "0x100cd",
+      "ends_with": "fallen's body (ghidra-analysis)",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 13
+       },
+       "looks_like_code": 0,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0016",
+      "start_linear": "0x10016",
+      "starts_with": "main's body (ghidra-analysis)"
+     },
+     {
+      "block": "CODE_2",
+      "block_bytes": 49,
+      "bytes": 41,
+      "claimed_bytes": 1,
+      "counted": true,
+      "end": "100c:0037",
+      "end_linear": "0x100f7",
+      "ends_with": "an unclaimed run that looks like code",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 1
+       },
+       "looks_like_code": 1,
+       "tail_calls": 0
+      },
+      "segment": "100c",
+      "start": "100c:000f",
+      "start_linear": "0x100cf",
+      "starts_with": "fallen's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 13,
@@ -1351,6 +1911,27 @@
      "end": "1000:00ff"
     },
     "value": "padding"
+   },
+   {
+    "claim": "248 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with start's body (ghidra-analysis), ends with an unclaimed run that looks like code",
+    "id": "ev-0d081a65-e39cc2bd",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:00f7"
+    },
+    "value": {
+     "claimed_bytes": 220,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 17
+      },
+      "looks_like_code": 1,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -1361,6 +1942,7 @@
   ],
   "result": {
    "claimed_bytes": 220,
+   "claimed_of_code_region": 88.7,
    "claimed_percent": 85.9,
    "code": {
     "blocks": [
@@ -1373,6 +1955,34 @@
      }
     ],
     "bytes": 256
+   },
+   "code_region": {
+    "bytes": 248,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 96.9,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 256,
+      "bytes": 248,
+      "claimed_bytes": 220,
+      "counted": true,
+      "end": "1000:00f7",
+      "end_linear": "0x100f7",
+      "ends_with": "an unclaimed run that looks like code",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 17
+       },
+       "looks_like_code": 1,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0000",
+      "start_linear": "0x10000",
+      "starts_with": "start's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [
     {
@@ -1484,10 +2094,17 @@
   ],
   "result": {
    "claimed_bytes": 0,
+   "claimed_of_code_region": 0.0,
    "claimed_percent": 0.0,
    "code": {
     "blocks": [],
     "bytes": 0
+   },
+   "code_region": {
+    "bytes": 0,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 0.0,
+    "ranges": []
    },
    "entry_outside_body": [],
    "functions": 1,
@@ -1636,6 +2253,27 @@
      "end": "1000:00ff"
     },
     "value": "padding"
+   },
+   {
+    "claim": "248 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with start's body (ghidra-analysis), ends with an unclaimed run that looks like code",
+    "id": "ev-0d081a65-7b137b7b",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:00f7"
+    },
+    "value": {
+     "claimed_bytes": 217,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 19
+      },
+      "looks_like_code": 1,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -1646,6 +2284,7 @@
   ],
   "result": {
    "claimed_bytes": 217,
+   "claimed_of_code_region": 87.5,
    "claimed_percent": 84.8,
    "code": {
     "blocks": [
@@ -1658,6 +2297,34 @@
      }
     ],
     "bytes": 256
+   },
+   "code_region": {
+    "bytes": 248,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 96.9,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 256,
+      "bytes": 248,
+      "claimed_bytes": 217,
+      "counted": true,
+      "end": "1000:00f7",
+      "end_linear": "0x100f7",
+      "ends_with": "an unclaimed run that looks like code",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 19
+       },
+       "looks_like_code": 1,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0000",
+      "start_linear": "0x10000",
+      "starts_with": "start's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 19,
@@ -1866,6 +2533,27 @@
      "end": "1000:00ff"
     },
     "value": "padding"
+   },
+   {
+    "claim": "248 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with start's body (ghidra-analysis), ends with an unclaimed run that looks like code",
+    "id": "ev-0d081a65-3f5bfb99",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:00f7"
+    },
+    "value": {
+     "claimed_bytes": 229,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 17
+      },
+      "looks_like_code": 1,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -1877,6 +2565,7 @@
   ],
   "result": {
    "claimed_bytes": 229,
+   "claimed_of_code_region": 92.3,
    "claimed_percent": 89.5,
    "code": {
     "blocks": [
@@ -1889,6 +2578,34 @@
      }
     ],
     "bytes": 256
+   },
+   "code_region": {
+    "bytes": 248,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 96.9,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 256,
+      "bytes": 248,
+      "claimed_bytes": 229,
+      "counted": true,
+      "end": "1000:00f7",
+      "end_linear": "0x100f7",
+      "ends_with": "an unclaimed run that looks like code",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 17
+       },
+       "looks_like_code": 1,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0000",
+      "start_linear": "0x10000",
+      "starts_with": "start's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 17,
@@ -2069,6 +2786,48 @@
      "end": "100d:002f"
     },
     "value": "padding"
+   },
+   {
+    "claim": "208 bytes of CODE_0 from the first code evidence to the last",
+    "detail": "starts with start's body (ghidra-analysis), ends with fallen's body (ghidra-analysis)",
+    "id": "ev-0d081a65-a9393afe",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "1000:0000",
+     "end": "1000:00cf"
+    },
+    "value": {
+     "claimed_bytes": 202,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 14
+      },
+      "looks_like_code": 0,
+      "tail_calls": 0
+     }
+    }
+   },
+   {
+    "claim": "34 bytes of CODE_1 from the first code evidence to the last",
+    "detail": "starts with lonely's body (ghidra-analysis), ends with an unclaimed run that looks like code",
+    "id": "ev-0d081a65-105789fb",
+    "kind": "code-region",
+    "level": "info",
+    "location": {
+     "address": "100d:0006",
+     "end": "100d:0027"
+    },
+    "value": {
+     "claimed_bytes": 18,
+     "rests_on": {
+      "bodies": {
+       "ghidra-analysis": 2
+      },
+      "looks_like_code": 1,
+      "tail_calls": 0
+     }
+    }
    }
   ],
   "limitations": [
@@ -2079,6 +2838,7 @@
   ],
   "result": {
    "claimed_bytes": 220,
+   "claimed_of_code_region": 90.9,
    "claimed_percent": 85.9,
    "code": {
     "blocks": [
@@ -2098,6 +2858,55 @@
      }
     ],
     "bytes": 256
+   },
+   "code_region": {
+    "bytes": 242,
+    "how": "In each block holding a function's body: from the first byte to the last of any function body, unclaimed run that looks like code, or tail call's instruction or target. Data between them is inside; a block whose only evidence is functions RecoverFunctions guessed from a prologue is listed and not counted. Code that no body claims and that does not look like code -- because fill inside it breaks the decode, or nothing reaches it -- lies outside, so an edge can fall short of the code.",
+    "of_code_percent": 94.5,
+    "ranges": [
+     {
+      "block": "CODE_0",
+      "block_bytes": 208,
+      "bytes": 208,
+      "claimed_bytes": 202,
+      "counted": true,
+      "end": "1000:00cf",
+      "end_linear": "0x100cf",
+      "ends_with": "fallen's body (ghidra-analysis)",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 14
+       },
+       "looks_like_code": 0,
+       "tail_calls": 0
+      },
+      "segment": "1000",
+      "start": "1000:0000",
+      "start_linear": "0x10000",
+      "starts_with": "start's body (ghidra-analysis)"
+     },
+     {
+      "block": "CODE_1",
+      "block_bytes": 48,
+      "bytes": 34,
+      "claimed_bytes": 18,
+      "counted": true,
+      "end": "100d:0027",
+      "end_linear": "0x100f7",
+      "ends_with": "an unclaimed run that looks like code",
+      "rests_on": {
+       "bodies": {
+        "ghidra-analysis": 2
+       },
+       "looks_like_code": 1,
+       "tail_calls": 0
+      },
+      "segment": "100d",
+      "start": "100d:0006",
+      "start_linear": "0x100d6",
+      "starts_with": "lonely's body (ghidra-analysis)"
+     }
+    ]
    },
    "entry_outside_body": [],
    "functions": 16,
