@@ -205,10 +205,13 @@ def code_region(code_maps, functions, code_like, tail_calls, claimed):
                 unlikely[f["entry"]] = odd
             for a, b in mine:
                 pieces.append((a, b, f"{f['name']}'s body ({origin})", origin == GUESS))
+        # A run can go on into the next block when the two are contiguous;
+        # each block takes its own part of it.
         for u in code_like:
             a, b = int(u["start_linear"], 16), int(u["end_linear"], 16)
-            if lo <= a <= hi:
-                pieces.append((a, b, "an unclaimed run that looks like code", False))
+            if a <= hi and b >= lo:
+                pieces.append((max(a, lo), min(b, hi), "an unclaimed run that looks like code",
+                               False))
         tails = 0
         for t in tail_calls:
             for what in ("via", "target"):
@@ -218,7 +221,9 @@ def code_region(code_maps, functions, code_like, tail_calls, claimed):
                     pieces.append((linear_of(at), linear_of(at),
                                    f"a tail call's {'instruction' if what == 'via' else 'target'}",
                                    False))
-        start = min(pieces, key=lambda p: (p[0], p[1]))
+        # Where two pieces start (or end) on the same byte, the range is said
+        # to start (or end) with the longer: a body, not a tail call inside it.
+        start = min(pieces, key=lambda p: (p[0], -p[1]))
         end = max(pieces, key=lambda p: (p[1], -p[0]))
         a, b = start[0], end[1]
         counted = not all(guess for *_, guess in pieces)

@@ -387,6 +387,79 @@ def _():
             f"both ends and make the guess count")
 
 
+@case("code_region at its edges and ties, worked out by hand")
+def _():
+    def block(name, seg, lo, hi):
+        return {"block": name, "segment": f"{seg:04x}", "linear_start": lo,
+                "linear_end_inclusive": hi, "length": hi - lo + 1}
+
+    def fn(name, origin, lo, hi, mnemonics=()):
+        return {"name": name, "entry": f"1000:{lo - 0x10000:04x}", "origin": origin,
+                "mnemonics": list(mnemonics),
+                "body": {"ranges": [{"start_linear": f"0x{lo:x}", "end_linear": f"0x{hi:x}"}]}}
+
+    def run(lo, hi):
+        return {"start_linear": f"0x{lo:x}", "end_linear": f"0x{hi:x}"}
+
+    def region(maps, functions, code_like=(), tails=(), claimed=None):
+        if claimed is None:
+            claimed = bodies.merge(r for f in functions for r in bodies.body_ranges(f))
+        return bodies.code_region(maps, functions, list(code_like), list(tails), claimed)
+
+    def edges(r):
+        return (r["start_linear"], r["end_linear"], r["starts_with"], r["ends_with"])
+    X = block("CODE_0", 0x1000, 0x10100, 0x101FF)
+    A = fn("A", "ghidra-analysis", 0x10110, 0x10150)
+    B = fn("B", "recovered-prologue", 0x10160, 0x10170)
+
+    # A tail call inside A does not start the range; B, a guess, ends it.
+    # Two of the claimed bytes lie before the range and are not counted.
+    (r,) = region([X], [A, B], tails=[{"via": "1000:0120", "target": "1000:0160"}],
+                  claimed=[(0x1010E, 0x10150), (0x10160, 0x10170)])
+    if edges(r) != ("0x10110", "0x10170", "A's body (ghidra-analysis)",
+                    "B's body (recovered-prologue)") or r["claimed_bytes"] != 0x41 + 0x11 \
+            or r["rests_on"]["tail_calls"] != 1 or not r["counted"]:
+        raise AssertionError(f"a tail call inside A: {r}")
+    # Ties: a run and a shorter body start on one byte, and end on another;
+    # the range starts and ends with the longer, the run.
+    (r,) = region([X], [fn("A", "ghidra-analysis", 0x10110, 0x10120),
+                        fn("C", "ghidra-analysis", 0x10140, 0x10150)],
+                  code_like=[run(0x10110, 0x10150)])
+    if edges(r) != ("0x10110", "0x10150", "an unclaimed run that looks like code",
+                    "an unclaimed run that looks like code"):
+        raise AssertionError(f"ties: {r}")
+    # A run across two contiguous blocks: each takes its own part.
+    Y = block("CODE_1", 0x1020, 0x10200, 0x102FF)
+    x, y = region([X, Y], [fn("A", "ghidra-analysis", 0x10100, 0x10110),
+                           fn("D", "ghidra-analysis", 0x10280, 0x10290)],
+                  code_like=[run(0x101F0, 0x10210)])
+    if (x["start_linear"], x["end_linear"], y["start_linear"], y["end_linear"]) != \
+            ("0x10100", "0x101ff", "0x10200", "0x10290") or \
+            (x["rests_on"]["looks_like_code"], y["rests_on"]["looks_like_code"]) != (1, 1):
+        raise AssertionError(f"a run across two blocks: {x} {y}")
+    # Tail calls on the block's first and last byte count; one below it, in
+    # another segment, does not. 1001:00f0 is 1000:0100.
+    (r,) = region([X], [fn("C", "ghidra-analysis", 0x10140, 0x10150)],
+                  tails=[{"via": "1001:00f0", "target": "1000:01ff"},
+                         {"via": "0f00:0000", "target": "0f00:0010"}])
+    if (r["start_linear"], r["end_linear"], r["rests_on"]["tail_calls"]) != \
+            ("0x10100", "0x101ff", 1) or bodies.linear_of("1001:00f0") != 0x10100:
+        raise AssertionError(f"tail calls at the edges: {r}")
+    # Only a split is still evidence; only guesses is not, with what they hold.
+    for functions, counted in (([fn("S", "recovered-split", 0x10110, 0x10120)], True),
+                               ([fn("P", "recovered-code-pointer", 0x10110, 0x10120),
+                                 B], True),
+                               ([fn("G", "recovered-prologue", 0x10110, 0x10120,
+                                    ["MOV", "ENTER", "ARPL"]), B], False)):
+        (r,) = region([X], functions)
+        if r["counted"] != counted or (not counted and (
+                r["unlikely_instructions"] != {"1000:0110": ["ARPL", "ENTER"]}
+                or r["why_not"] != "every function in it was guessed from a prologue "
+                                   "alone (2)")):
+            raise AssertionError(f"{[f['origin'] for f in functions]}: {r}")
+    return "a tail call inside a body, ties, a run across blocks, edges, origins"
+
+
 @case("an export from before function bodies is refused, with what to do")
 def _():
     path = synthetic_export(WORK / "old", [("start", 0, [(0, 0x14)])])
