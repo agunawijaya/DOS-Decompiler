@@ -652,7 +652,7 @@ export matched too.
 | `relocations.status_after_correction` | only when a `FAILURE` record lies in a page the corrector restored: its word in memory is the file's after the fixup, the range is one the record says it restored, and the record's provenance holds. Only then is that record left out of `.status` and `.original` |
 | `relocations.words` | each patched word holds its value after every fixup to it |
 | `mapping <block> <address>.address`, `.digest` | for each range of each block: it sits at load segment × 16 + image offset, and its bytes are the file's with fixups applied |
-| `mappings.failures` | no mapping failed its `.digest`, wrong bytes or none at all. When one did, this names every one, and its detail says how many of how many, so a reader of the summary sees them all and not only the first. Before prompt 08 the count was kept and never read |
+| `mappings.failures` | no mapping failed its `.digest`, wrong bytes or none at all. When one did, this names every one, and its detail says how many of how many, so a reader of the summary sees them all and not only the first. Before prompt 08 the count was kept and never read, and a check count quoted in this file from an earlier prompt is one lower than a run gives now |
 | `module.loaded`, `file.modified` | the module in memory, and Ghidra's own patched copy of the file, are the file with fixups applied |
 | `overlay.excluded` | nothing past the declared image was loaded |
 | `entry`, `stack` | `CS:IP` and `SS:SP` as the header gives them |
