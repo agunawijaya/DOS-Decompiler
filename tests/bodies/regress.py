@@ -437,6 +437,13 @@ def _():
             ("0x10100", "0x101ff", "0x10200", "0x10290") or \
             (x["rests_on"]["looks_like_code"], y["rests_on"]["looks_like_code"]) != (1, 1):
         raise AssertionError(f"a run across two blocks: {x} {y}")
+    # One that starts on the first block's last byte and ends on the second's
+    # first: one byte in each.
+    x, y = region([X, Y], [fn("A", "ghidra-analysis", 0x10100, 0x10110),
+                           fn("D", "ghidra-analysis", 0x10280, 0x10290)],
+                  code_like=[run(0x101FF, 0x10200)])
+    if (x["end_linear"], y["start_linear"]) != ("0x101ff", "0x10200"):
+        raise AssertionError(f"a run of the two edge bytes: {x} {y}")
     # Tail calls on the block's first and last byte count; one below it, in
     # another segment, does not. 1001:00f0 is 1000:0100.
     (r,) = region([X], [fn("C", "ghidra-analysis", 0x10140, 0x10150)],
@@ -446,12 +453,13 @@ def _():
             ("0x10100", "0x101ff", 1) or bodies.linear_of("1001:00f0") != 0x10100:
         raise AssertionError(f"tail calls at the edges: {r}")
     # Only a split is still evidence; only guesses is not, with what they hold.
-    for functions, counted in (([fn("S", "recovered-split", 0x10110, 0x10120)], True),
-                               ([fn("P", "recovered-code-pointer", 0x10110, 0x10120),
-                                 B], True),
-                               ([fn("G", "recovered-prologue", 0x10110, 0x10120,
-                                    ["MOV", "ENTER", "ARPL"]), B], False)):
-        (r,) = region([X], functions)
+    for functions, code_like, counted in (
+            ([fn("S", "recovered-split", 0x10110, 0x10120)], [], True),
+            ([fn("P", "recovered-code-pointer", 0x10110, 0x10120), B], [], True),
+            ([B], [run(0x10180, 0x10190)], True),          # a guess, and code beside it
+            ([fn("G", "recovered-prologue", 0x10110, 0x10120,
+                 ["MOV", "ENTER", "ARPL"]), B], [], False)):
+        (r,) = region([X], functions, code_like=code_like)
         if r["counted"] != counted or (not counted and (
                 r["unlikely_instructions"] != {"1000:0110": ["ARPL", "ENTER"]}
                 or r["why_not"] != "every function in it was guessed from a prologue "

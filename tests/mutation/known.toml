@@ -1104,3 +1104,45 @@ signature = "7dc56e0279f8a112"
 kind = "equivalent"
 mutant = "if (dividend < 0) is not (divisor < 0):"
 why = "Both sides are booleans, and CPython has one True and one False, so `is not` is !=."
+
+[[survivor]]
+target = "bodies"
+signature = "69707488dd17060c"
+kind = "equivalent"
+mutant = "tails += what is \"via\""
+why = "`what` is \"via\" or \"target\", literals CPython interns, and \"target\" sorts before \"via\", so `is` and >= hold exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "79d96b88fe5ae8b7"
+kind = "equivalent"
+mutant = "tails += what >= \"via\""
+why = "`what` is \"via\" or \"target\", literals CPython interns, and \"target\" sorts before \"via\", so `is` and >= hold exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "d9b0fe04409e00fd"
+kind = "equivalent"
+mutant = "f\"a tail call's {'instruction' if what >= 'via' else 'target'}\","
+why = "`what` is \"via\" or \"target\", literals CPython interns, and \"target\" sorts before \"via\", so `is` and >= hold exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "7eb2773015f496b6"
+kind = "equivalent"
+mutant = "f\"a tail call's {'instruction' if what is 'via' else 'target'}\","
+why = "`what` is \"via\" or \"target\", literals CPython interns, and \"target\" sorts before \"via\", so `is` and >= hold exactly when == does."
+
+[[survivor]]
+target = "bodies"
+signature = "92fa7f32359072c8"
+kind = "equivalent"
+mutant = "start = min(pieces, key=lambda p: (p[0], ~p[1]))"
+why = "~x is -x - 1, which orders values exactly as -x does."
+
+[[survivor]]
+target = "bodies"
+signature = "0daf97f2d1cdd28b"
+kind = "equivalent"
+mutant = "end = max(pieces, key=lambda p: (p[1], ~p[0]))"
+why = "~x is -x - 1, which orders values exactly as -x does."
