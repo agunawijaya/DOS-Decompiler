@@ -817,3 +817,129 @@ signature = "8a78a124a73b87d1"
 kind = "equivalent"
 mutant = "return out[0] + (out[1] << 8)"
 why = "The low byte and the high byte shifted left by 8 share no bit, so adding them is or-ing them."
+
+[[survivor]]
+target = "comrec"
+signature = "31436bec435b730b"
+kind = "equivalent"
+mutant = "if built[i] is not self.image[i]:"
+why = "Indexing bytes gives ints 0..255, which CPython keeps as one object each, so `is not` holds exactly when != does."
+
+[[survivor]]
+target = "triage"
+signature = "12535d1274084b64"
+kind = "equivalent"
+mutant = "if data[max( 1, mz[\"entry\"] - 2):mz[\"entry\"]] == b\"RB\":"
+why = "The two slices differ only for an entry at file offset 2 or less, where both are at most the first two bytes, which are MZ or ZM, never RB."
+
+[[survivor]]
+target = "triage"
+signature = "1b8445b2ff3653a9"
+kind = "equivalent"
+mutant = "if pos <= -1:"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "55388f4b363a3c11"
+kind = "equivalent"
+mutant = "if pos is -1:"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "b3356b308bca1b13"
+kind = "equivalent"
+mutant = "if fbov is not -1 or mz[\"overlay_number\"] != 0:"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "fb09b1d395749f32"
+kind = "equivalent"
+mutant = "if fbov > -1 or mz[\"overlay_number\"] != 0:"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "2595212698567775"
+kind = "equivalent"
+mutant = "if fbov != -1 or mz[\"overlay_number\"] > 0:"
+why = "The overlay number is read as an unsigned 16-bit word, so > 0 holds exactly when != 0 does."
+
+[[survivor]]
+target = "triage"
+signature = "879f23bf76c9a818"
+kind = "equivalent"
+mutant = "\"overlay\", _at(fbov if fbov is not -1 else 0x1A),"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "9886f0a8497e068c"
+kind = "equivalent"
+mutant = "\"overlay\", _at(fbov if fbov > -1 else 0x1A),"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "04112cb430d57904"
+kind = "equivalent"
+mutant = "\"fbov_marker\": fbov is not -1})"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "3adbbb9cf33bff91"
+kind = "equivalent"
+mutant = "\"fbov_marker\": fbov > -1})"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "44ca2075229dfb58"
+kind = "equivalent"
+mutant = "and data.find(m) > -1}"
+why = "str.find and bytes.find return -1 or an index, never less, so this comparison with -1 holds exactly when != -1 does; and -1 is one object in CPython, so `is not -1` is != too."
+
+[[survivor]]
+target = "triage"
+signature = "75d01aefefdaa590"
+kind = "equivalent"
+mutant = "level = \"info\" if model is \"small\" else \"warn\""
+why = "guess_memory_model returns the literal \"small\", and CPython interns identifier-like string literals, so it is the same object as the one compared."
+
+[[survivor]]
+target = "triage"
+signature = "79c3df02074400f3"
+kind = "equivalent"
+mutant = "if model.startswith((\"compact\", \"small or medium\")) and model is not \"small\":"
+why = "A model that starts with compact or small or medium is never \"small\", so the second test is true whichever operator makes it."
+
+[[survivor]]
+target = "triage"
+signature = "6f69018a59414708"
+kind = "equivalent"
+mutant = "elif siblings and siblings[0][1] > 4 * max( 2, image_len):"
+why = "A sibling counts only when it is larger than the executable, at least 28 bytes, so with an image of 0 or 1 byte it is over 4, 8 or 0 alike."
+
+[[survivor]]
+target = "triage"
+signature = "49dbaf4f2929dbb6"
+kind = "equivalent"
+mutant = "elif siblings and siblings[0][1] > 4 * max( 0, image_len):"
+why = "A sibling counts only when it is larger than the executable, at least 28 bytes, so with an image of 0 or 1 byte it is over 4, 8 or 0 alike."
+
+[[survivor]]
+target = "triage"
+signature = "07535562fd738662"
+kind = "equivalent"
+mutant = "if v.get(\"route\") is \"comrec\":"
+why = "The route is set from the literal \"comrec\" in the same module or not set, and CPython interns identifier-like literals, so `is` holds exactly when == does."
+
+[[survivor]]
+target = "triage"
+signature = "df4fd69d15922b42"
+kind = "equivalent"
+mutant = "if v[\"in_scope\"] and v[\"confidence\"] <= \"high\":"
+why = "Confidence is only ever \"high\" or \"low\", and \"low\" sorts after \"high\", so <= \"high\" holds exactly when == does."

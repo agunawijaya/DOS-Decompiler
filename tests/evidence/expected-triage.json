@@ -4109,6 +4109,154 @@
    "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
   ]
  },
+ "shapes/pklite-2-relocs": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-83fa7f56-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 2,048 bytes",
+     "id": "ev-83fa7f56-e9f08006",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x840",
+      "file_offset": "0x40"
+     },
+     "value": 2048
+    },
+    {
+     "claim": "2 relocations",
+     "id": "ev-83fa7f56-232c2ef5",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 2
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x40",
+     "id": "ev-83fa7f56-36fe6676",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x40"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "packed with PKLITE",
+     "detail": "Signature at 0x740, 2 relocations and 0.5 prologues/KB -- the visible code is a decompressor, not the program. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-2-relocs.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+     "id": "ev-83fa7f56-1303a324",
+     "kind": "packer-signature",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x740"
+     },
+     "value": {
+      "near_entry": false,
+      "packer": "PKLITE",
+      "prologues_per_kb": 0.5,
+      "relocations": 2,
+      "signature": "PKLITE"
+     }
+    },
+    {
+     "claim": "memory model looks compact, large or huge",
+     "detail": "2 relocations over 2 KB (1.00/KB): far pointers throughout, so more than one code or data segment",
+     "id": "ev-83fa7f56-dc2b068e",
+     "kind": "memory-model",
+     "level": "warn",
+     "location": {
+      "relocation_targets": [
+       "0x440",
+       "0x540"
+      ]
+     },
+     "value": {
+      "image_bytes": 2048,
+      "model": "compact, large or huge",
+      "relocations": 2
+     }
+    },
+    {
+     "claim": "mixed or frame-pointer-free (1 prologues, 0.5/KB)",
+     "detail": "Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+     "id": "ev-83fa7f56-4934c404",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x840",
+      "file_offset": "0x40"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.5,
+      "prologues": 1
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "emuverify.py assumes small model: It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 2048,
+    "memory_model_guess": "compact, large or huge",
+    "prologue_density": 0.5,
+    "prologues": 1,
+    "relocations": 2,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": false
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "which far-pointer model this is, and how many code and data segments it has",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 2,048 bytes, 2 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[BLOCKER] packed with PKLITE",
+   "           Signature at 0x740, 2 relocations and 0.5 prologues/KB -- the visible code is a decompressor, not the program. Unpack before doing anything else, or you will decompile the decompressor: correct, and useless. Try `python tools/unpack.py pklite-2-relocs.exe -o unpacked.exe`, which runs the decompressor under emulation and dumps the result.",
+   "",
+   "[WARN   ] memory model looks compact, large or huge",
+   "           2 relocations over 2 KB (1.00/KB): far pointers throughout, so more than one code or data segment",
+   "",
+   "[WARN   ] emuverify.py assumes small model",
+   "           It sets SS = DS and maps one 64 KB data group. On a far-pointer program it will run functions with the wrong stack segment and produce nonsense without saying so. modcluster.py and match.py's data fingerprints make the same assumption.",
+   "",
+   "[WARN   ] mixed or frame-pointer-free (1 prologues, 0.5/KB)",
+   "           Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
  "shapes/pklite-near": {
   "envelope": {
    "evidence": [

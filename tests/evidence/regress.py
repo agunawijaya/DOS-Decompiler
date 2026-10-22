@@ -90,7 +90,8 @@ NUMBERS = {
     "pklite-1024": ["IMAGE=4096", "PROLOGUES=1", "RELOCS=3", "SIG='PKLITE'",
                     "SIG_AT=1024"],
     # Far from the entry: 0.2 prologues per KB is not stripped, 0.1 is; 3/13
-    # is not, and its density has three places to round; one relocation is.
+    # is not, and its density has three places to round; one relocation is,
+    # and so are two.
     "pklite-0.2": ["IMAGE=5120", "PROLOGUES=1", "RELOCS=3", "SIG='PKLITE'",
                    "SIG_AT=0x800"],
     "pklite-0.1": ["IMAGE=10240", "PROLOGUES=1", "RELOCS=3", "SIG='PKLITE'",
@@ -99,6 +100,9 @@ NUMBERS = {
                     "SIG_AT=0x800"],
     "pklite-1-reloc": ["IMAGE=2048", "PROLOGUES=1", "RELOCS=1", "SIG='PKLITE'",
                        "SIG_AT=0x700"],
+    # Two relocations is still stripped; three (pklite-0.2 and the rest) is not.
+    "pklite-2-relocs": ["IMAGE=2048", "PROLOGUES=1", "RELOCS=2", "SIG='PKLITE'",
+                        "SIG_AT=0x700"],
     # SCUMM spelled one way of the two triage knows.
     "scumm": ["SIG='SCUMM'", "SIG_AT=0x100"],
 }
