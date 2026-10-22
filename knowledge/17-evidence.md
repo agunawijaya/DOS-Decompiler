@@ -495,14 +495,19 @@ Ghidra 12.1.2's `MzLoader` differs on both — measured, with fixtures:
 
 ```
 $ python tools/loadimage.py verify DUPLICATED.EXE DUPLICATED\loadimage-observed
-load image: mismatch, 4 of 28 checks failed
+load image: mismatch, 5 of 29 checks failed
 first failing check: relocations.words: expected each patched word holds its value after every fixup to it, observed ['1006:0016: 0x1004 not 0x2004']
 first differing byte: file 0xb7, 1006:0017 (linear 0x10077): expected 0x20, observed 0x10
 
 $ python tools/loadimage.py verify FULL_LAST_PAGE.EXE FULL_LAST_PAGE\loadimage-observed
-load image: mismatch, 2 of 28 checks failed
+load image: mismatch, 2 of 29 checks failed
 first failing check: module.coverage: expected file 0x40..0x3ff, once, observed ['file 0x200..0x3ff not loaded']
 ```
+
+(Measured in prompt 02 as 4 of 28 and 2 of 28. `mappings.failures`, added in
+prompt 08, is the 29th: it fails with the duplicated relocation's word, which
+lies in a mapping's bytes, and passes for the dropped page, which no mapping
+covers.)
 
 Its source says why. It collects the fixups in a set and *writes*
 `0x1000 + the word read from the file` for each, rather than adding to what
@@ -562,7 +567,7 @@ fixture with both divergences:
 
 **The verifier does not trust the corrector.** It checks only where the record
 came from: `corrector.script_sha256`, `corrector.helper_sha256` and
-`corrector.target`, so a fixture's 28 checks become 31. Everything else is
+`corrector.target`, so a fixture's 29 checks become 32. Everything else is
 compared with the file exactly as though no corrector existed. A dump changed
 after correction is still a mismatch, tested. The record's corrections are
 copied into `loadimage.json` (`corrections`, `corrections_made`,
