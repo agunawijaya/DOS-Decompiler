@@ -2,9 +2,10 @@
 # project the user has trusted (knowledge/19-agents.md). The method is
 # AGENTS.md, which Codex reads on its own.
 #
-# AGENTS.md is about 40 KB; Codex reads 32 KiB of instructions by default and
-# truncates the rest, which loses the end of Step 5 and everything after.
-# Measured with `-c project_doc_max_bytes=65536`, which loads it whole.
+# Codex reads 32 KiB of instructions by default and truncates the rest. At
+# about 40 KB, AGENTS.md lost the end of Step 5 and everything after; since
+# prompt 09a it is under 24,000 bytes and fits the default (measured). This
+# stays, for growth: tests/agents fails if AGENTS.md outgrows it.
 project_doc_max_bytes = 65536
 
 # Codex passes an MCP server only the variables it names, so these are passed

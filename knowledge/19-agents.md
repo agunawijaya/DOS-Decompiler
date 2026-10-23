@@ -10,8 +10,9 @@ run headless on the same task.
 Everything marked *measured* was run on 2026-10-23 on Windows 11, from the
 repository root, in a shell with no `env.ps1` loaded: Claude Code 2.1.281,
 Gemini CLI 0.58.0, Codex CLI 0.154.0, Kimi Code CLI 2.1.1 and Antigravity CLI
-1.4.2. Everything else is from the agent's documentation, with the URL and the
-page's date (or the date it was read, where the page has none) under
+1.4.2 (1.4.5 for the run after prompt 09a; it updates itself). Everything else
+is from the agent's documentation, with the URL and the page's date (or the
+date it was read, where the page has none) under
 [Sources](#sources). All five change quickly; check the version before
 trusting a row.
 
@@ -82,10 +83,11 @@ Each agent was given the same task, from the repository root, headless:
 The answer, from `python tools/triage.py tests/com/fixtures/mzsingle.exe
 --evidence -`: in scope, confidence low ("probably workable, with caveats
 above"). The finding that lowers the confidence is `prologue-density`,
-`ev-88bbb9bf-1a9ce1e6` (`tools/triage.py:328`). The memory-model and
-data-siblings warnings do not change the verdict. The envelope does not say
-which finding set the verdict, so an agent has to read `triage.py` to know.
-Only Claude Code did.
+`ev-88bbb9bf-1a9ce1e6`. The memory-model and data-siblings warnings do not
+change the verdict. When these runs were made the envelope did not say which
+finding set the verdict, so an agent had to read `triage.py` to know, and only
+Claude Code did. Since prompt 09a it does: `result.verdict_evidence`
+(`17-evidence.md`).
 
 | Agent | Found `AGENTS.md` | Called the MCP tool | Verdict | Evidence id given | Wall time |
 |---|---|---|---|---|---|
@@ -97,6 +99,18 @@ Only Claude Code did.
 
 No run changed a tracked or untracked file: after each run, `git status` was
 the same as before it.
+
+**After 09a**, with `AGENTS.md` at 22,322 bytes and `verdict_evidence` in the
+envelope, two rows were run again the same way:
+
+| Agent | Command | Found `AGENTS.md` | Called the MCP tool | Evidence id given | Wall time |
+|---|---|---|---|---|---|
+| Antigravity CLI 1.4.5 | `agy --output-format stream-json --dangerously-skip-permissions -p "<task>"`, the grant of the first table's second run | whole: no truncation | yes, `triage` | `1a9ce1e6`, read from `verdict_evidence.confidence`, with `in_scope` `[]` | 35.9 s |
+| Codex CLI 0.154.0 | `codex exec --json -s read-only "<task>"`, no `-c` | whole, at the default 32 KiB | no: the project is untrusted, so the CLI through the shell | `1a9ce1e6` | 24.4 s |
+
+The verdict was right in both. Each gave the id that set the confidence, where
+in the first runs Antigravity listed all seven and Codex a wrong one three
+times.
 
 ## Claude Code
 
@@ -173,11 +187,13 @@ Google's replacement for Gemini CLI (`agy`), which the error above names. It
 is not one of the four, but it is the way left to run Gemini models here.
 
 **Instructions.** Reads `AGENTS.md` (and `GEMINI.md`) natively, up to 24,000
-bytes. *Measured*: `Rule file E:\Projects\DOS-Decompiler\AGENTS.md truncated
-by 16726 bytes (original 40684 bytes, limit 24000 bytes)`. That cuts the
-method inside Step 3: the rest of Step 3, Step 3b, Step 4 (never name on one
-source), Step 5, validating a change and the references are not loaded. The
-top of `AGENTS.md` now tells an agent that loaded part of it to read it whole.
+bytes. *Measured* on 1.4.2: `Rule file E:\Projects\DOS-Decompiler\AGENTS.md
+truncated by 16726 bytes (original 40684 bytes, limit 24000 bytes)`, which cut
+the method inside Step 3. *Measured* on 1.4.5, after `AGENTS.md` went under
+the limit (22,322 bytes): no truncation line, and the first model call's input
+fell from 14,178 tokens to 13,828, about what the 1,678 bytes fewer would
+account for. The log has no line for a rule file loaded whole; the missing
+warning and the token count are the evidence.
 
 **MCP.** `.agents/mcp_config.json` in the workspace, `~/.gemini/config/mcp_config.json`
 globally; the workspace file wins. *Measured*: loaded with no trust prompt.
@@ -210,9 +226,11 @@ The model was this machine's setting, Gemini 3.8 Flash (Medium).
 
 **Instructions.** Reads `AGENTS.md` natively, but only the first
 `project_doc_max_bytes` of it, 32 KiB by default. *Measured*, in the session
-log: the instructions stop inside Step 5. Run with
-`-c project_doc_max_bytes=65536`, they end with the references. The same key
-is in `.codex/config.toml`, and takes effect once that file is read.
+log: the 40,684-byte file stopped inside Step 5. Run with
+`-c project_doc_max_bytes=65536`, it ended with the references. The same key
+is in `.codex/config.toml`, and takes effect once that file is read. Since
+prompt 09a `AGENTS.md` fits the default: *measured* with no `-c`, the whole
+file was in the session log's instructions.
 
 **MCP.** `[mcp_servers.<name>]` in `.codex/config.toml`, read only in a
 project the user has trusted. Trust is kept in the user's
@@ -288,23 +306,31 @@ mode Kimi copies a shell tool's output to stderr.
 
 ## How much of `AGENTS.md` each agent reads
 
-`AGENTS.md` is 41,553 bytes as checked out on Windows, 40,763 with Unix line
-endings (40,684 and 39,905 when the agents were run; the top paragraph and a
-reference were added afterwards).
+| Agent | Reads |
+|---|---|
+| Claude Code | all of it |
+| Gemini CLI | all of it |
+| Kimi Code | all of it |
+| Codex | 32 KiB by default; `project_doc_max_bytes` raises it |
+| Antigravity CLI | 24,000 bytes |
 
-| Agent | Reads | Where it stops |
-|---|---|---|
-| Claude Code | all of it | — |
-| Gemini CLI | all of it | — |
-| Kimi Code | all of it | — |
-| Codex | 32 KiB by default; `project_doc_max_bytes` raises it | inside Step 5 |
-| Antigravity CLI | 24,000 bytes | inside Step 3 |
+When the agents were first run, `AGENTS.md` was 40,684 bytes, and Codex cut
+it inside Step 5 and Antigravity inside Step 3. Since prompt 09a it is kept
+under the smallest limit: 22,322 bytes as checked out on Windows, 21,887 with
+Unix line endings. The rules stay in it; the measurements and cases behind
+them moved to the `knowledge/` file each step names. `tests/agents` fails if
+it grows past 24,000 bytes in either form.
 
-The sentence near the top of `AGENTS.md` is the agent-neutral answer: an agent
-that loaded only part reads the rest with its own file tool. Fitting
-`AGENTS.md` under 24,000 bytes would mean moving two fifths of it into
-`knowledge/`. That is a decision about the method, not about one agent, and it
-has not been taken.
+*Measured* again on 2026-10-23, with the same task and wrapper as the first
+runs ("After 09a" under the smoke test): Antigravity CLI 1.4.5 logged no truncation, and
+Codex at its default limit, with no `-c` and the project untrusted (so
+`.codex/config.toml` unread), had all of `AGENTS.md` in its instructions.
+`project_doc_max_bytes = 65536` stays in `.codex/config.toml`: it costs
+nothing and covers growth.
+
+The sentence near the top of `AGENTS.md` still tells an agent that loaded only
+part to read the rest with its own file tool, for an agent with a smaller
+limit than any measured here.
 
 ## Tool names and schemas against each agent's limits
 

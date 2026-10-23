@@ -692,14 +692,15 @@ means none of the binary can be dismissed as library noise.
 Start the agent in this repository. It finds the method (`AGENTS.md`) and the
 MCP server (`mcp_server/server.py`) through its own project file, and nothing
 is copied. The server reads `env.ps1` itself, so the shell needs nothing
-loaded. Measured on 2026-10-23
+loaded. `AGENTS.md` is kept under 24,000 bytes, the smallest limit any of them
+has, so each loads all of it. Measured on 2026-10-23
 ([`knowledge/19-agents.md`](knowledge/19-agents.md)):
 
 | Agent | Run | Before the first run |
 |---|---|---|
 | Claude Code | `claude` | nothing |
 | Gemini CLI | `gemini` | a sign-in it still accepts: personal Google accounts are refused since 2026; a paid API key is said to work |
-| Codex CLI | `codex` | trust the project when asked; until then it loads neither the server nor all of `AGENTS.md` |
+| Codex CLI | `codex` | trust the project when asked; until then it loads no server |
 | Kimi Code CLI | `kimi` | choose "Trust this folder" when asked; until then it loads no server |
 | Antigravity CLI | `agy` | nothing, interactively; headless it needs the server's tools allowed |
 
