@@ -2,51 +2,43 @@
 
 Instructions for any coding agent — or any person — driving `DOS-Decompiler`.
 This file is the method for every agent, Claude Code, Gemini CLI, Codex, Kimi
-Code or any other, and the only copy of it, and the prompts and reports in
-`prompts/` follow `prompts/00-README.md` whichever agent runs them. Some agents
-load only the start of a long instruction file (Antigravity CLI 24,000 bytes,
-Codex 32 KiB unless raised); if yours did, read this file whole before
-starting. `SKILL.md` and the per-agent files are pointers here
-(`knowledge/19-agents.md`).
+Code, Antigravity CLI or any other, and the only copy of it, and the prompts
+and reports in `prompts/` follow `prompts/00-README.md` whichever agent runs
+them. It is kept under 24,000 bytes, the smallest instruction limit measured
+(Antigravity CLI's), so that every agent loads it whole; if yours loaded only
+part of it, read the file whole before starting. `SKILL.md` and the per-agent
+files are pointers here (`knowledge/19-agents.md`). This file holds the rules;
+the measurements and cases behind them are in the `knowledge/` file each step
+names.
 
-The toolkit is a set of ordinary command-line programs. They do the work that
-must be done by code: parsing headers, emulating 8086, computing signatures,
-diffing instruction streams. This document covers the other half — deciding
-what the evidence means, and refusing to claim more than it supports.
-
-Every number quoted was measured on **one** program: Sopwith (1984), whose
-original source survives and serves as the regression fixture in
-`tests/sopwith/`. That makes the claims checkable rather than folklore, and it
-also bounds them. Sopwith is MZ, C-compiled, small memory model, unpacked, not
-overlaid. Outside that shape the figures do not apply, and some tools mislead
-rather than fail.
+The tools do what must be done by code: parsing headers, emulating 8086,
+computing signatures, diffing instruction streams. This file covers the other
+half — deciding what the evidence means, and refusing to claim more than it
+supports. Every number quoted was measured on **one** program, Sopwith (1984),
+whose source survives and is the fixture in `tests/sopwith/`: MZ, C, small
+model, unpacked, not overlaid. Outside that shape the figures do not apply,
+and some tools mislead rather than fail.
 
 ## Running the tools
 
-- **Python tools** (`tools/*.py`) run anywhere Python 3 does. Each takes
-  `--help`.
-- **PowerShell tools** (`tools/*.ps1`) need PowerShell 7+, which runs on Linux
-  and macOS as well as Windows.
-- Tool locations come from environment variables. `env.example.ps1` documents
-  them; copy it to `env.ps1` and source it. Every script fails with a clear
-  message rather than a wrong default if one is missing.
-- **When the `dos-decompiler` MCP server is available, prefer its tools.**
-  `mcp_server/server.py` wraps the tools below and returns each result as an
-  evidence envelope, one page at a time: `triage`, `open_binary`, `analyze`,
-  `list_functions`, `function`, `coverage`, `anchors`, `apply_names`, `sweep`
-  and the rest. They call the same functions the command line does, so the
-  method in this file is unchanged. Only the way of running a step changes.
-  The command line is the fallback. The server works on a copy of the target
-  in a session folder and never writes beside the original. Its `apply_names`
-  is a dry run unless asked to write with `confirm`. Started in this
-  repository, each agent finds the server in its own project file; the server
-  reads `env.ps1` itself, and says at start what it could not find.
-  `knowledge/19-agents.md` has what each agent needs besides (trust, login).
+- `tools/*.py` run on Python 3 and take `--help`; `tools/*.ps1` need
+  PowerShell 7+. Copy `env.example.ps1` to `env.ps1` and source it: tool
+  locations come from its variables, and every script stops with a clear
+  message when one is missing. Set `PYTHON` to the interpreter with capstone
+  and unicorn; `pipeline.ps1` and `tests/run-all.ps1` prefer it to whatever
+  `python` is first on PATH.
+- **When the `dos-decompiler` MCP server is available, prefer its tools**
+  (`triage`, `open_binary`, `analyze`, `list_functions`, `function`,
+  `coverage`, `anchors`, `apply_names`, `sweep` and the rest). They call the
+  same functions as the command line, which is the fallback, and return each
+  result as an evidence envelope, a page at a time. The server works on a copy
+  of the target and never writes beside the original; `apply_names` is a dry
+  run unless asked to write with `confirm`. It reads `env.ps1` itself and says
+  at start what it could not find (`knowledge/19-agents.md`).
 
 ## What to tell the user before starting
 
-Be explicit about what this can and cannot produce. The gap between expectation
-and reality is where retro decompilation projects go wrong.
+Be explicit about what this can and cannot produce.
 
 | Goal | Realistic? |
 |---|---|
@@ -59,152 +51,76 @@ and reality is where retro decompilation projects go wrong.
 | Byte-identical recompilable source | Not from decompilation; see the extended workflow |
 | Working, modifiable port | Yes, but that is a rewrite informed by the decompilation |
 
-**Say the "source resembling the original" row out loud**, because it is the row
-everyone assumes the other way. Those accuracy figures are about *identifying
-which function is which*. They say nothing about the decompiled C resembling the
-original source, and it does not: no variable names, no structs (an `OBJECTS *`
-arrives as `undefined2 *` and raw offsets), no comments, no macros, hand-written
-assembly that does not decompile sensibly, and pure data tables that never
-appear as code at all.
-
-If the goal really is source that matches, that is the extended workflow —
-`knowledge/07-extended-reconstruction.md`.
+**Say the "source resembling the original" row out loud**, because everyone
+assumes it the other way. The figures are about *identifying which function
+is which*. The C has no variable names, no structs (an `OBJECTS *` arrives as
+`undefined2 *` and raw offsets), no comments, no macros; hand-written assembly
+does not decompile sensibly, and data tables never appear as code. Matching
+source is the extended workflow (`knowledge/07-extended-reconstruction.md`).
 
 ---
 
 ## Step 0 — What were you actually given?
 
-If you were handed a **folder** rather than a single file, start here:
-
-```
-python tools/survey.py path/to/game/folder
-```
-
-A DOS release is rarely one file. There is a game, usually a setup or install
-program, sometimes drivers, often overlays loaded at run time, and data spread
-across subdirectories. `survey.py` walks the whole tree, triages *every*
-executable it finds, reads any batch files for the real entry point, and says
-which executable looks like the game and why.
-
-This matters because picking the wrong executable wastes a day, and it is easy
-to do: a setup program decompiles just as willingly as the game. On one 1988
-release the folder held five executables — the game, two logo players, a setup
-stub and `MODE.COM` — and only the batch file distinguished them.
-
-It also catches what `triage.py` alone cannot see: overlay modules, a second
-executable hiding in a subfolder, and the interpreted-engine pattern judged
-across the whole tree rather than one directory.
-
-Then triage the executable it points at.
+Handed a **folder**, start with `python tools/survey.py path/to/folder`. A
+release is rarely one file, and a setup program decompiles as willingly as the
+game. `survey.py` triages every executable, reads the batch files for the real
+entry point, finds overlays and executables in subfolders, and says which one
+looks like the game and why (`knowledge/00-scope.md`). Then triage that one.
 
 ## Step 0a — Is that program in scope?
 
 ```
-python tools/triage.py GAME.EXE
+python tools/triage.py GAME.EXE --evidence -
 ```
 
-**Never skip this, and report its verdict before promising anything.**
+**Never skip this, and report its verdict before promising anything.** Read
+the JSON, not the prose: each finding with the file offset it rests on, the
+verdict in `result`, the ids of the findings that set it in
+`result.verdict_evidence`, what the checks cannot see in `limitations`, and the
+questions the file raised in `unknowns`. **Report the unknowns with the
+verdict.** `survey.py` and `mzinfo.py` take the same flag
+(`knowledge/17-evidence.md`).
 
-An agent should read `python tools/triage.py GAME.EXE --evidence -` rather than
-the prose: the same findings as JSON, each with the file offset it rests on,
-the verdict in `result`, what the checks cannot see in `limitations`, and the
-questions this file raised in `unknowns`. `survey.py` and `mzinfo.py` take the
-same flag. Report the unknowns along with the verdict; they are the part a
-person reading the prose most often loses. `knowledge/17-evidence.md` has the
-schema.
+Out of scope, or on another route (`knowledge/00-scope.md` has the matrix,
+and which failures are loud and which silent):
 
-Common DOS programs that fall outside the toolkit:
-
-- **Packed** executables — LZEXE, PKLITE, EXEPACK, DIET. Decompiling gets you
-  the decompressor. Run `tools/unpack.py` first.
-- **Overlaid** programs. Several functions share the same addresses at different
-  times; nothing here handles that.
-- **Protected-mode DOS-extender binaries.** A different format entirely.
-- **`.COM` files** do not go through this pipeline, but they are not out of
-  scope: they take a separate and stronger route. See below.
-- **Interpreted engines** — Sierra SCI and AGI, LucasArts SCUMM, DAAD. The
-  executable is a virtual machine and the game is in the data files beside it.
-  Decompiling succeeds and tells you nothing you wanted. This is the expensive
-  mistake; triage checks for it.
-- **Non-small memory models.** `emuverify.py` assumes `SS == DS` and one data
-  group. On a far-pointer program it produces nonsense *without saying so*.
-
-`knowledge/00-scope.md` has the full matrix and separates failures that are loud
-from failures that are silent.
+- **Packed** (LZEXE, PKLITE, EXEPACK, DIET): run `tools/unpack.py` first.
+- **Overlaid**: functions share addresses at different times; nothing here
+  handles that. **Protected-mode extender binaries**: another format.
+- **`.COM` files**: a separate, stronger route (below).
+- **Interpreted engines** (Sierra SCI and AGI, SCUMM, DAAD): the executable is
+  a virtual machine and the game is in the data files. Decompiling succeeds
+  and tells you nothing you wanted. Triage checks for it.
+- **Non-small memory models**: `emuverify.py` assumes `SS == DS` and one data
+  group, and on a far-pointer program produces nonsense *without saying so*.
 
 ### If it is a .COM
 
 ```
 python tools/comrec.py GAME.COM --out src/game.asm
+nasm -f bin -o rebuilt.com src/game.asm     # then compare SHA-256 with the original
 ```
 
-A `.COM` has no header, no relocations, and no separation between file and
-memory image, so the whole MZ pipeline is beside the point. What replaces it is
-stronger: `comrec.py` rebuilds the file as NASM source and **proves** the
-result by reassembling it and comparing bytes. It prints `BYTE-IDENTICAL` or
-it prints why not. There is no middle answer to interpret.
+`comrec.py` rebuilds the file as NASM source and proves it by reassembling:
+it prints `BYTE-IDENTICAL` or why not. **Confirm it yourself** with the second
+line. Before reporting:
 
-Confirm it yourself rather than taking the tool's word:
+- **It is assembly, not C.** A program with no stack-frame prologues (triage
+  reports their density) was written in assembly; say so.
+- **Quote the code-region figure, not the whole-file one**: the file is mostly
+  artwork and tables (`tests/com/CASE-STUDY.md`).
+- An MZ's bytes past its load image are rebuilt as data, and `BYTE-IDENTICAL`
+  is printed only after the whole file, header and all, was compared.
+- **Look for a stub that reloads CS**, putting half the file on another base.
+  It fails silently and is not always at offset 0
+  (`knowledge/08-com-reconstruction.md`).
 
-```
-nasm -f bin -o rebuilt.com src/game.asm
-# then compare SHA-256 of rebuilt.com against the original
-```
-
-Three things to know before reporting results:
-
-- **It produces assembly, not C.** Check for stack-frame prologues first
-  (`tools/triage.py` reports prologue density). A program with none was written
-  in assembly and has no C to recover — say so rather than implying otherwise.
-- **Quote the code-region figure, not the whole-file one.** These games are
-  mostly artwork and lookup tables. ParaTrooper comes back at 28.6% of the file
-  but 87.7% of the region that actually holds code; the first number describes
-  the game, the second describes the recovery.
-- **An MZ's bytes past its load image** (an overlay, appended data) are
-  carried in the source as data, after the image, so the rebuild is the whole
-  file. `BYTE-IDENTICAL` is printed only after the rebuilt file, header and
-  all, has been compared with the whole original, and the line after it says
-  how many bytes were compared (`knowledge/08-com-reconstruction.md`).
-
-A `.COM` reconstruction is static: nothing is executed. When you need a
-reference to check a static reading against — a screen drawn from the file, a
-table you think you have decoded — `tools/comrun.py` runs the binary under
-emulation and dumps the framebuffer. It has just enough BIOS to get a game to
-its first frame, including a keyboard queue (`--keys`) and a clock that
-advances, both of which exist because without them a title screen waits
-forever. `--stop-at ADDR --stop-after N` stops on the Nth arrival, which is how
-you look at a frame other than the first.
-
-Two flags exist because a program can supply its own hardware, and both are off
-by default:
-
-- `--poll-patience N` — Turbo Pascal opens prompts with `while KeyPressed do
-  ReadKey`, and an emulator that always says a key is waiting feeds that flush
-  the whole `--keys` queue. This answers "nothing waiting" until asked N times
-  since the last blocking read, which tells a flush from a `repeat until
-  KeyPressed` wait by how long each persists.
-- `--timer-isr INT[,N]` — a game that hooks the timer and waits on a counter its
-  own handler increments is not served by ticking `0040:006C`. This delivers the
-  interrupt to whatever handler the program installed, pushing a real
-  `FLAGS/CS/IP` frame. Give it a *number*, not an address: the vector is read at
-  each delivery, so nothing is sent until the program has hooked it — which
-  matters for a packed file, where the handler's address holds compressed bytes
-  until the stub has run.
-
-**The static render is the deliverable and this is the referee.** If a screen
-resists being photographed, check whether it can be computed from the file
-first. The Oregon Trail's hunting field was pursued for hours as a screenshot
-and every frame came back frozen mid-redraw; it turned out to be a generator —
-sprite tables, a per-region list, `Random(4)+5` objects placed by rejection
-sampling — and sixty lines reading those tables draw it. `knowledge/12` has the
-case.
-
-`knowledge/08-com-reconstruction.md` covers the traps — chiefly a stub that
-reloads CS so that half the file is addressed from a different base, which
-fails silently and confusingly if missed, and which is not always at offset 0:
-Zaxxon hides it behind a `jmp` over a crack group's text banner, and reading
-the file naively recovered nine instructions out of 20,736 bytes while still
-reporting `BYTE-IDENTICAL`.
+`tools/comrun.py` runs the program and dumps the framebuffer, to check a
+static reading against (its flags: `knowledge/12-hooking-the-right-thing.md`;
+give `--timer-isr` an interrupt number, not an address). **The static render
+is the deliverable and the emulator the referee.** If a screen resists being
+photographed, check whether it can be computed from the file first.
 
 ### If it is packed
 
@@ -213,83 +129,34 @@ python tools/unpack.py GAME.EXE -o unpacked.exe
 python tools/triage.py unpacked.exe
 ```
 
-`unpack.py` runs the packer's own decompressor under emulation and dumps the
-result — one mechanism for any packer. Verify that it worked rather than
-assuming: compare printable-string counts before and after. On a PKLITE'd 1988
-game the dump gained 181 strings of real game text, which is proof; a low
-density of stack frames in the dump is not evidence of failure, it usually means
-the program is hand-written assembly.
+It runs the packer's own decompressor under emulation and dumps the result.
+**Verify that it worked**: compare printable-string counts before and after. A
+low density of stack frames in the dump is not failure; it usually means
+assembly. Only EXEPACK states its entry point; for the others the dump's entry
+is 0 on purpose, because a wrong one misleads everything after it
+(`knowledge/00-scope.md`, Unpacking).
 
-EXEPACK's entry point is read from its own header and is exact. Other formats do
-not state theirs, so the dumped header's entry is set to 0 deliberately — a
-wrong entry point sends the disassembler into the middle of a routine and
-everything after inherits the error.
+If the program is C and you have the compiler's library, do this early:
+`python tools/libscan.py unpacked.exe --lib <compiler>\LIB`. It finds the
+entry point, the compiler, the runtime's extent and its names. **Pass the
+directory, not the `.LIB`**: some toolchains keep the startup object beside
+the archive. With the wrong library it reports nothing, so a match means
+something. **Read which failure it reports:** "none of the modules loaded
+declares a start address" is about what you passed; "X declares a start
+address but did not match" is about the binary
+(`tests/libscan/CASE-STUDY.md`). Without the library, find `main` with
+`anchors.py`.
 
-If the program was written in C and you have the compiler's library, recover it
-instead of guessing:
-
-```
-python tools/libscan.py unpacked.exe --lib C:\path\to\compiler\LIB
-```
-
-Pass the **directory**, not the `.LIB`. Not every toolchain keeps its startup
-code in the archive — Microsoft C 1.04 ships it as a loose `C.OBJ` named on the
-link line, and none of `MC.LIB`'s 75 modules declares a start address at all.
-
-The startup module of a C runtime declares the entry point in its MODEND
-record. `libscan.py` matches library modules against the image with the FIXUPP
-relocation slots as wildcards, and reads the entry point out of the one that
-matched — measured exact on four binaries across two compilers, including a
-packed-and-dumped one, without ever reading the MZ header
-(`tests/libscan/CASE-STUDY.md`). Scanned with the wrong compiler's library it
-reports nothing rather than something plausible, so a match is meaningful.
-
-Read the failure message, because there are two of them. *"None of the modules
-loaded declares a start address"* is a fact about what you passed in — look for
-the startup object outside the archive. *"X declares a start address but did
-not match"* is a fact about the binary.
-
-The same run tells you which compiler it is, bounds the runtime region so it
-can be excluded from matching, and names the runtime's functions from the
-archive's PUBDEF records. Do it early; it removes work rather than adding it.
-
-Without the library, use `anchors.py` to find `main` structurally instead.
-
-### If it is Turbo Pascal
-
-`libscan.py` will find nothing, correctly: TP compiles to `.TPU` units and binds
-its runtime with its own linker, so there is no OMF archive to match. Run this
-instead:
-
-```
-python tools/tpscan.py unpacked.exe
-```
-
-It recognises the compiler from the System unit's initialisation, reports
-`DGROUP` — the code/data boundary, which nothing else recovers for a Pascal
-program — and lists the units, because **every TP unit is its own code segment
-and every call between units is a far call with a literal segment word**. One
-linear scan gives up the module structure of a 200 KB program.
-
-For the *version*, give it Borland's own runtime libraries — no string tells
-you, because the runtime error format is identical from 4.0 to 6.0, but the
-runtime's code does:
-
-```
-python tools/tpscan.py unpacked.exe --tpl <5.0>/TURBO.TPL --tpl <5.5>/TURBO.TPL
-```
-
-It ranks them by the longest run of identical code and **refuses to answer**
-unless one wins by half again, because any two Turbo Pascal runtimes have a lot
-in common. Both libraries are on the Internet Archive; `fatextract.py` opens the
-floppy images. See `knowledge/02-compiler-fingerprints.md`.
+**Turbo Pascal**: `libscan.py` correctly finds nothing. `python tools/tpscan.py
+unpacked.exe` reports the compiler, `DGROUP` (the code/data boundary) and the
+units; with Borland's libraries (`--tpl`) it names the version, or refuses
+when none wins clearly (`knowledge/02-compiler-fingerprints.md`).
 
 ---
 
 ## Step 0b — Ask which workflow the user wants
 
-Two different projects share the first few steps and then diverge. **Ask; do not
-assume.**
+**Ask; do not assume.**
 
 | | **Standard** | **Extended** |
 |---|---|---|
@@ -299,322 +166,179 @@ assume.**
 | Effort | hours to days | weeks, iterative |
 | Ends when | you understand it | the diff is clean |
 
-Standard suits "what does this game do", "how does its file format work", "I
-want to port it". Extended suits "I want source that provably matches", which is
-what people usually mean by "decompile it properly".
-
-Steps 1–5 are the standard workflow. The extended workflow continues from there:
-`knowledge/07-extended-reconstruction.md`.
-
-Say which rung of the verification ladder the result will sit on:
+Steps 1–5 are the standard workflow; the extended one continues in
+`knowledge/07-extended-reconstruction.md`. Say which rung the result sits on:
 
 | Rung | Oracle | Proves |
 |---|---|---|
-| 1a | byte-identical **functions**, relocation slots wildcarded | each function's code is right — **not** which symbols it references |
+| 1a | byte-identical **functions**, relocation slots wildcarded | each function's code — **not** which symbols it references |
 | 1b | byte-identical **linked image** | the source is right |
-| 2 | instruction-identical, layout-tolerant — `bindiff.py` | the code is right |
-| 3s | exhaustive sweep of one routine over a declared domain — `emuverify.py sweep` | its compared outputs equal the candidate's on every input of that domain — and nothing outside it |
-| 3a | per-function behavioural equivalence — `emuverify.py` | this function is that function |
-| 3b | instruction-trace equivalence under identical input | control flow is the same, and a divergence localises to one instruction |
+| 2 | instruction-identical, layout-tolerant (`bindiff.py`) | the code is right |
+| 3s | exhaustive sweep of one routine over a declared domain (`emuverify.py sweep`) | its outputs equal the candidate's on that domain, and nothing outside it |
+| 3a | per-function behavioural equivalence (`emuverify.py`) | this function is that function |
+| 3b | instruction-trace equivalence under identical input | the same control flow; a divergence localises to one instruction |
 | 4 | pixel-identical frames under identical input | the program behaves the same |
 | 5 | "looks right" | nothing |
 
-Do not report 1a as 1b. A per-function comparison must wildcard relocation
-slots, so a function that references the wrong symbol still compares as
-identical; only the linked image catches it.
-
-Do not report a sampled sweep as 3s either. 3s is an *exhaustive* sweep, and
-it covers only its domain and only the share of the routine the domain
-reached: quote the sweep's coverage line with it. A sampled sweep is 3a with
-more cases (Step 5).
+**Do not report 1a as 1b**: with relocation slots wildcarded, a function that
+references the wrong symbol still compares identical. **Do not report a
+sampled sweep as 3s**, and quote a 3s with its coverage line: it covers only
+its domain and the share of the routine the domain reached. A sampled sweep is
+3a with more cases.
 
 ---
 
 ## Step 1 — Establish what the file actually is
 
-```
-python tools/mzinfo.py GAME.EXE
-```
-
-Answers, before any decompiler runs: is it packed, are there overlays or data
-past the load image, which segments does the loader actually build, and where is
-the true entry point — `CS:IP` is relative to the load image, not the file.
-
-Read the FINDINGS section. A `few-relocations` note on a small-model program is
-normal (Sopwith has exactly 2 for 60 KB); the same on a large-model program
-means something is hiding.
+`python tools/mzinfo.py GAME.EXE`: packed or not, overlays or data past the
+load image, the segments the loader builds, and the true entry point (`CS:IP`
+is relative to the load image, not the file). Read FINDINGS; what a note
+means depends on the memory model (`knowledge/01-dos-binaries.md`).
 
 ---
 
 ## Step 2 — Load into Ghidra and recover the missing functions
 
-```
-python tools/loadimage.py expected GAME.EXE --evidence expected.json
-analyzeHeadless <proj_dir> <proj> -import GAME.EXE -overwrite -noanalysis \
-    -scriptPath tools/ghidra_scripts -postScript CorrectMzLoad.java expected.json OUTDIR
-analyzeHeadless <proj_dir> <proj> -process GAME.EXE
-analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
-    -scriptPath tools/ghidra_scripts -postScript RecoverFunctions.java
-analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
-    -scriptPath tools/ghidra_scripts -postScript ExportDecompiledC.java OUTDIR
-```
+Run `tools/pipeline.ps1 -Exe GAME.EXE -OutDir out`. It imports without
+analysis, corrects the load (`CorrectMzLoad.java`), checks it, analyses,
+recovers functions (`RecoverFunctions.java`) and exports
+(`ExportDecompiledC.java`); the commands to run it by hand are in
+`knowledge/17-evidence.md`, By hand. The rules, by hand or not:
 
-Or just `tools/pipeline.ps1 -Exe GAME.EXE -OutDir out`, which does all of
-these and checks the load between the correction and the analysis (below).
-Import without analysis, and analyse only after correcting: auto-analysis reads
-the program's bytes, and until then some of them may be missing.
+- **Import without analysis, and analyse only after correcting**: analysis
+  reads bytes that may be missing until the correction.
+- **Run the steps as separate Ghidra invocations**, except the corrector,
+  measured safe as a `-postScript` of the import. Keep analysis and recovery
+  apart above all: run together, the export changes
+  (`knowledge/04-pitfalls.md`).
+- **Do not work around the profile handshake.** The pipeline writes
+  `profile.json` before import, compares it with what Ghidra did, and on any
+  difference stops and writes `handshake.json`. Find out why first. The Step 3
+  readers refuse that export; `--accept-profile-drift` is for a person who has
+  understood the drift, not for getting past the refusal. By hand, run
+  `tools/analysis_profile.py write` before import and `check` after export.
+- **Do not work around the load-image check.** The corrector fixes the two
+  kinds of MZ Ghidra 12.1.2 loads wrong (a full last page, a duplicated
+  relocation) and nothing else; the pipeline then checks that the program
+  *is the file* and stops on anything but verified. A mismatch after
+  correction is an uncorrected loader problem, not a quirk of the check.
+  `-AllowLoadMismatch` is for a person who has read `loadimage.json`.
+- **Report a corrected load as corrected**: when `loadimage.json` says
+  `"corrections": N` with N not 0, say so and point at
+  `load-corrections.json`.
+- Between file offsets and addresses, use `python tools/loadimage.py map
+  loadimage.json --file 0x...` or `--address ssss:oooo`.
 
-**Run these as separate invocations, except the corrector.** Chaining two
-`-postScript` flags in one command was recorded, on an earlier setup whose
-Ghidra version was not written down, as silently losing the first script's
-changes. On 2026-10-19 it did not reproduce on Ghidra 12.1.2: chained on
-`-import` and on `-process`, the export saw every function recovery added
-(`knowledge/04-pitfalls.md`). Keep the separate invocations anyway; they are
-known to work and cost little. The corrector is the measured exception: run
-as a `-postScript` of the import, the load-image dump and the export came out
-byte-identical to running it separately — on seven fixture builds, among them
-a full last page, a duplicated relocation and both, and on two real games —
-and the pipeline starts Ghidra once fewer.
-Analysis
-and recovery in particular stay apart: run together, on a real game, the export
-came out with one function more and 11 other records changed, because Ghidra
-then analyses what the script creates (`knowledge/17-evidence.md`).
-
-`pipeline.ps1` writes `profile.json` before import — the loader, language,
-load segment and recovery it expects — and after export compares it with what
-`functions.json` says Ghidra actually did. On any difference it stops with the
-field, the expected value and the observed value, and writes `handshake.json`
-saying so. **Do not work around that stop.** It means every address and
-fingerprint in the export was produced under settings the rest of the toolkit
-does not assume; find out why first. The readers in Step 3 refuse a
-`functions.json` whose `handshake.json` says `mismatch`, and
-`--accept-profile-drift` — which announces itself on every use — is for a
-person who has understood the drift, not for getting past the refusal. If you
-run the steps by hand, run `python tools/analysis_profile.py write` before and
-`python tools/analysis_profile.py check --evidence handshake.json` after.
-
-Ghidra 12.1.2 was measured getting two kinds of MZ wrong: a header whose last
-page is marked full loses that page, and a duplicated relocation is applied
-once (`knowledge/04-pitfalls.md`). Right after import, `CorrectMzLoad.java`
-puts those two right and nothing else, and writes each correction, with its
-value before and after, to `load-corrections.json`. Then the pipeline checks
-that Ghidra's program **is the file**: the same bytes at the addresses the
-header implies, each relocation applied once per entry (`loadimage.json`). The
-check does not take the corrector's word for anything; it compares the
-corrected program with the file. It stops on anything but verified and prints
-the first failing check. Treat that stop the same way: after correction, a
-mismatch is a loader problem nobody has corrected yet, not a quirk of the
-check. `-AllowLoadMismatch` exists for a person who has read `loadimage.json`;
-every later reader of that export then warns.
-
-**Report a corrected load as corrected.** `loadimage.json` and the `load_image`
-record in `functions.json` say `"status": "verified", "corrections": N`. When N
-is not 0, say so and point at `load-corrections.json`: the analysis is of the
-program DOS would load, which is not the program Ghidra's loader alone
-produced. `-NoLoadCorrection` skips the corrector, to compare with Ghidra's
-raw load. By hand: `-postScript DumpLoadImage.java OUTDIR` with `-readOnly`,
-then `python tools/loadimage.py verify GAME.EXE OUTDIR/loadimage-observed
---profile profile.json --evidence loadimage.json --corrections
-OUTDIR/load-corrections.json`.
-
-To find where a file offset is in the program, or which file byte an address
-came from, use `python tools/loadimage.py map loadimage.json --file 0x...` or
-`--address ssss:oooo`. It knows which bytes are relocated words, whose value in
-memory is not the file's.
-
-Set `PYTHON` to the interpreter that has capstone and unicorn. `pipeline.ps1`
-and `tests/run-all.ps1` use it before whatever `python` is first on PATH, which
-on some machines is a copy another application bundled, without either.
-
-`RecoverFunctions.java` exists because Ghidra's auto-analysis is not enough here.
-Games dispatch through function-pointer tables and install interrupt handlers by
-address, and Ghidra never follows an integer. On Sopwith it left **48 real
-functions completely undisassembled** — the movement handlers, the drawing
-handlers, the keyboard and timer ISRs. Scanning for immediates that point into
-the code segment recovered them and took the function count from 232 to 289.
+Recovery is needed because Ghidra never follows an integer, and games
+dispatch through pointer tables and install handlers by address: on Sopwith
+it found 48 real functions analysis had left undisassembled, both ISRs among
+them (`tests/sopwith/CASE-STUDY.md`).
 
 ---
 
 ## Step 3 — Identify what the evidence establishes
 
-Do this first, always. It needs no reference source, and what it finds is fact
-rather than inference.
+Do this first, always. It needs no reference source, and what it finds is fact.
 
 ```
 python tools/anchors.py OUTDIR/functions.json --exe GAME.EXE \
        --entry <CS:IP from mzinfo> --report anchors.txt --names names.json
 ```
 
-`--exe` makes it refuse a `functions.json` that was made from a different file.
-`libsig.py`, `match.py`, `modcluster.py` and `emuverify.py` do the same; a
-`functions.json` from before the toolkit recorded its target opens with one
-warning. If a tool refuses, regenerate the export — do not pass a different
-executable to make it agree. They also refuse an export whose `handshake.json`
-says `mismatch` or `blocked`; see Step 2.
+With `--exe` it refuses a `functions.json` made from another file, as
+`libsig.py`, `match.py`, `modcluster.py` and `emuverify.py` do, and they all
+refuse one whose `handshake.json` says `mismatch` or `blocked`. **If a tool
+refuses, regenerate the export; do not pass a different executable to make it
+agree.**
 
-It reports every function carrying identifying evidence — interrupts, I/O ports,
-string references, video constants — and writes names that claim only what was
-established. `bios_video_3` says the function executes `INT 10h`; it does not
-pretend to know it is `drawsprite`.
-
-Names are scored by **corroboration**: two independent kinds of evidence agreeing
-earns confidence, one kind stays provisional. Apply them and re-export:
+It reports every function with identifying evidence (interrupts, ports,
+strings, video constants) and writes names that claim only what was
+established: `bios_video_3` executes `INT 10h`; it is not `drawsprite`. Two
+independent kinds of evidence earn confidence; one stays provisional, with a
+`__maybe` suffix and a warning comment, so the doubt stays visible in the
+code. Apply, then re-export with `ExportDecompiledC.java`:
 
 ```
 python tools/applynames.py names.json OUTDIR --dryrun     # what would be written
 python tools/applynames.py names.json OUTDIR              # write it
-analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
-    -scriptPath tools/ghidra_scripts -postScript ExportDecompiledC.java OUT2
 ```
 
-`OUTDIR` is the pipeline's output folder. `applynames.py` runs `ApplyNames.java`
-and writes `OUTDIR/applynames-result.json`. The script **validates every entry
-before writing any**: the address is a function's entry, not a byte inside a
-body; the name is legal C and legal for Ghidra; and no two functions end up
-sharing a name, in the mapping or in the program. One failure and nothing is
-written. Then it writes the whole batch in one transaction and reads every
-name and comment back. One difference, or one exception, and the whole batch
-is rolled back, and a second, read-only pass reads every entry back to confirm
-it. Exit 0 means applied; 1 means rolled back, confirmed; 3 means refused
-before writing, and the result lists every failing entry and why; 4 means
-rolled back but the read-only pass still found the batch's changes — stop
-and look. Ghidra
-itself accepts two functions with one name and a name like `FUN_1000_9999`, so
-these checks are the only thing stopping that (`knowledge/04-pitfalls.md`).
+It validates every entry before writing any, writes one transaction, reads it
+back and rolls it all back on one difference. Exit 0 applied; 1 rolled back;
+3 refused before writing, every failing entry listed; **4 rolled back but the
+changes are still there: stop and look.** Ghidra itself accepts duplicate
+names, so these checks are the only guard (`knowledge/17-evidence.md`, Names
+written into the program).
 
-Provisional names get a `__maybe` suffix, and a warning in the comment at the
-top of the function's body, so uncertainty stays visible in the code instead of
-being quietly forgotten. Names applied to routines of 200+ bytes are flagged
-separately. An entry may carry `comment` (the plate comment above the
-function) and `inline_comment`: a string sets it, `""` clears it, and leaving
-the field out leaves the comment alone.
+`python tools/bodies.py OUTDIR/functions.json --evidence bodies.json` reports
+bodies and what no function claims (`knowledge/17-evidence.md`, Function
+bodies):
 
-### What a function's body is, and what no function claims
-
-```
-python tools/bodies.py OUTDIR/functions.json --evidence bodies.json
-```
-
-A function's `size` is the number of addresses in Ghidra's body, not the length
-of one contiguous run. `body.ranges` (ends inclusive) says where it lies.
-`origin` says whether Ghidra found it or `RecoverFunctions.java` inferred it,
-and from what. A recovered function rests on weaker evidence, so say so when
-you name one. `body_overlaps` lists code one function runs inside a body
-Ghidra gave another. Ghidra never lets bodies overlap, so a shared epilogue
-comes out as a function of its own that others jump to. A jump to the entry of
-a function something calls is an ordinary tail call: it goes in `tail_calls`,
-not in `body_overlaps`. Do not read a body as everything its function runs,
-nor as only what it owns. A large claim usually means one routine that
-recovery cut into pieces.
-
-`bodies.py` reports the share of the code no function's body claims, and
-classifies each unclaimed run with comrec's rules. Its last line says either
-"nothing unclaimed looks like code" or which ranges do. A range that looks like
-code is a question to read, not a function to create. On Crimson Crown those
-runs were real handlers, reached through a table in data that recovery does not
-read (`knowledge/03-what-works.md`).
-
-The share to quote for a hand-written program is `claimed_of_code_region`,
-not `claimed`. `claimed` is a share of every block holding a function, and
-those blocks are mostly data. The code region is each block's range from the
-first code evidence to the last, and the report lists what each range rests
-on. A range whose only evidence is functions recovered from a prologue is
-listed and not counted. On the real programs measured, those were blocks of
-data, and the "functions" in them held instructions an 8088 does not have.
-Talisman claims 8.1% of its blocks and 65.8% of its code region. The region
-is a floor: code nothing claims, broken up by fill, can lie past its edge,
-as 1.4 KB of Talisman's does.
+- **Do not read a body as everything its function runs, nor as only what it
+  owns.** Ghidra never lets bodies overlap: shared code is in
+  `body_overlaps`, tail calls in `tail_calls`, and a large claim is usually
+  one routine recovery cut into pieces.
+- `origin` says whether Ghidra found a function or recovery inferred it.
+  **Say so when you name a recovered one**: it rests on weaker evidence.
+- An unclaimed range that looks like code is **a question to read, not a
+  function to create.**
+- For a hand-written program **quote `claimed_of_code_region`, not
+  `claimed`**, which is mostly data; the region is a floor.
 
 ---
 
 ## Step 3b — Identify by matching, when reference source exists
 
-Only useful when the source genuinely corresponds to this binary — a later port,
-a sibling game, leaked headers.
-
-**Exclude the C runtime first.** It needs no reference source and no makefile,
-and removing that noise is a large gain:
+Only when the source genuinely corresponds: a later port, a sibling game,
+leaked headers. **Exclude the C runtime first**; it needs no source:
 
 ```
 python tools/libsig.py apply GAME.EXE OUTDIR/functions.json \
        --db signatures/msc50-16bit-small.json --json lib.json
-```
-
-Try each database in `signatures/` — the one that matches tells you which
-compiler built the binary. If none match and you are confident of the compiler,
-the program brought its own runtime; that means none of the binary can be
-dismissed as library noise.
-
-Then match:
-
-```
 python tools/srcinv.py SRCDIR --json src.json
 python tools/match.py src.json OUTDIR/functions.json --align \
        --exclude-library lib.json [--module-order order.json] --report ident.md
 ```
 
-**Check the score distribution before believing any of it.** Against a
-correctly corresponding binary, matches reach 0.9+ precision. Run against a
-different version of the same game and nothing scored above 0.453 while `main`
-landed in the wrong place. A run where nothing clears 0.7 is telling you the
-reference is wrong, not that the binary is hard.
-
-Cumulative effect on Sopwith, each row adding to the one above:
-
-| configuration | precision | recall |
-|---|---|---|
-| constants and strings only | 0.696 | 0.325 |
-| + C runtime excluded | 0.826 | 0.475 |
-| + control-flow shape compared | 0.875 | 0.583 |
-| + link order known from the makefile | 0.897 | 0.583 |
-| (same pipeline, period-correct ground truth) | **0.935** | **0.717** |
-
-`tools/modcluster.py` segments the binary into probable modules. Useful for
-reading and for building `--module-order` by hand. It is deliberately *not*
-wired into the matcher: feeding its segments into the ordering was measured and
-made identification worse.
+Try each database in `signatures/`; the one that matches names the compiler.
+If none does and you are sure of the compiler, the program brought its own
+runtime and none of it is library noise. **Check the score distribution before
+believing any match.** A run where nothing clears 0.7 says the reference is
+wrong, not that the binary is hard: against another version of the same game
+nothing cleared 0.453 and `main` landed in the wrong place. `modcluster.py`
+proposes modules for reading and for a hand-built `--module-order`; it is
+deliberately not wired into the matcher, which it made worse
+(`knowledge/03-what-works.md`).
 
 ---
 
 ## Step 4 — Read, name, annotate
 
-This is where the work actually gets done, and it is not automatable.
+This is where the work gets done, and it is not automatable.
 
-**Never commit a name on one source of evidence.** This is the most expensive
-lesson available and someone else paid for it: a sibling project reconstructing
-Tapper kept a table of 35 conclusions it had to retract, and stated the pattern
-plainly — a conclusion from a single source almost always needs correcting; what
-survived had two independent sources.
+**Never commit a name on one source of evidence.** A conclusion from one
+source almost always needed correcting; what survived had two
+(`knowledge/06-lessons-from-siblings.md`). Observed ways it goes wrong:
 
-Three specific ways it goes wrong, all observed:
-
-- Naming a field from its **writer** without reading its **readers**.
-- Naming a long routine from its **first few lines**. Two routines were named
-  that way and both did far more further down, including killing the player —
-  and being a plausible-looking *pair* made each seem to confirm the other.
-- Naming something from its **effect** rather than its cause, which can invert
+- naming a field from its **writer** without reading its **readers**;
+- naming a long routine from its **first few lines** — and a plausible *pair*
+  of such names seeming to confirm each other;
+- naming something from its **effect** rather than its cause, which can invert
   the meaning while sounding reasonable.
 
-**Find `main` by reading, not by rule.** `anchors.py` guesses it by walking the
-startup chain, and that was right on only one of two test binaries. The shape is
-unmistakable and takes a minute to confirm: a call taking `(argc, argv)` followed
-by an endless loop.
-
-Then work outward. The loop body of `main` is the game's phase order, so its
-callees are the top-level subsystems.
+**Find `main` by reading, not by rule** (`anchors.py`'s guess was right on one
+of two binaries): a call taking `(argc, argv)` followed by an endless loop.
+Then work outward: that loop's body is the game's phase order.
 
 **Check every hypothesis against the fingerprint before committing to it.**
-`functions.json` carries instruction counts, call counts, interrupts, ports and
-constants for exactly this. Working through Sopwith's game loop, the guess that
-one callee was the collision routine was killed immediately by its own data: 6
-instructions, no calls. A wrong name is worse than no name, because it survives
-into every later reading as though it were established.
+`functions.json` has instruction and call counts, interrupts, ports and
+constants; a "collision routine" of 6 instructions and no calls is not one. A
+wrong name is worse than none: it survives into every later reading.
 
-High-yield anchors, in order of reliability: string references, interrupt
-numbers (`INT 10h` video, `16h` keyboard, `21h` DOS, `1Ch` timer hook, `09h`
-keyboard ISR), I/O ports (`40h–43h` PIT, `60h` keyboard, `3D4h/3D8h` CGA, `201h`
-joystick, `388h` AdLib), and magic constants (`0xB800` CGA, `0xA000` VGA,
-`0x2000` CGA bank offset).
+Anchors, most reliable first: strings; interrupts (`10h` video, `16h`
+keyboard, `21h` DOS, `1Ch` timer hook, `09h` keyboard ISR); ports (`40h–43h`
+PIT, `60h` keyboard, `3D4h/3D8h` CGA, `201h` joystick, `388h` AdLib); constants
+(`0xB800` CGA, `0xA000` VGA, `0x2000` CGA bank).
 
 ---
 
@@ -622,169 +346,90 @@ joystick, `388h` AdLib), and magic constants (`0xB800` CGA, `0xA000` VGA,
 
 Decompiler output is a hypothesis. Confirm the ones that matter.
 
-**If you have a second binary of the same program, settle it by execution:**
+**With a second binary of the same program, settle it by execution:**
+`python tools/emuverify.py known.exe known.map target.exe
+OUTDIR/functions.json`. It runs both under emulation on identical inputs and
+compares return registers, global reads and writes and call counts: it decides
+equivalence rather than scoring resemblance (110 matches on two Sopwith builds,
+zero wrong). A name it carries across can be trusted. Its limits:
 
-```
-python tools/emuverify.py known.exe known.map target.exe OUTDIR/functions.json
-```
+- Both must implement the *same algorithm*; on a different release it
+  correctly finds almost nothing. That loud failure is the point.
+- Some functions are behaviourally identical and always will be (`sti; ret`
+  and `cli; ret`); it reports them rather than guessing.
+- It assumes the small model. stderr says how it found DGROUP; if it fell back
+  to the lowest relocated segment and far code sits below the data, give
+  `--dgroup-a`/`--dgroup-b` (`knowledge/04-pitfalls.md`).
+- Functions that never return are compared only on the globals a bounded run
+  touched, and flagged separately.
 
-It runs both candidates under an 8086 emulator on identical inputs and compares
-return registers, global reads and writes, and call counts. It decides
-equivalence rather than scoring resemblance. Validated against two builds of
-Sopwith from one source with different code generation: **110 matches, zero
-wrong.** Any name it carries across can be trusted outright.
-
-Functions that never return — interrupt handlers, `longjmp` targets, the main
-loop — are still profiled, on a bounded run comparing only which globals they
-touched. That accounts for 9 of the 110 and is flagged separately.
-
-Its limits:
-
-- It needs both binaries to implement the *same algorithm*. Pointed at a
-  different release of the game it found 2 matches out of 202 — correctly, the
-  code genuinely differs.
-- Some functions are behaviourally identical and always will be (`intson` is
-  `sti; ret`, `intsoff` is `cli; ret`). It reports these rather than guessing.
-- It assumes the small model: one DGROUP, `SS == DS`. A function in another
-  code segment runs at its own `segment:offset`, with a far return address if
-  it ends in `RETF` — from a `functions.json`, and from a linker map whose
-  segment table calls that segment `CODE`. DGROUP comes from the map, or
-  from the segment the startup loads into `DS`; stderr says which (under
-  `--quiet`, only when the old guess would have differed). When the
-  startup loads nothing the loader relocated, it falls back to the lowest
-  relocated segment, which is a code segment when far code sits below the
-  data: give `--dgroup-a`/`--dgroup-b` then (`knowledge/04-pitfalls.md`).
-
-That failure mode is the point. Statistical matching on a mismatched pair
-produces dozens of confident-looking scores and gets `main` wrong; emulation
-produces almost nothing. Loud failure is safer than quiet failure when the output
-becomes names you will read for weeks.
-
-**If you have a port or a rebuild of one routine, sweep it against the
-original:**
+**With a port or rebuild of one routine, sweep it against the original:**
 
 ```
 python tools/emuverify.py sweep GAME.EXE 1000:0024 --domain domain.json \
        --candidate port.mjs:muldiv --functions OUTDIR/functions.json
 ```
 
-It runs the original routine under emulation on every input of the domain you
-write down, and the candidate beside it — a JavaScript port (one Node process
-for the whole sweep), a Python reference, or a rebuilt binary — and stops at
-the first input where they disagree, printing both outputs. Divide faults are
-outcomes the candidate must reproduce, not crashes. That is how a port's
-arithmetic is shown to be the original's: the 16-bit wraparound, the unsigned
-shift and the off-by-one comparison each show up at one input.
+It runs the original and the candidate (JavaScript, Python, or a rebuilt
+binary) on every input of your domain and stops at the first disagreement;
+divide faults are outcomes to reproduce. Report with the verdict: **exhaustive
+or sampled** (a sampled pass is not a proof); **the coverage line** and the
+ranges never reached; **the DGROUP** and how it was found; **the CPU** (an
+8088 by default; `--cpu 386` for a program that needed one). Contract and
+examples: `knowledge/18-oracle-sweeps.md`.
 
-Report four things with the verdict:
-
-- **Exhaustive or sampled.** A domain bigger than `max_cases` is sampled:
-  boundary values, then random ones, with the seed. A sampled pass is not a
-  proof; the last line says which it was.
-- **The coverage line.** "80.0% of the body exercised" means the domain never
-  reached a fifth of the routine, and the sweep proved nothing about that
-  fifth. It lists the ranges.
-- **The DGROUP it used,** which it prints with how it found it.
-- **The CPU.** The default is an 8088, whose `IDIV` also faults on a quotient
-  of exactly -32768 (or -128 for a byte), where Unicorn, like a 386, returns
-  it. A port of an 8088 game has to fault there too. `--cpu 386` is the old
-  behaviour, for a program that needed a later processor.
-
-`knowledge/18-oracle-sweeps.md` has the candidate contract, complete examples
-in both languages, and how to model 16-bit arithmetic in JavaScript.
-
-Also: run the game in DOSBox-X and check the behaviour you claim to have found.
-If Ghidra and radare2 disagree about an instruction, look at the bytes.
-
-**State clearly which parts of your output are verified and which are
-inference.**
+Run the game in DOSBox-X and check the behaviour you claim. If Ghidra and
+radare2 disagree about an instruction, look at the bytes. **State clearly
+which parts of your output are verified and which are inference.**
 
 ---
 
 ## Validating a change to the toolkit
 
 Run `tests/run-all.ps1` before the change and after it, and keep both tables.
-It runs every `tests/*/regress.py` this machine can run and reports the rest as
-skipped with the reason. A skip is not a pass: say which suites did not run,
-and if a change could move what one of them measures, say that too.
+**A skip is not a pass:** say which suites did not run, and whether the change
+could move what one of them measures.
 
-Sopwith is the regression fixture. `tests/sopwith/` has the build recipes that
-produce a ground-truth binary plus a linker map, so any change can be scored
-against a known-correct answer:
+Sopwith is the regression fixture; `tests/sopwith/` builds a ground-truth
+binary and map, so a change is scored against a known answer:
 
 ```
 python tests/sopwith/regress.py --build-dir work/build --decompiled work/decomp \
        --source <sopwith-source> --variant-dir work/variant
 ```
 
-Floors: library detection precision 0.95 (a false positive deletes real game
-code), library recall 0.80, identification precision 0.85 with a known module
-order and 0.83 with an inferred one, recall 0.52, emulation precision 1.0 with
-at least 100 matches. Below any of those, the change made things worse. Do not
-ship it.
+Floors: library detection precision 0.95 (a false positive deletes game code)
+and recall 0.80; identification precision 0.85 with a known module order, 0.83
+with an inferred one, recall 0.52; emulation precision 1.0 with at least 100
+matches. **Below any of them the change made things worse: do not ship it.**
 
-**A test has to be able to fail.** After changing the code that decides
-`verified` against `mismatch` — `tools/evidence.py`, the load-image comparison,
-`bodies.py`'s classification, the sweep's comparison and coverage, the profile
-handshake — run `tests/mutation/run.ps1` on that target (`-Only`). It changes
-the code in small ways and lists each change no test noticed. Answer every new
-survivor with a test that kills it; a survivor goes in
+**A test has to be able to fail.** After changing code that decides
+`verified` against `mismatch` (`tools/evidence.py`, the load-image comparison,
+`bodies.py`'s classification, the sweep's comparison and coverage, the
+handshake, triage's verdict), run `tests/mutation/run.ps1 -Only <target>`.
+Answer every new survivor with a test that kills it; a survivor goes in
 `tests/mutation/known.toml` only when the changed code behaves identically,
-with the reason in one sentence. Two kinds of test were found unable to fail
-this way: one that compares the code's output with the same code's output
-(an envelope against `evidence.dumps` of itself), and one that checks only an
-exit code — a mismatch exits 1, and so does a traceback. Check the message
-too. A test that needs Ghidra is out of the mutation tool's reach: inject a
-fault by hand once, see the test fail, and put it back.
+with the reason in one sentence. A test that compares the code's output with
+itself cannot fail, nor can one that checks only an exit code (a mismatch and
+a traceback both exit 1): check the message. A test that needs Ghidra is out
+of the tool's reach: inject a fault by hand once, see it fail, put it back
+(`tests/mutation/README.md`).
 
-**Measure; do not reason.** Three confident predictions in this repo's history
-were contradicted by measurement: module segmentation made identification worse,
-iterative refinement of the module order changed nothing, and *more* emulator
-input vectors reduced matches. And watch a second metric — a passing test does
-not mean nothing got worse.
+**Measure; do not reason.** Three confident predictions here were contradicted
+by measurement (`knowledge/06-lessons-from-siblings.md`, §6). Watch a second
+metric: a passing test does not mean nothing got worse.
 
 ---
 
 ## Reference
 
-- `knowledge/00-scope.md` — what this handles and what it does not
-- `knowledge/01-dos-binaries.md` — MZ format, memory models, segments, packers, hardware
-- `knowledge/02-compiler-fingerprints.md` — identifying and exploiting the compiler
-- `knowledge/03-what-works.md` — measured results, including what failed
-- `knowledge/04-pitfalls.md` — traps that cost real time, with the fix for each
-- `knowledge/05-prior-art.md` — other projects covering this ground, one of them
-  heavily. If the goal is a faithful reconstruction rather than a readable one,
-  mzretools is the better starting point.
-- `knowledge/06-lessons-from-siblings.md` — corrections paid for by two other
-  reconstructions
-- `knowledge/07-extended-reconstruction.md` — the verified-reconstruction workflow
-- `knowledge/08-com-reconstruction.md` — the `.COM` route, which reaches
-  byte-identity in one run
-- `knowledge/15-adventure-engine-shape.md` — recognising 1980s adventure-game
-  engines (byte-code VM, compressed-text streams, container formats) and
-  the mistake pattern of reading Huffman-encoded text as vector graphics
-- `knowledge/16-emulator-driven-exploration.md` — Unicorn-based scripted
-  emulation for adventure engines: the puzzle-explorer bug pattern
-  (unbounded restart loops, silent progress, shared observation/decision
-  sets) and the mini-port method for turning one puzzle into teaching
-  material
-- `knowledge/17-evidence.md` — the evidence envelope (`--evidence`), the
-  analysis profile and its handshake, load-image verification and `map`, and
-  the refusal of a stale `functions.json`; including the measured facts that
-  Ghidra's `image_base` is not the load segment and that its MZ loader gets two
-  kinds of file wrong, and how the pipeline corrects them; and function bodies
-  as address ranges, their origins, shared code, and `bodies.py`
-- `knowledge/18-oracle-sweeps.md` — sweeping one routine of the original
-  against a rebuild, a Python reference or a JavaScript port: the candidate
-  contract, modelling 16-bit arithmetic in JavaScript, divide faults,
-  exhaustive versus sampled, coverage, and where Unicorn is not an 8088
-- `knowledge/19-agents.md` — Claude Code, Gemini CLI, Codex, Kimi Code and
-  Antigravity CLI: which file each reads and how much of it, where each finds
-  the MCP server, what each needs that the repository cannot give it (trust,
-  sign-in), and what each did with the same task
-- `knowledge/ghidra-upstream-mzloader.md` — the two MZ loader divergences
-  written up as an issue for Ghidra, with a reproducer; drafted, not filed
-- `tests/sopwith/CASE-STUDY.md` — the whole method worked through, including the
-  hypotheses that turned out wrong
-- `tests/com/CASE-STUDY.md` — a 1982 `.COM` game rebuilt byte-for-byte, and the
-  four bugs the attempt exposed
+`knowledge/`: `00-scope` (what is handled; unpacking), `01-dos-binaries`,
+`02-compiler-fingerprints` (Turbo Pascal too), `03-what-works` (measured,
+failures too), `04-pitfalls`, `05-prior-art` (for a faithful rather than a
+readable reconstruction, mzretools is the better start),
+`06-lessons-from-siblings`, `07-extended-reconstruction`,
+`08-com-reconstruction`, `12-hooking-the-right-thing`,
+`15-adventure-engine-shape` (and not reading Huffman-coded text as vector
+graphics), `16-emulator-driven-exploration`, `17-evidence`,
+`18-oracle-sweeps`, `19-agents`, `ghidra-upstream-mzloader`. Worked through:
+`tests/sopwith/CASE-STUDY.md` (wrong turns included), `tests/com/CASE-STUDY.md`.

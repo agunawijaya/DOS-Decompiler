@@ -787,6 +787,46 @@ during import. On the six real files, correcting took 5.0 to 5.6 s. Every one
 verified with 0 corrections and 27 to 33 checks, and its dump was identical to
 prompt 02's.
 
+### By hand
+
+`pipeline.ps1` runs these, with the handshake and the load-image check between
+them. Moved here from `AGENTS.md` in prompt 09a, with the profile, dump and
+verify steps written out (the arguments are `pipeline.ps1`'s):
+
+```
+python tools/analysis_profile.py write --exe GAME.EXE --ghidra $GHIDRA_HOME --out OUTDIR/profile.json
+python tools/loadimage.py expected GAME.EXE --evidence expected.json
+analyzeHeadless <proj_dir> <proj> -import GAME.EXE -overwrite -noanalysis \
+    -scriptPath tools/ghidra_scripts -postScript CorrectMzLoad.java expected.json OUTDIR
+analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis -readOnly \
+    -scriptPath tools/ghidra_scripts -postScript DumpLoadImage.java OUTDIR
+python tools/loadimage.py verify GAME.EXE OUTDIR/loadimage-observed \
+    --profile OUTDIR/profile.json --evidence OUTDIR/loadimage.json \
+    --corrections OUTDIR/load-corrections.json
+analyzeHeadless <proj_dir> <proj> -process GAME.EXE
+analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
+    -scriptPath tools/ghidra_scripts -postScript RecoverFunctions.java
+analyzeHeadless <proj_dir> <proj> -process GAME.EXE -noanalysis \
+    -scriptPath tools/ghidra_scripts -postScript ExportDecompiledC.java OUTDIR
+python tools/analysis_profile.py check --profile OUTDIR/profile.json \
+    --functions OUTDIR/functions.json --evidence OUTDIR/handshake.json
+```
+
+`-NoLoadCorrection` (the pipeline), or by hand `write --no-load-correction`,
+no corrector `-postScript` and no `--corrections`, gives Ghidra's raw load,
+for comparison.
+
+Each step is its own invocation except the corrector. Chaining two
+`-postScript` flags was recorded, on an earlier setup, as losing the first
+script's changes, and did not reproduce on Ghidra 12.1.2
+(`04-pitfalls.md`); the separate invocations are kept because they are known
+to work and cost little. The corrector is the measured exception: run as a
+`-postScript` of the import, the load-image dump and the export came out
+byte-identical to running it separately, on seven fixture builds (among them
+a full last page, a duplicated relocation and both) and on two real games.
+Analysis and recovery stay apart for the reason under "Analysis now runs after
+verification" above.
+
 ## Stale results
 
 `functions.json` now carries `target`: the path Ghidra imported from, the size,

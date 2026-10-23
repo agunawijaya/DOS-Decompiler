@@ -481,6 +481,12 @@ all eight routines it reimplements actually ran*.
 
 That is the correct division of labour, and it is stated at the top of
 `comrun.py` itself: the static render is the deliverable, this is the referee.
+It has just enough BIOS to get a game to its first frame, including a keyboard
+queue (`--keys`) and a clock that advances, both there because without them a
+title screen waits forever; `--stop-at ADDR --stop-after N` stops on the Nth
+arrival, to look at a frame other than the first. Its two flags for programs
+that supply their own hardware, `--poll-patience` (`04-pitfalls.md`) and
+`--timer-isr` (above), are off by default.
 Reversing them cost most of a session. When a screen resists being
 photographed, check whether it can be *computed* first — and if the answer
 involves a table and a `Random`, it can.

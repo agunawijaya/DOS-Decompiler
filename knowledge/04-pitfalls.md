@@ -179,6 +179,16 @@ at all -- so it is passed over, and adventur is refused as before. The
 condition that the value be relocated is what keeps a packer's segment from
 being taken for the program's data.
 
+What `AGENTS.md` said of this before prompt 09a, kept here: a function in
+another code segment runs at its own `segment:offset`, with a far return
+address if it ends in `RETF`, taken from a `functions.json` and from a linker
+map whose segment table calls that segment `CODE`. DGROUP comes from the map,
+or from the segment the startup loads into `DS`; stderr says which (under
+`--quiet`, only when the old guess would have differed). When the startup
+loads nothing the loader relocated, it falls back to the lowest relocated
+segment, which is a code segment when far code sits below the data: give
+`--dgroup-a`/`--dgroup-b` then.
+
 **Ghidra gives `INT` and `CALL` a fall-through.** `int 0x21` with `AH=4Ch`
 never returns, but in Ghidra's flow model the instruction after it follows.
 The first version of the overlap walk followed it, and claimed that the

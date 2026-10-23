@@ -185,7 +185,10 @@ Its entry point is not recovered, and inspecting the file shows why: PKLITE
 writes only a copyright string (`PKLITE Copr. 1990-92 PKWARE Inc.`) into the
 header area. There is no field stating the original `CS:IP` the way EXEPACK
 has one. Recovering it would mean pattern-matching each stub version, which is
-the treadmill this tool exists to avoid.
+the treadmill this tool exists to avoid. So for every format but EXEPACK's,
+whose header states the entry exactly, the dumped header's entry is set to 0
+deliberately: a wrong entry point sends the disassembler into the middle of a
+routine, and everything after inherits the error.
 
 That same file also exposed a real bug worth recording: PKLITE sets `CS` to
 `0xFFF0` — *minus* sixteen paragraphs — so the entry resolves through the PSP
@@ -209,6 +212,15 @@ payload has not been relocated yet, and almost no stack frames, because the
 visible code is a decompressor. Triage now requires that combination.
 
 ## Before you start: triage
+
+Handed a folder, run `python tools/survey.py FOLDER` first. It triages every
+executable in the tree, reads the batch files for the real entry point, and
+says which executable looks like the game and why. It also catches what
+`triage.py` alone cannot: overlay modules, a second executable hiding in a
+subfolder, and the interpreted-engine pattern judged across the whole tree
+rather than one directory. On one 1988 release the folder held five
+executables, the game, two logo players, a setup stub and `MODE.COM`, and
+only the batch file told them apart.
 
 `python tools/triage.py GAME.EXE` answers "is this in scope?" from the binary
 itself — format, packing, overlays, apparent memory model, whether it looks

@@ -58,7 +58,9 @@ Diagnosing it from the binary:
 
 - **Very few relocations relative to size** → small or tiny. Near pointers
   need no fixups, so only the startup code requires them. Sopwith: 2
-  relocations for 60 KB, both adjacent to the entry point.
+  relocations for 60 KB, both adjacent to the entry point. So `mzinfo.py`'s
+  `few-relocations` note is normal on a small-model program; on one that is
+  otherwise large-model, it means something is hiding.
 - **Many relocations, `CALL FAR` everywhere** → medium or large.
 - **`DS` reloaded frequently** → far data, so compact or large.
 

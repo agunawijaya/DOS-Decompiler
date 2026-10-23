@@ -17,6 +17,10 @@ running any agent:
 * **Every agent reads the one method.** Gemini CLI's context file is set to
   AGENTS.md; no CLAUDE.md, GEMINI.md or override file exists beside it; and
   Codex's instruction limit is at least AGENTS.md's size.
+* **Every agent reads all of it.** AGENTS.md is at most 24,000 bytes, the
+  smallest limit measured (Antigravity CLI's, report 09), with LF line endings
+  and with CRLF: a Windows checkout has the second, a clone elsewhere the
+  first, and the CRLF form is a byte longer per line.
 
 Each check is also run against a broken copy, one fault per check, and must
 fail there: a check that cannot fail would pass whatever happened to the files.
@@ -54,6 +58,10 @@ SECOND_COPIES = ["CLAUDE.md", ".claude/CLAUDE.md", "CLAUDE.local.md", "GEMINI.md
 CODEX_ENV = {"PATH", "SYSTEMROOT", "LOCALAPPDATA", "TEMP", "TMP"}
 # More than this many lines of body is the method being copied in.
 POINTER_LINES = 8
+# Antigravity CLI 1.4.2 loads this much of a rule file and cuts the rest
+# (its log: "truncated by 16726 bytes (original 40684 bytes, limit 24000
+# bytes)"); the smallest limit of the five agents measured in report 09.
+SMALLEST_LIMIT = 24000
 
 
 def split_skill(text):
@@ -122,9 +130,23 @@ def check_one_method(root):
     return f"AGENTS.md, {size:,} bytes, read whole by Codex's limit of {limit:,}"
 
 
+def check_whole_method(root):
+    data = (root / "AGENTS.md").read_bytes()
+    lf = data.replace(b"\r\n", b"\n")
+    crlf = lf.replace(b"\n", b"\r\n")
+    for form, size in (("LF", len(lf)), ("CRLF", len(crlf))):
+        assert size <= SMALLEST_LIMIT, (
+            f"AGENTS.md is {size:,} bytes with {form} line endings, and Antigravity "
+            f"CLI reads {SMALLEST_LIMIT:,}; move detail to knowledge/ and leave a "
+            f"pointer")
+    return (f"AGENTS.md, {len(lf):,} bytes LF and {len(crlf):,} CRLF, within "
+            f"{SMALLEST_LIMIT:,}")
+
+
 CHECKS = [("the skills are pointers", check_pointer_skills),
           ("every agent starts the same server", check_servers),
-          ("every agent reads the one method", check_one_method)]
+          ("every agent reads the one method", check_one_method),
+          ("every agent reads all of it", check_whole_method)]
 
 
 def edit(path, old, new):
@@ -157,7 +179,19 @@ FAULTS = [
     (check_one_method, "AGENTS.md grown past Codex's limit",
      lambda r: (r / "AGENTS.md").write_bytes(
          (r / "AGENTS.md").read_bytes() + b"x" * 70000)),
+    (check_whole_method, "AGENTS.md one byte past the limit",
+     lambda r: grow_to(r / "AGENTS.md", SMALLEST_LIMIT + 1)),
+    (check_whole_method, "AGENTS.md on the limit as LF, past it as CRLF",
+     lambda r: grow_to(r / "AGENTS.md", SMALLEST_LIMIT)),
 ]
+
+
+def grow_to(path, size):
+    """AGENTS.md with LF endings, padded by one line to exactly `size` bytes.
+    On the limit as LF, its CRLF form is still a byte longer per line."""
+    lf = path.read_bytes().replace(b"\r\n", b"\n")
+    assert len(lf) < size, f"AGENTS.md is already {len(lf):,} bytes; update this fault"
+    path.write_bytes(lf + b"x" * (size - len(lf) - 1) + b"\n")
 
 
 def copy_of_root(work):
