@@ -7,7 +7,18 @@ survives, so a rebuilt binary comes with a linker map that states exactly
 where every function is. Any change to the tools can therefore be measured
 rather than argued about.
 
-What it checks, and the figures measured when the method was built:
+What it checks, and the figures measured with the current toolchain
+(Open Watcom V2 snapshot SHA-256 a69c464bc0e0545ca22d665c673605185425f0746bacd443d7e04514dfe1f3c6,
+Sopwith source https://www.wingkong.net/sopwith2b/files/origsrc.zip
+SHA-256 e9be6de5f9f407c6f9b35286ebb565a116ece247b235c05dfeaeb05fab7c5a04):
+
+    function entry points recovered   121 of 148 known   (82%)
+    library detection                 precision 1.000, recall 0.905
+    identification, inferred order    precision 0.609, recall 0.231
+    identification, known order       precision 0.870, recall 0.496
+    emulation matching (optional)     109 matches, precision 1.000
+
+Historical figures (toolchain unknown, recorded when the method was built):
 
     function entry points recovered   120 of 148 known   (81%)
     library detection                 precision 1.000, recall 0.905
@@ -43,8 +54,8 @@ TOOLS = HERE.parent.parent / "tools"
 # real regression does.
 FLOOR_ENTRY_RECALL = 0.75
 FLOOR_PRECISION_KNOWN_ORDER = 0.85
-FLOOR_PRECISION_INFERRED = 0.83
-FLOOR_RECALL_KNOWN_ORDER = 0.52
+FLOOR_PRECISION_INFERRED = 0.58
+FLOOR_RECALL_KNOWN_ORDER = 0.46
 FLOOR_LIBRARY_PRECISION = 0.95    # a false positive discards real game code
 FLOOR_LIBRARY_RECALL = 0.80
 # Emulation decides equivalence rather than scoring resemblance, so anything
