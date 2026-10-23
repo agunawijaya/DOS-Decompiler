@@ -286,106 +286,12 @@ public class RecoverFunctions extends GhidraScript {
             if (getFunctionAt(a) != null || getFunctionContaining(a) != null) {
                 continue;
             }
-            if (usesUnframedBp(a)) {
-                continue;
-            }
             if (createFunctionAt(a)) {
                 markOrigin(a, "recovered-code-pointer");
                 added++;
             }
         }
         return added;
-    }
-
-    /**
-     * Do not create a function at a code pointer whose code uses [bp+...]
-     * addressing into a stack frame it never set up itself.
-     */
-    private boolean usesUnframedBp(Address a) throws Exception {
-        Instruction existing = getInstructionContaining(a);
-        if (existing != null && !existing.getAddress().equals(a)) {
-            return true;
-        }
-        boolean wasDisassembled = (getInstructionAt(a) != null);
-        if (!wasDisassembled) {
-            if (!disassemble(a)) {
-                return false;
-            }
-        }
-        Instruction ins = getInstructionAt(a);
-        if (ins == null) {
-            return false;
-        }
-
-        int count = 0;
-        int maxCheck = 32;
-        boolean bpSetup = false;
-        boolean unframedBp = false;
-        Instruction cur = ins;
-        Address curMax = ins.getMaxAddress();
-
-        while (cur != null && count < maxCheck) {
-            curMax = cur.getMaxAddress();
-            String mn = cur.getMnemonicString().toUpperCase();
-
-            if (mn.equals("ENTER")) {
-                bpSetup = true;
-                break;
-            }
-            if (mn.equals("MOV") || mn.equals("LEA")) {
-                if (cur.getNumOperands() > 0) {
-                    String op0 = cur.getDefaultOperandRepresentation(0);
-                    if (op0 != null && op0.equalsIgnoreCase("BP")) {
-                        bpSetup = true;
-                        break;
-                    }
-                }
-            } else if (mn.equals("POP")) {
-                if (cur.getNumOperands() > 0) {
-                    String op0 = cur.getDefaultOperandRepresentation(0);
-                    if (op0 != null && op0.equalsIgnoreCase("BP")) {
-                        bpSetup = true;
-                        break;
-                    }
-                }
-            }
-
-            for (int op = 0; op < cur.getNumOperands(); op++) {
-                String rep = cur.getDefaultOperandRepresentation(op);
-                if (rep != null) {
-                    int lbr = rep.indexOf('[');
-                    int rbr = rep.indexOf(']');
-                    if (lbr >= 0 && rbr > lbr) {
-                        String inside = rep.substring(lbr + 1, rbr).toUpperCase();
-                        if (inside.contains("BP")) {
-                            unframedBp = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            if (unframedBp) {
-                break;
-            }
-
-            if (mn.equals("RET") || mn.equals("RETF") || mn.equals("IRET") || mn.equals("JMP")) {
-                break;
-            }
-            Instruction next = cur.getNext();
-            if (next == null || next.getAddress().compareTo(cur.getMaxAddress().add(1)) != 0) {
-                break;
-            }
-            cur = next;
-            count++;
-        }
-
-        if (unframedBp && !bpSetup) {
-            if (!wasDisassembled) {
-                clearListing(a, curMax);
-            }
-            return true;
-        }
-        return false;
     }
 
     private List<Address> findPrologues() throws Exception {
