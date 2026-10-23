@@ -1216,3 +1216,49 @@ signature = "15b8a52f604628f4"
 kind = "equivalent"
 mutant = "if a is not b:"
 why = "Iterating bytes gives ints 0..255, which CPython keeps as one object each, so `is not` holds exactly when != does."
+
+# triage.py's envelope(), in the target since prompt 09a. Each `is` below
+# compares with a string that only ever comes from the same identifier-like
+# literal, which CPython interns, so it holds exactly when == does.
+
+[[survivor]]
+target = "triage"
+signature = "3d1e70439e6b10c3"
+kind = "equivalent"
+mutant = "if r[\"format\"] is \"MZ\":"
+why = "analyse() sets the format from the literal \"MZ\", which CPython interns, so `is` holds exactly when == does."
+
+[[survivor]]
+target = "triage"
+signature = "123547cb25e64518"
+kind = "equivalent"
+mutant = "result = {k: v for k, v in r.items() if k is not \"findings\"}"
+why = "The key comes from the literal \"findings\" in analyse()'s dict, which CPython interns, so `is not` holds exactly when != does."
+
+[[survivor]]
+target = "triage"
+signature = "c5b64d69c6cf4f17"
+kind = "equivalent"
+mutant = "if o[\"level\"] is \"note\":"
+why = "A level is only ever one of the literals passed to found(), which CPython interns, so `is` holds exactly when == does."
+
+[[survivor]]
+target = "triage"
+signature = "c1e4455bff4844a0"
+kind = "equivalent"
+mutant = "break"
+why = "The only note is the .COM route's next step, the last finding analyse() makes before it returns, so no observation follows it for break to skip."
+
+[[survivor]]
+target = "triage"
+signature = "07e2b603959b1e07"
+kind = "equivalent"
+mutant = "if o[\"kind\"] is \"model-assumption\":"
+why = "A kind is only ever one of the literals passed to found(), which CPython interns, so `is` holds exactly when == does."
+
+[[survivor]]
+target = "triage"
+signature = "2aed5608d595f588"
+kind = "equivalent"
+mutant = "id_of = {evidence.canonical({k: v for k, v in i.items() if k is not \"id\"}): i[\"id\"]"
+why = "Every key of an evidence item is a literal, here or in evidence.py, which CPython interns, so `is not \"id\"` holds exactly when != does."

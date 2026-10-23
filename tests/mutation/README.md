@@ -52,7 +52,7 @@ high.
 | `handshake` | the profile handshake in `tools/analysis_profile.py` | the handshake cases of `tests/evidence` | 87 | 142 s |
 | `placements` | all of `tools/placements.py` | `tests/placements` | 2,182 | 97 s |
 | `comrec` | the round trip that proves a rebuild in `tools/comrec.py` | `tests/com` | 295 | 252 s |
-| `triage` | the verdict in `tools/triage.py` | the triage cases of `tests/evidence` | 315 | 1,295 s |
+| `triage` | the verdict in `tools/triage.py`, and since prompt 09a the envelope that names what set it | the triage cases of `tests/evidence` | 399 | 1,254 s (prompt 09a, 16 workers) |
 | `sweep-8088` | the 8088's `IDIV` rule in `tools/sweep.py` | `tests/sweep` | 336 | 1,615 s |
 
 The first five took 58 minutes of wall time together in prompt 07 (the
@@ -74,7 +74,7 @@ code (`known.toml`):
 | `handshake` | 49 / 87 (56.3%) | 87 / 87 | not run again |
 | `placements` | 797 / 2,182 (36.5%), survivors not classified | not worked on | not worked on |
 | `comrec` | 193 / 295 (65.4%), survivors not classified | not worked on | 199 / 294 (67.7%): `first_mismatch` done, the rest not classified |
-| `triage` | 101 / 315 (32.1%), survivors not classified | not worked on | 295 / 295 |
+| `triage` | 101 / 315 (32.1%), survivors not classified | not worked on | 295 / 295; after 09a, with `envelope`, 373 / 373 |
 | `sweep-8088` | | | 316 / 316 |
 
 The scripts, and the suites that need Ghidra, are out of its reach; each of
