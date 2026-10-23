@@ -687,6 +687,25 @@ means none of the binary can be dismissed as library noise.
 
 ## Using this with an agent
 
+### Using it from your agent
+
+Start the agent in this repository. It finds the method (`AGENTS.md`) and the
+MCP server (`mcp_server/server.py`) through its own project file, and nothing
+is copied. The server reads `env.ps1` itself, so the shell needs nothing
+loaded. Measured on 2026-10-23
+([`knowledge/19-agents.md`](knowledge/19-agents.md)):
+
+| Agent | Run | Before the first run |
+|---|---|---|
+| Claude Code | `claude` | nothing |
+| Gemini CLI | `gemini` | a sign-in it still accepts: personal Google accounts are refused since 2026; a paid API key is said to work |
+| Codex CLI | `codex` | trust the project when asked; until then it loads neither the server nor all of `AGENTS.md` |
+| Kimi Code CLI | `kimi` | choose "Trust this folder" when asked; until then it loads no server |
+| Antigravity CLI | `agy` | nothing, interactively; headless it needs the server's tools allowed |
+
+The headless commands, and what each agent did with the same task, are in
+`knowledge/19-agents.md`.
+
 ### Where everything goes
 
 The toolkit does **not** need to sit beside the game — every tool takes paths.
@@ -754,30 +773,28 @@ also a good place to record what you already know about the game.
 
 ### Starting the agent
 
-**Claude Code** — install the toolkit as a user-level skill once, then it is
-available in every project:
-
-```powershell
-Copy-Item -Recurse C:\Projects\DOS-Decompiler `
-                   $HOME\.claude\skills\dos-decompile
-
-cd C:\Projects\mygame
-claude
-```
-
-Claude Code finds the skill by itself; `AGENTS.md` in the work folder tells it
-where the game is.
-
-**Codex, Kimi, Cursor, Aider and others that read `AGENTS.md`** — no install
-step at all:
+**Claude Code, Codex, Kimi, Antigravity, Cursor, Aider and others that read
+`AGENTS.md`** — no install step:
 
 ```powershell
 cd C:\Projects\mygame
-codex          # or whichever agent
+claude         # or whichever agent
 ```
 
 They read `AGENTS.md` in the working directory, which points at the toolkit's
-own `AGENTS.md`.
+own `AGENTS.md`. Gemini CLI reads `GEMINI.md` instead: give the work folder a
+`.gemini\settings.json` of `{"context": {"fileName": "AGENTS.md"}}`.
+
+The toolkit's MCP server is configured for agents started *in the toolkit*.
+From a work folder, register it once for your user (below), or start the
+agent in `C:\Projects\DOS-Decompiler` and give it the game's absolute path.
+To have the skill in every Claude Code project, link it rather than copying
+the repository, so that there is still one copy:
+
+```powershell
+New-Item -ItemType Junction -Path $HOME\.claude\skills\dos-decompile `
+         -Target C:\Projects\DOS-Decompiler
+```
 
 **Anything else** — start it in `C:\Projects\mygame` and paste:
 
@@ -843,37 +860,37 @@ deletes the session folders whose server is no longer running -- what a client
 that stops without closing its sessions leaves behind -- and says how many on
 stderr and in `list_sessions`.
 
-Register it with Claude Code. The server takes the same environment as the
-command line, so pass it the values `env.ps1` sets:
+In this repository there is nothing to register. Each agent finds the server
+in its own project file: `.mcp.json`, `.gemini/settings.json`,
+`.codex/config.toml`, `.kimi-code/mcp.json` or `.agents/mcp_config.json`.
+Each of them starts the same `python mcp_server/server.py`.
+
+The server does not depend on the shell that starts it. It reads `env.ps1`
+beside itself for every variable the agent did not set. If the `python` that
+started it lacks capstone, unicorn or the `mcp` package, it hands over to the
+`PYTHON` that `env.ps1` names. If no interpreter will do, it exits naming
+what is missing. Without Ghidra or NASM it still starts, and says so. From
+another folder, register it once, with nothing else to pass:
 
 ```powershell
-claude mcp add dos-decompiler --scope user `
-  -e GHIDRA_HOME=C:\path\to\ghidra -e JAVA_HOME=C:\path\to\jdk `
-  -e NASM=C:\path\to\nasm.exe -e PYTHON=C:\path\to\python.exe `
-  -- C:\path\to\python.exe C:\Projects\DOS-Decompiler\mcp_server\server.py
+claude mcp add dos-decompiler --scope user -- python C:\Projects\DOS-Decompiler\mcp_server\server.py
 ```
 
-A client configured by file takes the same as JSON (`.mcp.json` in a project
-for Claude Code; `mcp.json` for Cursor):
+A client configured by file takes the same as JSON (`mcp.json` for Cursor;
+each agent's own file is in `knowledge/19-agents.md`). A value set in its
+`env` wins over `env.ps1`'s:
 
 ```json
 {
   "mcpServers": {
     "dos-decompiler": {
-      "command": "C:\\path\\to\\python.exe",
-      "args": ["C:\\Projects\\DOS-Decompiler\\mcp_server\\server.py"],
-      "env": {
-        "GHIDRA_HOME": "C:\\path\\to\\ghidra",
-        "JAVA_HOME": "C:\\path\\to\\jdk",
-        "NASM": "C:\\path\\to\\nasm.exe",
-        "PYTHON": "C:\\path\\to\\python.exe"
-      }
+      "command": "python",
+      "args": ["C:\\Projects\\DOS-Decompiler\\mcp_server\\server.py"]
     }
   }
 }
 ```
 
-The Python must be the one with capstone, unicorn and the `mcp` package.
 `pwsh` and `node` are found on `PATH`.
 
 ### Entry points
@@ -886,21 +903,16 @@ Two entry points:
 
 | File | For |
 |---|---|
-| [`AGENTS.md`](AGENTS.md) | **any agent** — Codex, Kimi, Cursor, Continue, Aider, or a human |
-| [`SKILL.md`](SKILL.md) | Claude Code, as an installable skill |
+| [`AGENTS.md`](AGENTS.md) | **any agent** — Claude Code, Gemini CLI, Codex, Kimi, Antigravity, Cursor, Aider, or a human |
+| [`SKILL.md`](SKILL.md) | an agent's skills mechanism, found through `.claude/skills/` and `.agents/skills/` |
 
-`SKILL.md` is a thin wrapper; the method lives in `AGENTS.md` so the two cannot
-drift apart.
+`SKILL.md` and the files under `.claude/` and `.agents/` are pointers. The
+method lives in `AGENTS.md` alone, so nothing can drift apart, and
+`tests/agents/` fails if a pointer turns into a copy.
 
-**Claude Code** — copy the repo into a project's skills directory:
-
-```powershell
-Copy-Item -Recurse . <your-project>\.claude\skills\dos-decompile
-```
-
-**Codex, Kimi, and others that read `AGENTS.md`** — clone the repo into or
-beside your working directory. Most will pick it up on their own; if not, tell
-them to read it.
+**Started in this repository**, the agents in the table
+[above](#using-it-from-your-agent) find both on their own. **Elsewhere**,
+point the agent's `AGENTS.md` at this one, as in the work-folder example.
 
 **Anything else** — paste this at the start of the session:
 
@@ -1027,6 +1039,8 @@ mcp_server/
   sessions.py                session folders and the analysis cache
   safety.py                  path checks, timed processes
   paging.py                  one page of a result, with a cursor
+  environment.py             env.ps1 read at start, the right Python found, or
+                             a message naming what is missing
 knowledge/
   00-scope.md                what this handles and what it does not
   01-dos-binaries.md         MZ format, memory models, segments, packers, hardware
@@ -1048,6 +1062,8 @@ knowledge/
   17-evidence.md             evidence envelopes, the analysis profile, stale results
   18-oracle-sweeps.md        sweeping a routine against the original: the
                              contract, 16-bit arithmetic in JavaScript, coverage
+  19-agents.md               Claude Code, Gemini CLI, Codex, Kimi and Antigravity:
+                             what each reads, its MCP file, what it needs, measured
   ghidra-upstream-mzloader.md  a draft bug report for Ghidra's MZ loader, not filed
 signatures/                  C runtime fingerprints: MS C 5.0, MS C 5.1, Watcom
 tests/run-all.ps1            every suite this machine can run; skips say why
@@ -1071,10 +1087,16 @@ tests/sweep/                 sweeps against Python, JavaScript and a rebuild;
                              wrong candidates caught at the planted input; the
                              8088's IDIV under both CPUs
 tests/mcp/                   the MCP server over stdio, through the SDK's client
+tests/agents/                every agent-specific file still a pointer, every
+                             agent starting the same server
 tests/mutation/              mutation testing of the comparison code: can the
                              tests fail? Slow, so not in run-all.ps1
 AGENTS.md                    the method, for any agent or human
-SKILL.md                     Claude Code wrapper
+SKILL.md                     the skill: a pointer to AGENTS.md
+.claude/ .agents/            pointer skills, and Antigravity's MCP file
+.mcp.json .gemini/ .codex/ .kimi-code/
+                             each agent's project file: the one server, and for
+                             Gemini CLI, AGENTS.md as its context file
 env.example.ps1              copy to env.ps1, point at your own tool copies
 ```
 

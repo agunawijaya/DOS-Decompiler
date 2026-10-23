@@ -1,8 +1,13 @@
 # Working on a DOS binary with this toolkit
 
 Instructions for any coding agent — or any person — driving `DOS-Decompiler`.
-This is the canonical method; `SKILL.md` is a thin wrapper for Claude Code that
-points here.
+This file is the method for every agent, Claude Code, Gemini CLI, Codex, Kimi
+Code or any other, and the only copy of it, and the prompts and reports in
+`prompts/` follow `prompts/00-README.md` whichever agent runs them. Some agents
+load only the start of a long instruction file (Antigravity CLI 24,000 bytes,
+Codex 32 KiB unless raised); if yours did, read this file whole before
+starting. `SKILL.md` and the per-agent files are pointers here
+(`knowledge/19-agents.md`).
 
 The toolkit is a set of ordinary command-line programs. They do the work that
 must be done by code: parsing headers, emulating 8086, computing signatures,
@@ -33,8 +38,10 @@ rather than fail.
   method in this file is unchanged. Only the way of running a step changes.
   The command line is the fallback. The server works on a copy of the target
   in a session folder and never writes beside the original. Its `apply_names`
-  is a dry run unless asked to write with `confirm`. README.md has the
-  registration command.
+  is a dry run unless asked to write with `confirm`. Started in this
+  repository, each agent finds the server in its own project file; the server
+  reads `env.ps1` itself, and says at start what it could not find.
+  `knowledge/19-agents.md` has what each agent needs besides (trust, login).
 
 ## What to tell the user before starting
 
@@ -771,6 +778,10 @@ not mean nothing got worse.
   against a rebuild, a Python reference or a JavaScript port: the candidate
   contract, modelling 16-bit arithmetic in JavaScript, divide faults,
   exhaustive versus sampled, coverage, and where Unicorn is not an 8088
+- `knowledge/19-agents.md` — Claude Code, Gemini CLI, Codex, Kimi Code and
+  Antigravity CLI: which file each reads and how much of it, where each finds
+  the MCP server, what each needs that the repository cannot give it (trust,
+  sign-in), and what each did with the same task
 - `knowledge/ghidra-upstream-mzloader.md` — the two MZ loader divergences
   written up as an issue for Ghidra, with a reproducer; drafted, not filed
 - `tests/sopwith/CASE-STUDY.md` — the whole method worked through, including the
