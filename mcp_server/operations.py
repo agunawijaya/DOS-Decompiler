@@ -267,9 +267,12 @@ def ghidra_env():
     ghidra, java = os.environ.get("GHIDRA_HOME"), os.environ.get("JAVA_HOME")
     if not ghidra or not Path(ghidra).is_dir():
         raise Refused("GHIDRA_HOME is not set to a Ghidra installation",
-                      "set GHIDRA_HOME (env.ps1 does) in the environment the server starts in")
+                      "set GHIDRA_HOME in env.ps1, which the server reads when it starts, "
+                      "or in the agent's MCP configuration, and restart the server")
     if not java or not Path(java).is_dir():
-        raise Refused("JAVA_HOME is not set to a JDK", "set JAVA_HOME (env.ps1 does)")
+        raise Refused("JAVA_HOME is not set to a JDK",
+                      "set JAVA_HOME in env.ps1, which the server reads when it starts, "
+                      "or in the agent's MCP configuration, and restart the server")
     if not shutil.which("pwsh"):
         raise Refused("pwsh is not on PATH; the pipeline is a PowerShell 7 script",
                       "install PowerShell 7 and put pwsh on PATH")

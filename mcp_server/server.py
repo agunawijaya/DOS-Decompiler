@@ -36,8 +36,11 @@ one page: lists are cut to `limit` with a cursor, and the page is held under
 paging.py.
 
 Requires the MCP Python SDK (pip install mcp; 2.x, Python 3.11 or later).
-Nothing else in the toolkit imports it. GHIDRA_HOME, JAVA_HOME and NASM come
-from the environment the server starts in, as for the command line.
+Nothing else in the toolkit imports it. GHIDRA_HOME, JAVA_HOME, NASM and
+PYTHON come from the environment the server starts in, and what that lacks
+from env.ps1, which the server reads itself (environment.py): it must not
+matter which agent started it, or what that agent's shell had loaded. A
+Python without the SDK, capstone or unicorn hands over to PYTHON.
 
 Usage:
     python mcp_server/server.py          # stdio; started by the MCP client
@@ -46,6 +49,11 @@ Usage:
 import json
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import environment  # noqa: E402  (standard library only; runs under any Python)
+
+START_NOTES, MISSING_TOOLS = environment.prepare([str(Path(__file__).resolve()), *sys.argv[1:]])
 
 try:
     import anyio
@@ -73,6 +81,11 @@ INSTRUCTIONS = (
     "first; the method is AGENTS.md (resource toolkit://AGENTS.md). Always "
     "triage before promising anything. Paths are absolute. Long results come "
     "in pages: pass page.next_cursor back as cursor.")
+if MISSING_TOOLS:
+    # Said where the model reads it, not only on stderr: a tool that will
+    # refuse should not be a surprise.
+    INSTRUCTIONS += " On this machine " + "; ".join(
+        f"{name} is not set: {why}" for name, why in MISSING_TOOLS) + "."
 
 server = MCPServer("dos-decompiler", instructions=INSTRUCTIONS)
 
@@ -321,4 +334,6 @@ for page in sorted((ROOT / "knowledge").glob("*.md")):
 
 if __name__ == "__main__":
     sys.stderr.write(op.start() + "\n")
+    for note in START_NOTES:
+        sys.stderr.write(note + "\n")
     server.run("stdio")

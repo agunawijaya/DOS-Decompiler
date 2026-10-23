@@ -205,6 +205,124 @@ async def _():
     return f"8 of 32 bytes, stopped at minalloc; file 0x49 = 1000:0009; {folder.name} deleted"
 
 
+# ---------------------------------------------------------------- its environment
+
+# An agent starts the server with an environment of its own choosing: Codex
+# passes a few variables, Gemini redacts some, and none of them dot-sources
+# env.ps1. These start it the way an agent might, from almost nothing.
+BARE = ("SYSTEMROOT", "PATH", "PATHEXT", "COMSPEC", "TEMP", "TMP", "LOCALAPPDATA",
+        "USERPROFILE", "HOME")
+
+
+def bare_env(**extra):
+    env = {k: os.environ[k] for k in BARE if k in os.environ}
+    env["DOSDEC_WORK"] = str(Fix.work / "sessions")
+    env.update({k: str(v) for k, v in extra.items()})
+    return env
+
+
+def bare_python():
+    """A Python without the SDK, capstone or unicorn: a fresh venv's."""
+    venv = Fix.work / "bare-venv"
+    if not venv.exists():
+        subprocess.run([sys.executable, "-m", "venv", "--without-pip", str(venv)], check=True,
+                       capture_output=True)
+    for p in (venv / "Scripts" / "python.exe", venv / "bin" / "python"):
+        if p.exists():
+            return p
+    raise AssertionError(f"no python in {venv}")
+
+
+def env_file(**values):
+    """An env.ps1 of our own, in the forms env.example.ps1 writes."""
+    path = Fix.work / "env-test.ps1"
+    lines = ["# env.ps1 written by tests/mcp", ""]
+    for name, value in values.items():
+        lines.append(f"$env:{name} = '{value}'   # where {name.lower()} is")
+    lines.append('$env:UNUSED_BY_THE_SERVER = "double-quoted"')
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+async def started(command, env):
+    """(initialize result, tool names, stderr) of a server started so."""
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+    log = Fix.work / f"start-{len(list(Fix.work.glob('start-*')))}.log"
+    params = StdioServerParameters(command=str(command), args=[str(SERVER)], env=env,
+                                   cwd=str(Fix.work))
+    with open(log, "w", encoding="utf-8") as errlog:
+        async with stdio_client(params, errlog=errlog) as streams:
+            async with ClientSession(streams[0], streams[1]) as other:
+                init = await other.initialize()
+                names = [t.name for t in (await other.list_tools()).tools]
+    return init, names, log.read_text(encoding="utf-8")
+
+
+@case("a Python without the packages reads env.ps1 and hands over to its PYTHON")
+async def _():
+    nasm = os.environ.get("NASM") or shutil.which("nasm")
+    path = env_file(PYTHON=sys.executable, GHIDRA_HOME=Fix.work, JAVA_HOME=Fix.work, NASM=nasm)
+    init, names, err = await started(bare_python(), bare_env(DOSDEC_ENV_FILE=path))
+    check(sorted(names) == sorted(TOOLS), f"tools {names}")
+    want = (f"handed over to PYTHON; GHIDRA_HOME, JAVA_HOME, NASM, PYTHON, "
+            f"UNUSED_BY_THE_SERVER from {path}")
+    check(want in err, f"stderr: {err[-600:]}")
+    check("is not set" not in (init.instructions or ""), f"instructions: {init.instructions}")
+    return f"{len(names)} tools from a venv's Python, through {Path(sys.executable).name}"
+
+
+@case("the agent's own environment wins over env.ps1")
+async def _():
+    nasm = os.environ.get("NASM") or shutil.which("nasm")
+    path = env_file(PYTHON=sys.executable, GHIDRA_HOME=Fix.work / "from-env-file",
+                    JAVA_HOME=Fix.work, NASM=nasm)
+    init, names, err = await started(sys.executable, bare_env(DOSDEC_ENV_FILE=path,
+                                                              GHIDRA_HOME=Fix.work))
+    line = next((l for l in err.splitlines() if l.endswith(f"from {path}")), "")
+    check(line and "GHIDRA_HOME" not in line and "JAVA_HOME" in line, f"stderr: {err[-600:]}")
+    check("GHIDRA_HOME is not set" not in (init.instructions or ""), "GHIDRA_HOME reported missing")
+    return line.split(": ", 1)[1][:90]
+
+
+@case("with no env.ps1 and no PYTHON, a Python without the packages stops, naming them")
+async def _():
+    r = subprocess.run([str(bare_python()), str(SERVER)], env=bare_env(DOSDEC_ENV_FILE=""),
+                       capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=120)
+    check(r.returncode == 2, f"exit {r.returncode}")
+    for want in ("cannot start", "cannot import mcp, capstone, unicorn", "PYTHON is not set",
+                 "python -m pip install mcp capstone unicorn"):
+        check(want in r.stderr, f"stderr lacks {want!r}: {r.stderr[-400:]}")
+    check("Traceback" not in r.stderr, "a traceback")
+    return r.stderr.strip()[:110]
+
+
+@case("without GHIDRA_HOME and JAVA_HOME it starts, says so, and analyze refuses by name")
+async def _():
+    from mcp.client.session import ClientSession
+    from mcp.client.stdio import StdioServerParameters, stdio_client
+    env = bare_env(DOSDEC_ENV_FILE="", NASM=os.environ.get("NASM") or "")
+    params = StdioServerParameters(command=sys.executable, args=[str(SERVER)], env=env,
+                                   cwd=str(Fix.work))
+    log = Fix.work / "no-ghidra.log"
+    with open(log, "w", encoding="utf-8") as errlog:
+        async with stdio_client(params, errlog=errlog) as streams:
+            async with ClientSession(streams[0], streams[1]) as other:
+                init = await other.initialize()
+                opened = (await other.call_tool("open_binary",
+                                                {"path": str(Fix.sweep_exe)})).structured_content
+                sid = opened["result"]["session_id"]
+                refused = (await other.call_tool("analyze", {"session_id": sid})).structured_content
+                await other.call_tool("close_binary", {"session_id": sid})
+    err = log.read_text(encoding="utf-8")
+    for name in ("GHIDRA_HOME", "JAVA_HOME"):
+        check(f"{name} is not set" in (init.instructions or "") and f"{name} is not set" in err,
+              f"{name} not reported at start: {err[-500:]}")
+    reason = refused["result"].get("reason", "")
+    check(refused["status"] == "blocked" and "GHIDRA_HOME" in reason, f"analyze: {refused['result']}")
+    return reason[:90]
+
+
 @case("a server starting up deletes the sessions of servers no longer running")
 async def _():
     from mcp.client.session import ClientSession
