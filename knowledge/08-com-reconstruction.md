@@ -160,17 +160,27 @@ mis-rebuilt. Teaching comrec the two spellings, or counting a line with no
 listing row as a mismatch, would rebuild it, and would leave the last check
 unreached again.
 
-### Bytes past an MZ's image are not rebuilt, and nothing says so
+### Bytes past an MZ's image, and what the claim is made on
 
 For an MZ, the source covers the load image and the header is written beside
-it. Bytes in the file after the image (appended data, an overlay) are in
-neither. comrec still prints `BYTE-IDENTICAL`, because the image did rebuild,
-but the file put back together is short by exactly those bytes. Measured
-(prompt 08): `tests/com/fixtures/mzsingle.asm` with 100 bytes appended came
-back 590 bytes of 690. That claim is about less than the file the user handed
-over, which is what this route promises not to do. Until that changes,
-compare the length, or run `mzinfo.py` first: it reports bytes past the
-image.
+it. Until prompt 09, bytes in the file after the image (an overlay, data
+appended to the program) were in neither, and comrec still printed
+`BYTE-IDENTICAL`, because the image did rebuild: `mzsingle.asm` with 100 bytes
+appended came back 590 bytes of 690. Overlays and appended data are common in
+these games, so they are now carried: after the image, as `db` lines under a
+comment that gives their file range and says DOS does not load them. They are
+never disassembled.
+
+And the claim is now structural. After the round trip, the final source is
+assembled once more, the header put back in front, and the result compared
+with the whole original file, length included (`compare_files`).
+`byte_identical` is that comparison's answer and nothing else, and the line
+`BYTE-IDENTICAL` is followed by the number of bytes compared. A route that
+checked less than the whole file, the image alone for instance, cannot reach
+it: `tests/com` patches the round trip to report success with a source that
+leaves the tail out, and the final comparison refuses it (654 bytes against
+590). Six mutants of the comparison, a rebuild one byte short among them, each
+make the suite fail.
 
 Asking NASM for a listing is what makes step 4 possible. Comparing the finished
 binary only reveals the *first* byte that differs, and a re-encoding shifts

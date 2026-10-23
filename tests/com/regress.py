@@ -381,6 +381,55 @@ def compare_files_cases():
     return True, f"{len(cases) + 1} cases: same, shorter, longer, larger, smaller, empty"
 
 
+def mz(size, hdr_paras=2, pages=1, last=None, nreloc=0, ip=0, cs=0, sig=b"MZ"):
+    """An MZ header written out, the rest of `size` bytes after it numbered."""
+    data = bytearray(bytes(i & 0xFF for i in range(size)))
+    data[0:2] = sig
+    last = size if last is None else last
+    for at, value in ((2, last), (4, pages), (6, nreloc), (8, hdr_paras), (20, ip), (22, cs)):
+        data[at:at + 2] = (value & 0xFFFF).to_bytes(2, "little")
+    return bytes(data)
+
+
+def mz_load_image_cases():
+    """mz_load_image's answers at the edges of its header checks, by hand:
+    (header, image, entry, CS base, bytes after the image), or None."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import comrec
+    load = comrec.mz_load_image
+    wrong, checked = [], []
+
+    def expect(why, got, want):
+        checked.append(why)
+        if got != want:
+            wrong.append(f"{why}: {got!r:.80}, not {want!r:.80}")
+
+    f = mz(64)                                          # exactly the minimum
+    expect("64 bytes", load(f), (f[:32], f[32:64], 0, 0, b""))
+    expect("63 bytes", load(mz(63)), None)
+    z = mz(64, sig=b"ZM")
+    expect("ZM", load(z) is not None, True)
+    expect("not MZ, 100 bytes", load(mz(100, sig=b"XY")), None)
+    expect("header of 0", load(mz(64, hdr_paras=0, last=32)), None)
+    expect("header as long as the file", load(mz(64, hdr_paras=4, last=64)), None)
+    expect("header past the file", load(mz(64, hdr_paras=8, last=32)), None)
+    expect("image past the file", load(mz(64, last=65)), None)
+    full = mz(1024, pages=2, last=0)                    # a full last page: 1,024
+    expect("full last page", load(full)[1], full[32:1024])
+    odd = mz(1100, pages=2, last=0x210)                 # malformed: last >= 512
+    expect("last 0x210 of 2 pages", load(odd)[1], odd[32:512 + 0x210])
+    tail = mz(80, last=64)
+    expect("16 bytes after the image", load(tail)[4], tail[64:])
+    for n, accepted in ((3, True), (8, True), (9, False)):
+        expect(f"{n} relocations, by default", load(mz(64, nreloc=n)) is not None, accepted)
+    expect("9 relocations, 9 allowed", load(mz(64, nreloc=9), 9) is not None, True)
+    expect("entry 0001:0013", load(mz(64, ip=0x13, cs=1))[2:4], (0x23, 0x10))  # bits shared
+    if wrong:
+        return False, "; ".join(wrong)
+    return True, (f"{len(checked)} headers: sizes, signatures, header and image bounds, "
+                  f"pages, relocations, entry")
+
+
 def appended_case(nasm, workdir):
     """An MZ with bytes after its load image is rebuilt whole: comrec says so
     only after comparing all of the file, and the suite's own rebuild agrees."""
@@ -471,6 +520,7 @@ def main():
                 failures += 1
         others = [("last check", first_mismatch_cases),
                   ("whole file", compare_files_cases),
+                  ("MZ header", mz_load_image_cases),
                   ("appended", lambda: appended_case(nasm, work)),
                   ("short claim", lambda: claim_case(nasm, work))]
         for name, fn in others:

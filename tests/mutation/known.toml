@@ -820,9 +820,9 @@ why = "The low byte and the high byte shifted left by 8 share no bit, so adding 
 
 [[survivor]]
 target = "comrec"
-signature = "31436bec435b730b"
+signature = "5d3ab0ade43bfff0"
 kind = "equivalent"
-mutant = "if built[i] is not self.image[i]:"
+mutant = "if built[i] is not want[i]:"
 why = "Indexing bytes gives ints 0..255, which CPython keeps as one object each, so `is not` holds exactly when != does."
 
 [[survivor]]
@@ -1146,3 +1146,73 @@ signature = "0daf97f2d1cdd28b"
 kind = "equivalent"
 mutant = "end = max(pieces, key=lambda p: (p[1], ~p[0]))"
 why = "~x is -x - 1, which orders values exactly as -x does."
+
+[[survivor]]
+target = "comrec"
+signature = "d64e77e1fcd4ee48"
+kind = "equivalent"
+mutant = "hdr_paras = struct.unpack_from(\"<H\", data, 8)[ -1]"
+why = "struct.unpack_from with one format item returns a one-element tuple, so its last element is its first."
+
+[[survivor]]
+target = "comrec"
+signature = "97d241caf89c22f8"
+kind = "equivalent"
+mutant = "nreloc = struct.unpack_from(\"<H\", data, 6)[ -1]"
+why = "struct.unpack_from with one format item returns a one-element tuple, so its last element is its first."
+
+[[survivor]]
+target = "comrec"
+signature = "6a3cc737cf9556bc"
+kind = "equivalent"
+mutant = "pages = struct.unpack_from(\"<H\", data, 4)[ -1]"
+why = "struct.unpack_from with one format item returns a one-element tuple, so its last element is its first."
+
+[[survivor]]
+target = "comrec"
+signature = "ec9bc7d11e8287e7"
+kind = "equivalent"
+mutant = "last = struct.unpack_from(\"<H\", data, 2)[ -1]"
+why = "struct.unpack_from with one format item returns a one-element tuple, so its last element is its first."
+
+[[survivor]]
+target = "comrec"
+signature = "c4f80cad8c695ace"
+kind = "equivalent"
+mutant = "ip = struct.unpack_from(\"<H\", data, 20)[ -1]"
+why = "struct.unpack_from with one format item returns a one-element tuple, so its last element is its first."
+
+[[survivor]]
+target = "comrec"
+signature = "c90e3279faa36ada"
+kind = "equivalent"
+mutant = "cs = struct.unpack_from(\"<H\", data, 22)[ -1]"
+why = "struct.unpack_from with one format item returns a one-element tuple, so its last element is its first."
+
+[[survivor]]
+target = "comrec"
+signature = "e493b01f44ad9c6d"
+kind = "equivalent"
+mutant = "if not ( 1 < hdr < len(data)) or end > len(data):"
+why = "hdr is the header's paragraph count times 16: never negative and never between 1 and 15, so this bound holds exactly when 0 < hdr does."
+
+[[survivor]]
+target = "comrec"
+signature = "74b9c396eecca745"
+kind = "equivalent"
+mutant = "if not (0 != hdr < len(data)) or end > len(data):"
+why = "hdr is the header's paragraph count times 16: never negative and never between 1 and 15, so this bound holds exactly when 0 < hdr does."
+
+[[survivor]]
+target = "comrec"
+signature = "9c2a7b5008789588"
+kind = "equivalent"
+mutant = "if not (0 is not hdr < len(data)) or end > len(data):"
+why = "hdr is never negative, and 0 is one object in CPython, so `0 is not hdr` holds exactly when 0 < hdr does."
+
+[[survivor]]
+target = "comrec"
+signature = "15b8a52f604628f4"
+kind = "equivalent"
+mutant = "if a is not b:"
+why = "Iterating bytes gives ints 0..255, which CPython keeps as one object each, so `is not` holds exactly when != does."

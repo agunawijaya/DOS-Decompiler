@@ -153,10 +153,11 @@ Three things to know before reporting results:
   mostly artwork and lookup tables. ParaTrooper comes back at 28.6% of the file
   but 87.7% of the region that actually holds code; the first number describes
   the game, the second describes the recovery.
-- **An MZ's bytes past its load image are not rebuilt,** and comrec prints
-  `BYTE-IDENTICAL` anyway, about the image and header. `mzinfo.py` reports
-  such bytes; when it does, compare the rebuilt file's length with the
-  original's and say what is missing (`knowledge/08-com-reconstruction.md`).
+- **An MZ's bytes past its load image** (an overlay, appended data) are
+  carried in the source as data, after the image, so the rebuild is the whole
+  file. `BYTE-IDENTICAL` is printed only after the rebuilt file, header and
+  all, has been compared with the whole original, and the line after it says
+  how many bytes were compared (`knowledge/08-com-reconstruction.md`).
 
 A `.COM` reconstruction is static: nothing is executed. When you need a
 reference to check a static reading against — a screen drawn from the file, a
