@@ -56,7 +56,10 @@
  */
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
@@ -300,13 +303,17 @@ public class RecoverFunctions extends GhidraScript {
             byte[] bytes = new byte[(int) Math.min(block.getSize(), Integer.MAX_VALUE)];
             block.getBytes(block.getStart(), bytes);
             for (int i = 0; i + 3 < bytes.length; i++) {
-                boolean hit =
-                        (bytes[i] == 0x55 && bytes[i + 1] == (byte) 0x8B
-                                && bytes[i + 2] == (byte) 0xEC)
-                        || (bytes[i] == (byte) 0xC8 && bytes[i + 3] == 0x00);
-                if (hit) {
-                    found.add(block.getStart().add(i));
+                boolean isPushBp = (bytes[i] == 0x55 && bytes[i + 1] == (byte) 0x8B
+                                && bytes[i + 2] == (byte) 0xEC);
+                boolean isEnter = (bytes[i] == (byte) 0xC8 && bytes[i + 3] == 0x00);
+                if (!isPushBp && !isEnter) {
+                    continue;
                 }
+                Address a = block.getStart().add(i);
+                if (isEnter && !isPlausibleEnter(a)) {
+                    continue;
+                }
+                found.add(a);
             }
         }
         return found;
@@ -330,11 +337,10 @@ public class RecoverFunctions extends GhidraScript {
                 if (monitor.isCancelled()) {
                     break;
                 }
-                boolean hit =
-                        (bytes[i] == 0x55 && bytes[i + 1] == (byte) 0x8B
-                                && bytes[i + 2] == (byte) 0xEC)
-                        || (bytes[i] == (byte) 0xC8 && bytes[i + 3] == 0x00);
-                if (!hit) {
+                boolean isPushBp = (bytes[i] == 0x55 && bytes[i + 1] == (byte) 0x8B
+                                && bytes[i + 2] == (byte) 0xEC);
+                boolean isEnter = (bytes[i] == (byte) 0xC8 && bytes[i + 3] == 0x00);
+                if (!isPushBp && !isEnter) {
                     continue;
                 }
 
@@ -348,6 +354,9 @@ public class RecoverFunctions extends GhidraScript {
                 if (containing != null) {
                     continue;
                 }
+                if (isEnter && !isPlausibleEnter(a)) {
+                    continue;
+                }
                 if (createFunctionAt(a)) {
                     markOrigin(a, "recovered-prologue");
                     added++;
@@ -355,6 +364,63 @@ public class RecoverFunctions extends GhidraScript {
             }
         }
         return added;
+    }
+
+    private static final Set<String> IMPLAUSIBLE_MNEMONICS = new HashSet<>(Arrays.asList(
+        "HLT", "ARPL", "BOUND", "INSB", "INSW", "OUTSB", "OUTSW",
+        "SALC", "INTO", "XLATB", "LOCK", "CPUID", "CWDE", "POPAW",
+        "PUSHAW", "POPAL", "PUSHAL", "MOVSX", "MOVZX", "FISTTP"
+    ));
+
+    private boolean isPlausibleEnter(Address a) throws Exception {
+        Instruction existing = getInstructionContaining(a);
+        if (existing != null && !existing.getAddress().equals(a)) {
+            return false;
+        }
+        boolean wasDisassembled = (getInstructionAt(a) != null);
+        if (!wasDisassembled) {
+            if (!disassemble(a)) {
+                return false;
+            }
+        }
+        Instruction ins = getInstructionAt(a);
+        if (ins == null || !ins.getMnemonicString().equalsIgnoreCase("ENTER")) {
+            if (!wasDisassembled && ins != null) {
+                clearListing(a, ins.getMaxAddress());
+            }
+            return false;
+        }
+
+        int count = 0;
+        int maxCheck = 64;
+        boolean hasTransfer = false;
+        boolean plausible = true;
+        Instruction cur = ins.getNext();
+        Address endAddr = ins.getMaxAddress();
+
+        while (cur != null && count < maxCheck) {
+            endAddr = cur.getMaxAddress();
+            String mn = cur.getMnemonicString().toUpperCase();
+            if (IMPLAUSIBLE_MNEMONICS.contains(mn) || mn.startsWith("F") || mn.equals("??")) {
+                plausible = false;
+                break;
+            }
+            if (mn.equals("RET") || mn.equals("RETF") || mn.equals("IRET") || mn.equals("LEAVE")) {
+                hasTransfer = true;
+                break;
+            }
+            cur = cur.getNext();
+            count++;
+        }
+
+        if (plausible && !hasTransfer && (cur == null || count >= maxCheck)) {
+            plausible = false;
+        }
+
+        if (!plausible && !wasDisassembled) {
+            clearListing(a, endAddr);
+        }
+        return plausible;
     }
 
     /** Disassemble if needed, then define a function. Returns true on success. */
