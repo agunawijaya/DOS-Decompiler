@@ -1,0 +1,12 @@
+{
+  "context": {
+    "fileName": "AGENTS.md"
+  },
+  "mcpServers": {
+    "dos-decompiler": {
+      "command": "python",
+      "args": ["mcp_server/server.py"],
+      "timeout": 1800000
+    }
+  }
+}

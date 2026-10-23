@@ -1,0 +1,14 @@
+# The toolkit's MCP server, for Codex CLI. Codex reads this file only in a
+# project the user has trusted (knowledge/19-agents.md). The method is
+# AGENTS.md, which Codex reads on its own.
+#
+# Codex passes an MCP server only the variables it names, so these are passed
+# through for the server's session folder and temporary files. The tool
+# locations come from env.ps1, which the server reads itself.
+
+[mcp_servers.dos-decompiler]
+command = "python"
+args = ["mcp_server/server.py"]
+env_vars = ["PATH", "PATHEXT", "SYSTEMROOT", "LOCALAPPDATA", "USERPROFILE", "TEMP", "TMP"]
+startup_timeout_sec = 60
+tool_timeout_sec = 1800
