@@ -162,7 +162,15 @@ class Matcher:
         """
         lines = s.get("body_lines") or 0
         insns = b.get("instruction_count") or 0
-        if lines <= 0 or insns <= 0:
+        if lines <= 0:
+            return 0.0
+        if insns <= 0:
+            body = b.get("body")
+            if isinstance(body, dict) and body.get("total_bytes"):
+                insns = int(body["total_bytes"] / 2.5)
+            elif b.get("size"):
+                insns = int(b["size"] / 2.5)
+        if insns <= 0:
             return 0.0
         ratio = insns / lines
         if 1.0 <= ratio <= 6.0:
