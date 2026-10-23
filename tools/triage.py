@@ -14,8 +14,9 @@ parts of the toolkit are worth running.
 
 With --evidence it also writes the same findings as an evidence envelope
 (knowledge/17-evidence.md): every finding with the file offset it rests on,
-the verdict, what the checks cannot see and what they raised but could not
-settle. The prose report and --json are unchanged by it.
+the verdict and the ids of the findings that set it (`verdict_evidence`),
+what the checks cannot see and what they raised but could not settle. The
+prose report and --json are unchanged by it.
 
 Usage:
     python triage.py GAME.EXE
@@ -148,7 +149,7 @@ def _at(offset):
     return {"file_offset": f"0x{offset:x}"}
 
 
-def analyse(path, observations=None):
+def analyse(path, observations=None, decisions=None):
     """Triage one file. Returns the dict that --json writes.
 
     Pass a list as `observations` and it receives, for every finding and in
@@ -156,6 +157,12 @@ def analyse(path, observations=None):
     was seen, and the value measured. The evidence envelope is built from
     that. The returned dict is unchanged by it, so --json and the prose
     report stay exactly what they were.
+
+    Pass a list as `decisions` and it receives one (field, finding) pair
+    each time a finding sets `in_scope` or `confidence`, `finding` being its
+    index in `observations`. It is written by the statement that sets the
+    value, so it cannot say one thing while the verdict says another. A
+    field no finding set kept its default: in scope, high confidence.
     """
     mz, data = read_mz(path)
     findings = []
@@ -167,6 +174,12 @@ def analyse(path, observations=None):
             observations.append({"level": level, "kind": kind, "claim": title,
                                  "detail": detail, "location": location,
                                  "value": value})
+        return len(findings) - 1
+
+    def decide(field, value, because):
+        verdict[field] = value
+        if decisions is not None:
+            decisions.append((field, because))
 
     if mz is None:
         suffix = Path(path).suffix.lower()
@@ -175,7 +188,7 @@ def analyse(path, observations=None):
             # image, loaded at 0x100. That makes it the easiest thing here to
             # reconstruct exactly, so it gets its own route rather than a
             # refusal -- comrec.py rebuilds it to a byte-identical .asm.
-            found("route", "raw .COM image",
+            com = found("route", "raw .COM image",
                   "No MZ header, and none needed. The file loads at "
                   "offset 0x100 as a single segment. Use comrec.py, "
                   "which reassembles to a byte-for-byte copy and "
@@ -185,17 +198,20 @@ def analyse(path, observations=None):
                   f"python tools/comrec.py \"{path}\" "
                   f"--out src/{Path(path).stem.lower()}.asm",
                   "next-step")
+            # Both settled by the missing header alone, and certainly.
+            decide("in_scope", True, com)
+            decide("confidence", "high", com)
+            verdict["route"] = "comrec"
             return {"file": str(path), "format": "COM",
-                    "verdict": {"in_scope": True, "confidence": "high",
-                                "route": "comrec"},
-                    "findings": findings}
-        found("blocker", "not an MZ executable",
-              "No MZ signature. Not a DOS executable, or a container "
-              "of some other kind.",
-              "format", _at(0), data[:2].hex())
+                    "verdict": verdict, "findings": findings}
+        not_mz = found("blocker", "not an MZ executable",
+                       "No MZ signature. Not a DOS executable, or a container "
+                       "of some other kind.",
+                       "format", _at(0), data[:2].hex())
+        decide("in_scope", False, not_mz)
+        decide("confidence", "high", not_mz)
         return {"file": str(path), "format": "not-MZ",
-                "verdict": {"in_scope": False, "confidence": "high"},
-                "findings": findings}
+                "verdict": verdict, "findings": findings}
 
     image_len = mz["image_end"] - mz["image_start"]
 
@@ -216,7 +232,7 @@ def analyse(path, observations=None):
     # immediately before the entry point. Two letters are far too common to
     # search for on their own; at exactly entry-2 they are conclusive.
     if data[max(0, mz["entry"] - 2):mz["entry"]] == b"RB":
-        found("blocker", "packed with Microsoft EXEPACK",
+        exepack = found("blocker", "packed with Microsoft EXEPACK",
               "The signature 'RB' sits exactly two bytes before the "
               "entry point, which is where EXEPACK's packed header "
               "ends. The entry point is its decompressor. "
@@ -225,7 +241,7 @@ def analyse(path, observations=None):
               "header, and recovers the image to 99.7% of a "
               "known-good unpacked build.",
               "packer-marker", _at(mz["entry"] - 2), "RB")
-        verdict["in_scope"] = False
+        decide("in_scope", False, exepack)
 
     for sig, name in PACKERS.items():
         pos = data.find(sig)
@@ -241,7 +257,7 @@ def analyse(path, observations=None):
                    f"{mz['relocations']} relocations and "
                    f"{packer_density:.1f} prologues/KB -- the visible code is a "
                    f"decompressor, not the program")
-            found("blocker", f"packed with {name}",
+            packed = found("blocker", f"packed with {name}",
                   f"Signature at 0x{pos:X}, {why}. Unpack before "
                   f"doing anything else, or you will decompile the "
                   f"decompressor: correct, and useless. Try "
@@ -249,7 +265,7 @@ def analyse(path, observations=None):
                   f"unpacked.exe`, which runs the decompressor under "
                   f"emulation and dumps the result.",
                   "packer-signature", _at(pos), measured)
-            verdict["in_scope"] = False
+            decide("in_scope", False, packed)
         else:
             found("warn", f"{name} signature present",
                   f"Found at 0x{pos:X}, but the file has "
@@ -261,7 +277,7 @@ def analyse(path, observations=None):
     # Overlays.
     fbov = data.find(b"FBOV")
     if fbov != -1 or mz["overlay_number"] != 0:
-        found("blocker", "overlaid program",
+        overlaid = found("blocker", "overlaid program",
               "Overlaid code is swapped into a shared region, so "
               "several functions occupy the same addresses at "
               "different times. Nothing here handles that; each "
@@ -269,7 +285,7 @@ def analyse(path, observations=None):
               "overlay", _at(fbov if fbov != -1 else 0x1A),
               {"overlay_number": mz["overlay_number"],
                "fbov_marker": fbov != -1})
-        verdict["in_scope"] = False
+        decide("in_scope", False, overlaid)
     elif mz["trailing"] > 1024:
         found("warn", f"{mz['trailing']} bytes past the load image",
               "Could be appended data, could be overlays. The "
@@ -279,7 +295,7 @@ def analyse(path, observations=None):
     # Memory model.
     model, why = guess_memory_model(mz, image_len)
     level = "info" if model == "small" else "warn"
-    found(level, f"memory model looks {model}", why, "memory-model",
+    model_found = found(level, f"memory model looks {model}", why, "memory-model",
           {"relocation_targets": [f"0x{p:x}" for p in mz["reloc_positions"]]},
           {"model": model, "relocations": mz["relocations"],
            "image_bytes": image_len})
@@ -291,7 +307,9 @@ def analyse(path, observations=None):
               "saying so. modcluster.py and match.py's data "
               "fingerprints make the same assumption.",
               "model-assumption", None, model)
-        verdict["confidence"] = "low"
+        # The warning is about the tools, so the envelope lists it under
+        # limitations; what lowered the confidence is the model it names.
+        decide("confidence", "low", model_found)
 
     # Compiled C versus hand-written assembly.
     count, density = prologue_density(data, mz["image_start"], mz["image_end"])
@@ -314,7 +332,7 @@ def analyse(path, observations=None):
               "boundary recovery will miss more than usual.",
               "prologue-density", span, frames)
     else:
-        found("warn", f"few stack frames ({count} prologues, "
+        few = found("warn", f"few stack frames ({count} prologues, "
                       f"{density:.1f}/KB)",
               "Two very different programs look like this: "
               "hand-written assembly, and C built by a compiler that "
@@ -325,7 +343,7 @@ def analyse(path, observations=None):
               "not. Either way, expect function boundary recovery to "
               "miss more than the measured figures suggest.",
               "prologue-density", span, frames)
-        verdict["confidence"] = "low"
+        decide("confidence", "low", few)
 
     # Interpreter engines -- the expensive mistake.
     engines, siblings = looks_like_engine(path, data)
@@ -333,13 +351,13 @@ def analyse(path, observations=None):
         markers = {m.decode("latin-1"): f"0x{data.find(m):x}"
                    for m, name in ENGINE_MARKERS.items() if name in engines
                    and data.find(m) != -1}
-        found("blocker", "interpreted engine: " + ", ".join(engines),
+        engine = found("blocker", "interpreted engine: " + ", ".join(engines),
               "The executable is an interpreter; the game is bytecode "
               "and assets in the data files. Decompiling it yields a "
               "virtual machine, not the game. Look for an "
               "engine-specific tool instead.",
               "engine-marker", {"markers": markers}, engines)
-        verdict["in_scope"] = False
+        decide("in_scope", False, engine)
     elif siblings and siblings[0][1] > 4 * max(1, image_len):
         found("warn", "large opaque data files alongside",
               "Biggest: " + ", ".join(f"{n} ({s:,} bytes)"
@@ -464,9 +482,9 @@ def _unknown_for(o):
 def envelope(path):
     """The evidence envelope for one file: everything the report says,
     structured, with where each observation was made."""
-    observations = []
+    observations, decisions = [], []
     try:
-        r = analyse(path, observations)
+        r = analyse(path, observations, decisions)
         target = evidence.target_identity(path)
     except OSError as e:
         return evidence.envelope(
@@ -501,7 +519,8 @@ def envelope(path):
     unknowns = []
     result = {k: v for k, v in r.items() if k != "findings"}
     result["verdict_text"] = verdict_line(r["verdict"])
-    for o in observations:
+    item_of = {}
+    for index, o in enumerate(observations):
         if o["level"] == "note":
             result["next_step"] = o["detail"]
             continue
@@ -512,13 +531,26 @@ def envelope(path):
             continue
         item = {k: v for k, v in o.items() if v is not None}
         items.append(item)
+        item_of[index] = item
         question = _unknown_for(o)
         if question:
             unknowns.append(question)
 
-    return evidence.envelope("triage", target, status="ok", result=result,
-                             evidence=items, limitations=limitations,
-                             unknowns=unknowns)
+    env = evidence.envelope("triage", target, status="ok", result=result,
+                            evidence=items, limitations=limitations,
+                            unknowns=unknowns)
+    # The ids exist only once the envelope has numbered its items, and an
+    # item repeated with identical content was kept once, so each deciding
+    # finding is looked up by its content.
+    id_of = {evidence.canonical({k: v for k, v in i.items() if k != "id"}): i["id"]
+             for i in env["evidence"]}
+    verdict_evidence = {"in_scope": [], "confidence": []}
+    for field, index in decisions:
+        ev_id = id_of[evidence.canonical(item_of[index])]
+        if ev_id not in verdict_evidence[field]:
+            verdict_evidence[field].append(ev_id)
+    env["result"]["verdict_evidence"] = verdict_evidence
+    return env
 
 
 def _wrap(text, width):

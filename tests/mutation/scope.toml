@@ -74,12 +74,13 @@ functions = ["Reconstructor.assemble", "Reconstructor.parse_listing",
              "Reconstructor.run", "mz_load_image", "compare_files"]
 test = ["tests/com/regress.py"]
 
-# triage.py's verdict: the checks that set in_scope and confidence, and the
-# line that says what to do.
+# triage.py's verdict: the checks that set in_scope and confidence, the line
+# that says what to do, and the envelope, which names the findings that set
+# the verdict (verdict_evidence, prompt 09a).
 [[target]]
 name = "triage"
 module = "tools/triage.py"
-functions = ["analyse", "verdict_line"]
+functions = ["analyse", "verdict_line", "envelope"]
 test = ["tests/evidence/regress.py", "--only", "triage", "--only", "packer",
         "--only", "open question", "--only", "not there"]
 

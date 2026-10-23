@@ -27,6 +27,14 @@
      "in_scope": true,
      "route": "comrec"
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-91f183a8-c024e196"
+     ],
+     "in_scope": [
+      "ev-91f183a8-c024e196"
+     ]
+    },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -78,6 +86,14 @@
      "confidence": "high",
      "in_scope": true,
      "route": "comrec"
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-bf9d6d4a-c024e196"
+     ],
+     "in_scope": [
+      "ev-bf9d6d4a-c024e196"
+     ]
     },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
@@ -131,6 +147,14 @@
      "in_scope": true,
      "route": "comrec"
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-8311e747-c024e196"
+     ],
+     "in_scope": [
+      "ev-8311e747-c024e196"
+     ]
+    },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -182,6 +206,14 @@
      "confidence": "high",
      "in_scope": true,
      "route": "comrec"
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-c65d0041-c024e196"
+     ],
+     "in_scope": [
+      "ev-c65d0041-c024e196"
+     ]
     },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
@@ -235,6 +267,14 @@
      "in_scope": true,
      "route": "comrec"
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-20beaa57-c024e196"
+     ],
+     "in_scope": [
+      "ev-20beaa57-c024e196"
+     ]
+    },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -286,6 +326,14 @@
      "confidence": "high",
      "in_scope": true,
      "route": "comrec"
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-dc16a938-c024e196"
+     ],
+     "in_scope": [
+      "ev-dc16a938-c024e196"
+     ]
     },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
@@ -339,6 +387,14 @@
      "in_scope": true,
      "route": "comrec"
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-498f0caf-c024e196"
+     ],
+     "in_scope": [
+      "ev-498f0caf-c024e196"
+     ]
+    },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -390,6 +446,14 @@
      "confidence": "high",
      "in_scope": true,
      "route": "comrec"
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-9566887e-c024e196"
+     ],
+     "in_scope": [
+      "ev-9566887e-c024e196"
+     ]
     },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
@@ -443,6 +507,14 @@
      "in_scope": true,
      "route": "comrec"
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-a29c6b74-c024e196"
+     ],
+     "in_scope": [
+      "ev-a29c6b74-c024e196"
+     ]
+    },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -494,6 +566,14 @@
      "confidence": "high",
      "in_scope": true,
      "route": "comrec"
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-5e664ce6-c024e196"
+     ],
+     "in_scope": [
+      "ev-5e664ce6-c024e196"
+     ]
     },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
@@ -610,6 +690,12 @@
     "verdict": {
      "confidence": "low",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-028394fa-ff105009"
+     ],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
    },
@@ -732,6 +818,12 @@
      "confidence": "low",
      "in_scope": true
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-88bbb9bf-1a9ce1e6"
+     ],
+     "in_scope": []
+    },
     "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -789,6 +881,14 @@
      "in_scope": true,
      "route": "comrec"
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-f83baf88-c024e196"
+     ],
+     "in_scope": [
+      "ev-f83baf88-c024e196"
+     ]
+    },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -840,6 +940,14 @@
      "confidence": "high",
      "in_scope": true,
      "route": "comrec"
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-14321c6c-c024e196"
+     ],
+     "in_scope": [
+      "ev-14321c6c-c024e196"
+     ]
     },
     "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
    },
@@ -973,6 +1081,12 @@
      "confidence": "high",
      "in_scope": false
     },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": [
+      "ev-3499b82b-2b3eaa4a"
+     ]
+    },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -1096,6 +1210,10 @@
     "verdict": {
      "confidence": "high",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
@@ -1230,6 +1348,12 @@
     "verdict": {
      "confidence": "high",
      "in_scope": false
+    },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": [
+      "ev-f9a6b3d2-21b1a5fa"
+     ]
     },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
@@ -1383,6 +1507,15 @@
      "confidence": "low",
      "in_scope": false
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-c6d5721e-0db3f1eb"
+     ],
+     "in_scope": [
+      "ev-c6d5721e-409fe907",
+      "ev-c6d5721e-437638eb"
+     ]
+    },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -1509,6 +1642,10 @@
     "verdict": {
      "confidence": "high",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
@@ -1661,6 +1798,12 @@
      "confidence": "low",
      "in_scope": true
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-43f63130-04027752"
+     ],
+     "in_scope": []
+    },
     "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -1726,6 +1869,14 @@
     "verdict": {
      "confidence": "high",
      "in_scope": false
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-156d4e13-d435c6e4"
+     ],
+     "in_scope": [
+      "ev-156d4e13-d435c6e4"
+     ]
     },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
@@ -1842,6 +1993,10 @@
     "verdict": {
      "confidence": "high",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
@@ -1975,6 +2130,10 @@
      "confidence": "high",
      "in_scope": true
     },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
+    },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -2098,6 +2257,10 @@
      "confidence": "high",
      "in_scope": true
     },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
+    },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -2217,6 +2380,10 @@
     "verdict": {
      "confidence": "high",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
@@ -2353,6 +2520,10 @@
     "verdict": {
      "confidence": "high",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
@@ -2506,6 +2677,10 @@
      "confidence": "high",
      "in_scope": true
     },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
+    },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -2640,6 +2815,14 @@
     "verdict": {
      "confidence": "low",
      "in_scope": false
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-36dafded-da52544e"
+     ],
+     "in_scope": [
+      "ev-36dafded-9726097d"
+     ]
     },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
@@ -2782,6 +2965,12 @@
      "confidence": "high",
      "in_scope": false
     },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": [
+      "ev-df15bdef-f652263b"
+     ]
+    },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -2902,6 +3091,10 @@
     "verdict": {
      "confidence": "high",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
@@ -3024,6 +3217,10 @@
      "confidence": "high",
      "in_scope": true
     },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
+    },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -3144,6 +3341,10 @@
      "confidence": "high",
      "in_scope": true
     },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
+    },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -3197,6 +3398,14 @@
     "verdict": {
      "confidence": "high",
      "in_scope": false
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-5a718592-d435c6e4"
+     ],
+     "in_scope": [
+      "ev-5a718592-d435c6e4"
+     ]
     },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
@@ -3332,6 +3541,15 @@
     "verdict": {
      "confidence": "low",
      "in_scope": false
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-40468486-3283c723",
+      "ev-40468486-85a4c43a"
+     ],
+     "in_scope": [
+      "ev-40468486-a983d317"
+     ]
     },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
@@ -3481,6 +3699,13 @@
     "verdict": {
      "confidence": "low",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-4cbe6573-48d69c72",
+      "ev-4cbe6573-47be31af"
+     ],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
    },
@@ -3632,6 +3857,13 @@
      "confidence": "low",
      "in_scope": true
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-48b515e9-db882c1d",
+      "ev-48b515e9-928b7db0"
+     ],
+     "in_scope": []
+    },
     "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -3779,6 +4011,12 @@
      "confidence": "high",
      "in_scope": false
     },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": [
+      "ev-6f784b1b-dea1f464"
+     ]
+    },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -3923,6 +4161,15 @@
     "verdict": {
      "confidence": "low",
      "in_scope": false
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-3a2aa9f0-b11f12d2",
+      "ev-3a2aa9f0-008534d5"
+     ],
+     "in_scope": [
+      "ev-3a2aa9f0-0636dd1a"
+     ]
     },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
@@ -4073,6 +4320,13 @@
      "confidence": "low",
      "in_scope": true
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-45c3fe6b-b11f12d2",
+      "ev-45c3fe6b-008534d5"
+     ],
+     "in_scope": []
+    },
     "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -4221,6 +4475,14 @@
     "verdict": {
      "confidence": "low",
      "in_scope": false
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-83fa7f56-dc2b068e"
+     ],
+     "in_scope": [
+      "ev-83fa7f56-1303a324"
+     ]
     },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
@@ -4371,6 +4633,14 @@
      "confidence": "low",
      "in_scope": false
     },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-e4740af6-2394a27d"
+     ],
+     "in_scope": [
+      "ev-e4740af6-222fc4ea"
+     ]
+    },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -4513,6 +4783,12 @@
      "confidence": "high",
      "in_scope": false
     },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": [
+      "ev-0b331ee7-c72cd054"
+     ]
+    },
     "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
    },
    "schema": "dos-decompiler/evidence/1",
@@ -4646,6 +4922,12 @@
     "verdict": {
      "confidence": "low",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-bad69cc3-3f3ea255"
+     ],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
    },
@@ -4792,6 +5074,10 @@
     "verdict": {
      "confidence": "high",
      "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [],
+     "in_scope": []
     },
     "verdict_text": "VERDICT: in scope. Run tools/pipeline.ps1."
    },

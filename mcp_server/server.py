@@ -300,8 +300,8 @@ def standard_workflow() -> str:
             "pseudocode and architecture notes, verified by reading. First read "
             "AGENTS.md (resource toolkit://AGENTS.md) -- it is the method, and "
             "these tools only carry it out. Then open_binary the target and run "
-            "triage before promising anything: report its verdict and its "
-            "unknowns. Say plainly that the decompiled C will not resemble the "
+            "triage before promising anything: report its verdict, the findings "
+            "that set it (result.verdict_evidence) and its unknowns. Say plainly that the decompiled C will not resemble the "
             "original source. Never commit a name on one source of evidence, and "
             "say which of your conclusions are verified and which are inference.")
 

@@ -932,45 +932,62 @@ WORKABLE = ("VERDICT: probably workable, with caveats above. Expect the measured
 OUT_OF_SCOPE = "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
 
 # shape, the file, verdict line, verdict, a blocker or warning title the
-# verdict rests on, and a title that must not appear.
+# verdict rests on, a title that must not appear, and the findings
+# result.verdict_evidence must name: the claims, in order, that set in_scope
+# and those that set confidence. An empty list is the default, in scope with
+# high confidence, that no finding moved.
+NOTHING = ([], [])
 VERDICT_SHAPES = [
     ("in scope, a small-model C program", lambda: FIX.mz["smallc"], IN_SCOPE,
-     {"in_scope": True, "confidence": "high"}, None, "bytes past the load image"),
+     {"in_scope": True, "confidence": "high"}, None, "bytes past the load image",
+     NOTHING),
     ("packed, tests/unpack's EXEPACK layout", lambda: FIX.shapes["exepack"], OUT_OF_SCOPE,
      {"in_scope": False, "confidence": "low"}, ("blocker", "packed with Microsoft EXEPACK"),
-     None),
+     None,
+     (["packed with Microsoft EXEPACK"], ["few stack frames"])),
     ("packed, an EXEPACK stub with its error message", lambda: FIX.mz["packed"],
      OUT_OF_SCOPE, {"in_scope": False, "confidence": "low"},
-     ("blocker", "packed with Microsoft EXEPACK"), None),
+     ("blocker", "packed with Microsoft EXEPACK"), None,
+     (["packed with Microsoft EXEPACK", "packed with Microsoft EXEPACK"], ["few stack frames"])),
     ("overlaid, the header names overlay 1", lambda: FIX.mz["overlay"], OUT_OF_SCOPE,
-     {"in_scope": False, "confidence": "high"}, ("blocker", "overlaid program"), None),
+     {"in_scope": False, "confidence": "high"}, ("blocker", "overlaid program"), None,
+     (["overlaid program"], [])),
     ("overlaid, FBOV in the bytes past the image", lambda: FIX.shapes["fbov"],
      OUT_OF_SCOPE, {"in_scope": False, "confidence": "high"},
-     ("blocker", "overlaid program"), "bytes past the load image"),
+     ("blocker", "overlaid program"), "bytes past the load image",
+     (["overlaid program"], [])),
     ("1,025 bytes past the image and no marker: a warning", lambda: FIX.shapes["appended-1025"],
      IN_SCOPE, {"in_scope": True, "confidence": "high"},
-     ("warn", "1025 bytes past the load image"), "overlaid program"),
+     ("warn", "1025 bytes past the load image"), "overlaid program",
+     NOTHING),
     ("1,024 bytes past the image: not even a warning", lambda: FIX.shapes["appended-1024"],
-     IN_SCOPE, {"in_scope": True, "confidence": "high"}, None, "bytes past the load image"),
+     IN_SCOPE, {"in_scope": True, "confidence": "high"}, None, "bytes past the load image",
+     NOTHING),
     ("not MZ, a text file", lambda: FIX.text, OUT_OF_SCOPE,
-     {"in_scope": False, "confidence": "high"}, ("blocker", "not an MZ executable"), None),
+     {"in_scope": False, "confidence": "high"}, ("blocker", "not an MZ executable"), None,
+     (["not an MZ executable"], ["not an MZ executable"])),
     ("not MZ, a suffix that sorts before .com", lambda: FIX.shapes["notes.bin"], OUT_OF_SCOPE,
-     {"in_scope": False, "confidence": "high"}, ("blocker", "not an MZ executable"), None),
+     {"in_scope": False, "confidence": "high"}, ("blocker", "not an MZ executable"), None,
+     (["not an MZ executable"], ["not an MZ executable"])),
     (".COM, the comrec route", lambda: FIX.com["plain"], COM_ROUTE,
      {"in_scope": True, "confidence": "high", "route": "comrec"},
-     ("route", "raw .COM image"), None),
+     ("route", "raw .COM image"), None,
+     (["raw .COM image"], ["raw .COM image"])),
     ("interpreted engine, Sierra SCI's resource names", lambda: FIX.mz["engine"],
      OUT_OF_SCOPE, {"in_scope": False, "confidence": "high"},
-     ("blocker", "interpreted engine: Sierra SCI"), None),
+     ("blocker", "interpreted engine: Sierra SCI"), None,
+     (["interpreted engine: Sierra SCI"], [])),
     ("warnings only, far pointers and few frames", lambda: FIX.mz["spread"], WORKABLE,
-     {"in_scope": True, "confidence": "low"}, ("warn", "memory model looks"), None),
+     {"in_scope": True, "confidence": "low"}, ("warn", "memory model looks"), None,
+     ([], ["memory model looks compact"])),
     ("beside data files far larger than itself", lambda: FIX.folders["full"] / "GAME.EXE",
      IN_SCOPE, {"in_scope": True, "confidence": "high"},
-     ("warn", "large opaque data files alongside"), None),
+     ("warn", "large opaque data files alongside"), None,
+     NOTHING),
 ]
 
 
-def verdict_case(shape, path_of, line, verdict, rests_on, absent):
+def verdict_case(shape, path_of, line, verdict, rests_on, absent, set_by):
     @case(f"triage verdict, {shape}")
     def _():
         path = path_of()
@@ -993,9 +1010,24 @@ def verdict_case(shape, path_of, line, verdict, rests_on, absent):
             raise AssertionError(f"no {rests_on[0]} {rests_on[1]!r} among {titles}")
         if absent and any(absent in c for _, c in titles):
             raise AssertionError(f"{absent!r} should not be found: {titles}")
+        claim_of = {i["id"]: i["claim"] for i in env["evidence"]}
+        named = result.get("verdict_evidence")
+        if not isinstance(named, dict) or sorted(named) != ["confidence", "in_scope"]:
+            raise AssertionError(f"verdict_evidence is {named!r}")
+        for field, want_claims in zip(("in_scope", "confidence"), set_by):
+            unknown = [i for i in named[field] if i not in claim_of]
+            if unknown:
+                raise AssertionError(f"verdict_evidence.{field} names {unknown}, "
+                                     f"which are not evidence ids of this envelope")
+            claims = [claim_of[i] for i in named[field]]
+            if len(claims) != len(want_claims) or not all(
+                    c.startswith(w) for c, w in zip(claims, want_claims)):
+                raise AssertionError(f"verdict_evidence.{field} is {claims}, "
+                                     f"not {want_claims}")
         scope = "in scope" if verdict["in_scope"] else "out of scope"
         why = f", on {rests_on[0]} {rests_on[1]!r}" if rests_on else ""
-        return f"{scope}, confidence {verdict['confidence']}, exit {want}{why}"
+        set_count = f", set by {len(named['in_scope'])}+{len(named['confidence'])}"
+        return f"{scope}, confidence {verdict['confidence']}, exit {want}{why}{set_count}"
 
 
 for _shape in VERDICT_SHAPES:

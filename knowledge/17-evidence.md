@@ -234,6 +234,7 @@ $ python tools/triage.py SPREAD.EXE --evidence -
     "image_bytes": 2048, "memory_model_guess": "compact, large or huge",
     "prologue_density": 1.0, "prologues": 2, "relocations": 3,
     "verdict": {"confidence": "low", "in_scope": true},
+    "verdict_evidence": {"confidence": ["ev-43f63130-04027752"], "in_scope": []},
     "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
   },
   "schema": "dos-decompiler/evidence/1",
@@ -253,7 +254,9 @@ $ python tools/triage.py SPREAD.EXE --evidence -
 ```
 
 (Reflowed for reading, and the absolute path shortened; the tool writes one
-key per line.)
+key per line. `verdict_evidence` was added in prompt 09a, after this run; its
+value is the one the fixture gives now, and nothing else in the envelope
+changed with it.)
 
 Every line of the report has its counterpart:
 
@@ -268,11 +271,41 @@ Every line of the report has its counterpart:
 | `[WARN] memory model looks compact, ...` + detail | evidence `memory-model`, with the three patched words; unknown 3 |
 | `[WARN] emuverify.py assumes small model` + detail | limitation 5 — a fact about emuverify, not about the file |
 | `[WARN] mixed or frame-pointer-free ...` + detail | evidence `prologue-density`; unknown 4 |
-| `VERDICT: probably workable, ...` | `result.verdict_text`; `result.verdict` |
+| `VERDICT: probably workable, ...` | `result.verdict_text`; `result.verdict`; `result.verdict_evidence`, which findings set it (below) |
 
 What the prose never said, and the envelope does: *where* each thing was seen —
 `0xc00`, `0x504/0x509/0x50e`, `0x200..0xa00` — and which of the five warnings
 are open questions about this file (four) rather than standing caveats (one).
+
+### `verdict_evidence`: which findings set the verdict
+
+Five warnings, and the verdict says "low"; the prose does not say which of them
+lowered it. `result.verdict_evidence` does, as two lists of evidence ids:
+
+| field | holds |
+|---|---|
+| `in_scope` | every finding that set `in_scope`: each blocker (a packer, overlays, an engine, no MZ header), or the `.COM` route's `format` finding |
+| `confidence` | every finding that set `confidence`: the memory model that is not small, few stack frames, or the `format` finding of a `.COM` or a file that is not MZ, which settles the verdict alone |
+
+**An empty list means the default held**: in scope, or high confidence, because
+nothing triage checks for moved it. Here `in_scope` is empty, and `confidence`
+names one id, the memory model's. The other four warnings are on the record but
+did not touch the verdict: `mixed or frame-pointer-free` is a warning that
+does not lower confidence (only fewer than 0.5 prologues per KB does), and the
+`emuverify.py assumes small model` warning is a limitation, not evidence, so
+the id named is that of the model it is about. Two blockers can set one field,
+and both are listed: an EXEPACK stub with its error message is named by its
+`RB` marker and by the message.
+
+The lists are written by the statement that sets the value
+(`decide(field, value, finding)` in `triage.py`), not worked out afterwards
+from the findings, so the two cannot disagree. The ids are looked up by each
+finding's content once the envelope has numbered its items. Before 09a an
+agent asked for "the evidence behind the verdict" had to read `triage.py` to
+answer; in report 09 Claude Code did, and Codex picked a warning that had not
+set it three times out of three. `tests/evidence/regress.py` pins, for each
+verdict shape, the claims the two lists must name, written out by hand, and
+`expected-triage.json` pins every id.
 
 `tests/evidence/regress.py` checks this mapping mechanically — triage on all 18
 fixture files, survey on 5 folders, mzinfo on the 7 MZ fixtures: each report
