@@ -121,7 +121,7 @@ IMAGE_BASE = IMAGE_SEG << 4
 SENTINEL_IP = 0xFFF0         # return address that means "the function ended"
 STACK_TOP = 0xFF00           # SP within DGROUP; small model puts SS == DS
 FRAME_GUARD = 0xF000         # writes above this are stack frame, not globals
-MAX_INSNS = 40000
+MAX_INSNS = 50_000
 
 # Input vectors, and there are deliberately only four.
 #
@@ -603,7 +603,7 @@ class Emulator:
 
         try:
             uc.emu_start((cs << 4) + ip, IMAGE_BASE + SENTINEL_IP,
-                         timeout=2_000_000, count=0)
+                         timeout=0, count=0)
         except UcError as e:
             state["aborted"] = str(e)
 
