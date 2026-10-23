@@ -115,13 +115,28 @@ def _reach(by_entry, root, limit=4000):
     return seen
 
 
+def _function_bytes(f):
+    if not f:
+        return 0
+    body = f.get("body")
+    if isinstance(body, dict) and "total_bytes" in body:
+        return body["total_bytes"]
+    return f.get("size", 0)
+
+
 def reachable_roots(by_entry):
     """Functions nothing calls, ranked by how much they reach."""
     called = set()
     for f in by_entry.values():
         called.update(f.get("calls", []))
     roots = [e for e in by_entry if e not in called]
-    return sorted(((len(_reach(by_entry, r)), r) for r in roots), reverse=True)
+
+    def score(r):
+        reach = _reach(by_entry, r)
+        total_b = sum(_function_bytes(by_entry.get(e)) for e in reach)
+        return (len(reach), total_b, r)
+
+    return [(s[0], s[2]) for s in sorted((score(r) for r in roots), reverse=True)]
 
 
 def descend_to_main(by_entry, entry, max_depth=12):
