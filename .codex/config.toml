@@ -2,6 +2,11 @@
 # project the user has trusted (knowledge/19-agents.md). The method is
 # AGENTS.md, which Codex reads on its own.
 #
+# AGENTS.md is about 40 KB; Codex reads 32 KiB of instructions by default and
+# truncates the rest, which loses the end of Step 5 and everything after.
+# Measured with `-c project_doc_max_bytes=65536`, which loads it whole.
+project_doc_max_bytes = 65536
+
 # Codex passes an MCP server only the variables it names, so these are passed
 # through for the server's session folder and temporary files. The tool
 # locations come from env.ps1, which the server reads itself.
