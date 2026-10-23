@@ -60,7 +60,8 @@ when it starts (`mcp_server/environment.py`):
   survey, unpack and the rest still work. It says so on stderr and in its
   instructions, and `analyze` is refused naming the variable.
 
-*Measured*, the line every agent that started it logged:
+*Measured*, the line Claude Code and Gemini CLI both logged. Antigravity
+started the server too, but its log does not show the server's stderr:
 
 ```
 dos-decompiler MCP server: started by E:/Applications/Inkscape/bin/python.exe, which lacked the
