@@ -93,8 +93,10 @@ try {
 
     # 4. Mixed return forms. aim()'s value is never consumed by any caller.
     $auto = Get-Content 'swauto.c' -Raw
-    $auto = $auto -replace "(?m)^\t\tob->ob_accel = MAX_THROTTLE;\r?\n\t\treturn;",
+    $auto = $auto -replace "(?m)^[ \t]*ob->ob_accel = MAX_THROTTLE;\r?\n[ \t]*return;",
                            "`t`tob->ob_accel = MAX_THROTTLE;`r`n`t`treturn( 0 );"
+    $auto = $auto -replace "(?m)^[ \t]*if \( tl == -1 \)\r?\n[ \t]*return;",
+                           "`tif ( tl == -1 )`r`n`t`treturn( 0 );"
     Set-Content 'swauto.c' -Value $auto -NoNewline
 
     # 5. Memory operands that wasm would otherwise read as immediates.
