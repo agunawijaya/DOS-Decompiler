@@ -307,10 +307,11 @@ set it three times out of three. `tests/evidence/regress.py` pins, for each
 verdict shape, the claims the two lists must name, written out by hand, and
 `expected-triage.json` pins every id.
 
-`tests/evidence/regress.py` checks this mapping mechanically — triage on all 18
-fixture files, survey on 5 folders, mzinfo on the 7 MZ fixtures: each report
-line must match the envelope field that carries it, and a line that matches
-nothing fails the suite.
+`tests/evidence/regress.py` checks this mapping mechanically — triage on 43
+fixture files (650 lines), survey on 5 folders, mzinfo on 8 MZ fixtures, as
+counted in prompt 09a (18 files and 7 when this was written): each report line
+must match the envelope field that carries it, and a line that matches nothing
+fails the suite.
 
 ## The analysis profile
 
