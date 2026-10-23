@@ -335,7 +335,7 @@ def first_mismatch_cases():
     sys.path.insert(0, str(ROOT / "tools"))
     import comrec
     r = comrec.Reconstructor.__new__(comrec.Reconstructor)
-    r.image = bytes([0x10, 0x20, 0x30])
+    r.image, r.tail = bytes([0x10, 0x20, 0x30]), b""
     cases = [(bytes([0x10, 0x20, 0x30]), None, "identical"),
              (bytes([0x10, 0x20]), 2, "cut short"),
              (bytes([0x10, 0x20, 0x30, 0x40]), 3, "one byte longer"),
@@ -344,9 +344,96 @@ def first_mismatch_cases():
              (b"", 0, "empty")]
     wrong = [f"{why}: {got!r}, not {want!r}" for built, want, why in cases
              if (got := r.first_mismatch(built)) != want]
+    # With bytes after the image, they are part of what the source must give.
+    r.tail = bytes([0x40, 0x50])
+    for built, want, why in ((bytes([0x10, 0x20, 0x30, 0x40, 0x50]), None, "image and tail"),
+                             (bytes([0x10, 0x20, 0x30]), 3, "the image alone"),
+                             (bytes([0x10, 0x20, 0x30, 0x40, 0x51]), 4, "the tail's last byte")):
+        if (got := r.first_mismatch(built)) != want:
+            wrong.append(f"{why}: {got!r}, not {want!r}")
     if wrong:
         return False, "; ".join(wrong)
-    return True, f"{len(cases)} cases: identical, shorter, longer, larger, smaller, empty"
+    return True, (f"{len(cases) + 3} cases: identical, shorter, longer, larger, smaller, "
+                  f"empty; with a tail, whole, without it, its last byte")
+
+
+def compare_files_cases():
+    """The comparison BYTE-IDENTICAL rests on, by hand: the rebuilt file
+    against the whole original, length included."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import comrec
+    original = bytes([0x4D, 0x5A, 0x00, 0x7F])
+    cases = [(original, None, "the same"),
+             (original[:3], 3, "cut short by one byte"),
+             (original + b"\x00", 4, "one byte more"),
+             (bytes([0x4D, 0x5A, 0x01, 0x7F]), 2, "a byte larger"),
+             (bytes([0x4D, 0x5A, 0x00, 0x7E]), 3, "the last byte smaller"),
+             (b"", 0, "nothing")]
+    wrong = []
+    for rebuilt, want, why in cases:
+        got = comrec.compare_files(original, rebuilt)
+        if (got if got is None else got[0]) != want:
+            wrong.append(f"{why}: {got!r}, not at {want!r}")
+    if comrec.compare_files(b"", b"") is not None:
+        wrong.append("two empty files differ")
+    if wrong:
+        return False, "; ".join(wrong)
+    return True, f"{len(cases) + 1} cases: same, shorter, longer, larger, smaller, empty"
+
+
+def appended_case(nasm, workdir):
+    """An MZ with bytes after its load image is rebuilt whole: comrec says so
+    only after comparing all of the file, and the suite's own rebuild agrees."""
+    original = workdir / "appended.exe"
+    nasm_build(nasm, FIXTURES / "mzsingle.asm", original)
+    image = original.read_bytes()
+    tail = bytes((i * 37 + 11) & 0xFF for i in range(100)) + b"FBOV and more after it"
+    original.write_bytes(image + tail)
+    asm = workdir / "appended.rec.asm"
+    r = subprocess.run([sys.executable, str(COMREC), str(original), "--out", str(asm),
+                        "--nasm", nasm], capture_output=True, text=True)
+    total = len(image) + len(tail)
+    if r.returncode != 0 or "BYTE-IDENTICAL" not in r.stdout or \
+            f"all {total:,} bytes the same" not in r.stdout:
+        return False, f"comrec did not rebuild it whole\n{r.stdout}{r.stderr}"
+    rebuilt = workdir / "appended.rebuilt"
+    nasm_build(nasm, asm, rebuilt)
+    whole = asm.with_suffix(".mzheader").read_bytes() + rebuilt.read_bytes()
+    if whole != original.read_bytes():
+        return False, f"the suite's own rebuild is {len(whole)} bytes, not the file's {total}"
+    source = asm.read_text(encoding="latin-1")
+    span = f"file 0x{len(image):X}..0x{total - 1:X}, {len(tail):,} bytes"
+    if span not in source:
+        return False, f"the source does not say where the bytes after the image are ({span})"
+    return True, f"{total} of {total} bytes, {len(tail)} of them after the image"
+
+
+def claim_case(nasm, workdir):
+    """A route that compares less than the whole file cannot reach the claim:
+    a round trip that reports success with a source leaving out the bytes
+    after the image is refused by the final comparison."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import comrec
+    original = workdir / "short-claim.exe"
+    nasm_build(nasm, FIXTURES / "mzsingle.asm", original)
+    original.write_bytes(original.read_bytes() + bytes(64))
+    real_run = comrec.Reconstructor.run
+
+    def image_only(self, nasm_path, max_rounds=150):
+        source, last, rounds, err = real_run(self, nasm_path, max_rounds)
+        self.tail = b""                       # the source, rebuilt without them
+        return self.emit(), last, rounds, None
+    comrec.Reconstructor.run = image_only
+    try:
+        report, code = comrec.reconstruct(original, workdir / "short-claim.asm", nasm=nasm)
+    finally:
+        comrec.Reconstructor.run = real_run
+    lines = "\n".join(report["lines"])
+    if code == 0 or report["byte_identical"] or "BYTE-IDENTICAL" in lines:
+        return False, f"a rebuild of the image alone was called identical\n{lines}"
+    if "the rebuilt file is not the original" not in (report["error"] or ""):
+        return False, f"refused, but not by the whole-file comparison: {report['error']}"
+    return True, report["error"]
 
 
 def main():
@@ -382,19 +469,28 @@ def main():
             print(f"  {'PASS' if ok else 'FAIL'}  {name:<12} {detail}")
             if not ok:
                 failures += 1
-        ok, detail = first_mismatch_cases()
-        print(f"  {'PASS' if ok else 'FAIL'}  {'last check':<12} {detail}")
-        if not ok:
-            failures += 1
+        others = [("last check", first_mismatch_cases),
+                  ("whole file", compare_files_cases),
+                  ("appended", lambda: appended_case(nasm, work)),
+                  ("short claim", lambda: claim_case(nasm, work))]
+        for name, fn in others:
+            try:
+                ok, detail = fn()
+            except SystemExit as e:
+                ok, detail = False, str(e)
+            print(f"  {'PASS' if ok else 'FAIL'}  {name:<12} {detail}")
+            if not ok:
+                failures += 1
 
-    total = len(EXPECTATIONS) + len(REFUSALS) + 1
+    total = len(EXPECTATIONS) + len(REFUSALS) + len(others)
     print()
     if failures:
         print(f"{failures} of {total} cases failed.")
         return 1
     print(f"All {len(EXPECTATIONS)} .COM fixtures rebuild byte-identically; "
           f"{len(REFUSALS)} it cannot rebuild are refused at the right byte; "
-          f"the last check's edges hold.")
+          f"an MZ with bytes after its image is rebuilt whole; the comparisons' "
+          f"edges hold.")
     return 0
 
 

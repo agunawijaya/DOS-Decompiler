@@ -188,13 +188,19 @@ def variants(text, has_label):
 
 
 class Reconstructor:
-    def __init__(self, path, segments, entries, image=None, cs_base=0):
+    def __init__(self, path, segments, entries, image=None, cs_base=0, tail=b"",
+                 tail_file_offset=0):
         self.path = Path(path)
         # `image` overrides what is on disk. An MZ's load image is the file
         # minus its header, and reconstructing the header as though it were
         # code is both wrong and, because the result still rebuilds exactly,
         # silently wrong.
         self.image = self.path.read_bytes() if image is None else bytes(image)
+        # The bytes of an MZ after its load image, at that file offset. Never
+        # disassembled -- DOS does not load them -- but emitted after the
+        # image as data, so that the rebuild is the whole file.
+        self.tail = bytes(tail)
+        self.tail_file_offset = tail_file_offset
         self.segments = segments
         self.entries = entries
         # For a MZ that took the .COM route, `cs_base` is the image offset at
@@ -1340,6 +1346,20 @@ class Reconstructor:
                 off += 1
 
         flush_data()
+        if self.tail:
+            end = self.tail_file_offset + len(self.tail) - 1
+            lines += [
+                "",
+                f"; ---- past the load image: file 0x{self.tail_file_offset:X}..0x{end:X}, "
+                f"{len(self.tail):,} bytes ----",
+                "; DOS does not load these bytes: an overlay, or data appended to the",
+                "; program. They are here as data so that this source rebuilds the",
+                "; whole file, not only the part DOS runs.",
+                ""]
+            for i in range(0, len(self.tail), 16):
+                row = self.tail[i:i + 16]
+                lines.append(f"{'    db ' + ', '.join(f'0x{b:02X}' for b in row):<74}"
+                             f"; file 0x{self.tail_file_offset + i:05X}")
         lines.append("")
         source = "\n".join(lines)
         return (source, line_map) if with_map else source
@@ -1406,11 +1426,14 @@ class Reconstructor:
         return out
 
     def first_mismatch(self, built):
-        n = min(len(built), len(self.image))
+        """Where the assembled source first differs from the image and the
+        bytes after it; None when it does not."""
+        want = self.image + self.tail
+        n = min(len(built), len(want))
         for i in range(n):
-            if built[i] != self.image[i]:
+            if built[i] != want[i]:
                 return i
-        if len(built) != len(self.image):
+        if len(built) != len(want):
             return n
         return None
 
@@ -1662,7 +1685,14 @@ class Reconstructor:
 
 
 def mz_load_image(data, max_reloc=8):
-    """Split an MZ into (header, load image, entry offset), if it is worth it.
+    """Split an MZ into (header, load image, entry offset, CS base, the bytes
+    after the load image), if it is worth it.
+
+    The bytes after the image -- an overlay, appended data -- are not loaded by
+    DOS, but they are part of the file, and a rebuild that leaves them out is
+    not the file. Until prompt 09 they were dropped here and comrec still said
+    BYTE-IDENTICAL: mzsingle.asm with 100 bytes appended came back 590 bytes of
+    690.
 
     An MZ is normally the other pipeline's business: Ghidra loads it, applies
     the relocations and hands back segments. But some MZ programs are a `.COM`
@@ -1710,7 +1740,23 @@ def mz_load_image(data, max_reloc=8):
     # low for no visible reason. Read the decode rate as the second opinion.
     if nreloc > max_reloc:
         return None
-    return data[:hdr], data[hdr:end], (cs << 4) + ip, cs << 4
+    return data[:hdr], data[hdr:end], (cs << 4) + ip, cs << 4, data[end:]
+
+
+def compare_files(original, rebuilt):
+    """None when the rebuilt file is the original, byte for byte and to the
+    last byte; else (first differing offset, what differs). A rebuilt file
+    that is the original cut short, or the original with more after it,
+    differs at the first byte one of them lacks."""
+    for i, (a, b) in enumerate(zip(original, rebuilt)):
+        if a != b:
+            return i, (f"file byte 0x{i:X} is 0x{a:02X} in the original and "
+                       f"0x{b:02X} in the rebuild")
+    if len(original) != len(rebuilt):
+        n = min(len(original), len(rebuilt))
+        return n, (f"the original is {len(original):,} bytes and the rebuild "
+                   f"{len(rebuilt):,}; they agree up to file byte 0x{n:X}")
+    return None
 
 
 def detect_layout(image, md):
@@ -1862,17 +1908,23 @@ def reconstruct(com, out, segment=(), max_relocations=8, entry=(), entries_from=
     report = {"file": str(com), "out": str(out), "format": "COM", "byte_identical": False,
               "written": []}
 
-    image = Path(com).read_bytes()
+    original = image = Path(com).read_bytes()
     mz = mz_load_image(image, max_relocations)
-    cs_base = 0
+    cs_base, header, tail = 0, b"", b""
     if mz is not None:
-        header, image, mz_entry, cs_base = mz
-        report.update(format="MZ", header_bytes=len(header), mz_entry=mz_entry)
+        header, image, mz_entry, cs_base, tail = mz
+        report.update(format="MZ", header_bytes=len(header), mz_entry=mz_entry,
+                      past_image_bytes=len(tail))
         say(f"format      : MZ, {len(header)}-byte header stripped; "
             f"entry CS:IP -> image offset 0x{mz_entry:X}")
         say("              a single-segment MZ takes the .COM route, which "
             "reaches a\n              byte-identical rebuild; the header is "
             "put back on the way out")
+        if tail:
+            say(f"past image  : {len(tail):,} bytes after the load image, file "
+                f"0x{len(header) + len(image):X}..0x{len(original) - 1:X}, "
+                f"carried\n              as data after it, so the rebuild is the "
+                f"whole file")
         if not segment:
             # An MZ image is addressed from 0, not from a PSP at 0x100.
             segment = ["0x0:0x0"]
@@ -1905,8 +1957,29 @@ def reconstruct(com, out, segment=(), max_relocations=8, entry=(), entries_from=
 
     r = Reconstructor(str(com), segments, entries,
                       image=image if mz is not None else None,
-                      cs_base=cs_base)
+                      cs_base=cs_base, tail=tail,
+                      tail_file_offset=len(header) + len(image))
     source, last, rounds, err = r.run(nasm)
+    whole_file_same = False
+    if not err:
+        # The claim is about the file the user handed over, so it is made on
+        # that and nothing less: the final source assembled once more, the
+        # header put back in front, and the result compared with the whole
+        # original file, length included. No other route reaches
+        # BYTE-IDENTICAL; whatever the round trip above checked, this decides.
+        built, why, _ = r.assemble(source, nasm)
+        rebuilt = None if built is None else header + built
+        report["compared_bytes"] = len(original)
+        report["rebuilt_bytes"] = None if rebuilt is None else len(rebuilt)
+        if rebuilt is None:
+            err = f"the final source did not assemble: {why.strip()[:400]}"
+        else:
+            difference = compare_files(original, rebuilt)
+            whole_file_same = difference is None
+            if not whole_file_same:
+                err = f"the rebuilt file is not the original: {difference[1]}"
+        if err:
+            last = source
 
     total = len(image)
     code_bytes = sum(sz for off, (sz, _, _) in r.decoded.items()
@@ -2095,11 +2168,17 @@ def reconstruct(com, out, segment=(), max_relocations=8, entry=(), entries_from=
             say(f"wrote the last attempt to {out} for inspection")
         return report, 1
 
+    if not whole_file_same:
+        # Unreachable while the comparison above sets `err`; here so that no
+        # later change can print the claim without the comparison behind it.
+        raise AssertionError("comrec: BYTE-IDENTICAL without the whole-file comparison")
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(source, encoding="ascii", errors="replace")
     report["written"].append(str(out))
-    report["byte_identical"] = True
+    report["byte_identical"] = whole_file_same
     say(f"\nBYTE-IDENTICAL. wrote {out}")
+    say(f"              the rebuilt file compared with the original: all "
+        f"{len(original):,} bytes the same")
     if mz is not None:
         # The claim has to be about the file the user handed over, not about
         # the image inside it. So write the header out beside the source, with
