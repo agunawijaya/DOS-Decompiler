@@ -43,10 +43,28 @@
 .PARAMETER SopwithSource
     The Sopwith source directory. With -SopwithBuild and -SopwithDecompiled
     it enables tests/sopwith; see that suite's docstring for how to produce
-    the other two.
+    the other two. Defaults to $env:SOPWITH_SOURCE.
+
+.PARAMETER SopwithBuild
+    The directory containing the rebuilt sopwith.exe and its map. Defaults
+    to $env:SOPWITH_BUILD.
+
+.PARAMETER SopwithDecompiled
+    The pipeline output directory for the baseline build. Defaults to
+    $env:SOPWITH_DECOMPILED.
+
+.PARAMETER SopwithVariant
+    An optional second build directory for cross-binary emulation. Defaults
+    to $env:SOPWITH_VARIANT.
 
 .EXAMPLE
     .\tests\run-all.ps1 -Python C:\Python311\python.exe
+
+.EXAMPLE
+    $env:SOPWITH_SOURCE = 'C:\sopwith-src'
+    $env:SOPWITH_BUILD = 'C:\sopwith-build'
+    $env:SOPWITH_DECOMPILED = 'C:\sopwith-decomp'
+    .\tests\run-all.ps1
 #>
 [CmdletBinding()]
 param(
@@ -55,10 +73,10 @@ param(
     [string]$Ghidra = $env:GHIDRA_HOME,
     [string]$JavaHome = $env:JAVA_HOME,
     [string]$Watcom = $env:WATCOM,
-    [string]$SopwithSource,
-    [string]$SopwithBuild,
-    [string]$SopwithDecompiled,
-    [string]$SopwithVariant,
+    [string]$SopwithSource = $env:SOPWITH_SOURCE,
+    [string]$SopwithBuild = $env:SOPWITH_BUILD,
+    [string]$SopwithDecompiled = $env:SOPWITH_DECOMPILED,
+    [string]$SopwithVariant = $env:SOPWITH_VARIANT,
     [string[]]$Only,
     [string]$Log
 )
