@@ -224,6 +224,10 @@ class Reconstructor:
         self.blocked = set()       # addresses the sweep must not swallow
         self.reclaimed = False     # a swept run was taken back this round
         self.ds_bias = None        # file_off - DS-relative address, if known
+        # Table address -> "jmp" or "call", for every table detect_jump_tables
+        # found: a jump's targets are cases of the routine that jumps, a
+        # call's are routines (comdiff.py needs to know which).
+        self.table_dispatch = {}
 
     def segment_of_file(self, off):
         for s in self.segments:
@@ -596,6 +600,7 @@ class Reconstructor:
             if len(targets) < 2:
                 continue
             found.append((base, sorted(set(targets))))
+            self.table_dispatch[base] = text.split()[0]
             for t in targets:
                 if t not in self.extra:
                     self.extra.add(t)
