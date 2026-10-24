@@ -1375,3 +1375,271 @@ signature = "e5d33e6ff78a01e2"
 kind = "equivalent"
 mutant = "globals_ = {_key(k): (v[0], _why(v[1] if len(v) != 1 else \"\"))"
 why = "v[0] is evaluated first in the same tuple, so an empty entry fails either way, and for every length from one up != 1 and > 1 agree."
+
+# ---- comdiff (prompt 13): the routine comparison of two .COM programs.
+
+[[survivor]]
+target = "comdiff"
+signature = "e2b11f215f08416b"
+kind = "equivalent"
+mutant = "relative = insn.mnemonic in comrec.BRANCH and len(insn.operands) >= 1"
+why = "Every mnemonic in comrec.BRANCH that capstone produces has exactly one operand -- the far forms are ljmp and lcall, not in it -- so >= 1 selects the same instructions as == 1."
+
+[[survivor]]
+target = "comdiff"
+signature = "bc3463dfc6a10a27"
+kind = "equivalent"
+mutant = "relative = insn.mnemonic in comrec.BRANCH and len(insn.operands) <= 1"
+why = "Every mnemonic in comrec.BRANCH that capstone produces has exactly one operand -- the far forms are ljmp and lcall, not in it -- so <= 1 selects the same instructions as == 1."
+
+[[survivor]]
+target = "comdiff"
+signature = "d5feed5aeeeee785"
+kind = "equivalent"
+mutant = "if op.type is X86_OP_REG:"
+why = "An operand type is a small int, and CPython keeps one object for each, so is and == agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "1ebeedb9cf8db094"
+kind = "equivalent"
+mutant = "if op.type <= X86_OP_REG:"
+why = "Capstone's x86 operands are REG (1), IMM (2) or MEM (3), never INVALID (0), so <= REG selects exactly the registers."
+
+[[survivor]]
+target = "comdiff"
+signature = "8b0ed6c188bb4543"
+kind = "equivalent"
+mutant = "elif op.type is X86_OP_IMM and relative:"
+why = "An operand type is a small int, and CPython keeps one object for each, so is and == agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "20544e7a37f3a31a"
+kind = "equivalent"
+mutant = "elif op.type <= X86_OP_IMM and relative:"
+why = "Registers were taken by the branch before, so only IMM (2) and MEM (3) reach this one, and <= IMM selects exactly the immediates."
+
+[[survivor]]
+target = "comdiff"
+signature = "176a4f3863b562e4"
+kind = "equivalent"
+mutant = "if addr > 65534:"
+why = "The wrap maps every address from the segment's base to 0xFFFF above it onto itself, and 0xFFFF is one of them, so wrapping it or not gives the same address."
+
+[[survivor]]
+target = "comdiff"
+signature = "799798752eb060c1"
+kind = "equivalent"
+mutant = "if addr > 65536:"
+why = "The wrap maps every address from the segment's base to 0xFFFF above it onto itself, and 0x10000 is one of them for any base below 0x10000, so wrapping it or not gives the same address."
+
+[[survivor]]
+target = "comdiff"
+signature = "0bab7ef3afdd87a8"
+kind = "equivalent"
+mutant = "if addr >= 0xFFFF:"
+why = "The wrap maps every address from the segment's base to 0xFFFF above it onto itself, and 0xFFFF is one of them, so wrapping it or not gives the same address."
+
+[[survivor]]
+target = "comdiff"
+signature = "58c233440ef34151"
+kind = "equivalent"
+mutant = "elif op.type <= X86_OP_IMM:"
+why = "Registers and branch targets were taken by the branches before, so only IMM (2) and MEM (3) reach this one, and <= IMM selects exactly the immediates."
+
+[[survivor]]
+target = "comdiff"
+signature = "d265bc54f7a88dec"
+kind = "equivalent"
+mutant = "elif op.type is X86_OP_IMM:"
+why = "An operand type is a small int, and CPython keeps one object for each, so is and == agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "2bce528a6293a802"
+kind = "equivalent"
+mutant = "elif op.type <= X86_OP_MEM:"
+why = "Only MEM (3) reaches the last branch -- capstone gives x86 nothing above it -- so <= MEM and == MEM agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "a3e40eb1f522aeaf"
+kind = "equivalent"
+mutant = "elif op.type >= X86_OP_MEM:"
+why = "Only MEM (3) reaches the last branch -- capstone gives x86 nothing above it -- so >= MEM and == MEM agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "0cad82aac6609ce8"
+kind = "equivalent"
+mutant = "elif op.type is X86_OP_MEM:"
+why = "An operand type is a small int, and CPython keeps one object for each, so is and == agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "749e81a762f2a986"
+kind = "equivalent"
+mutant = "ceiling = 2.0 * min(len(other), len(fuzzy)) / (len(other) | len(fuzzy))"
+why = "The bound only skips a candidate that cannot beat the best; this one is never below the true bound 2*min/(m+n), so it skips less and the result is the same, only slower."
+
+[[survivor]]
+target = "comdiff"
+signature = "f720d63419b9baad"
+kind = "equivalent"
+mutant = "ceiling = 2.0 * min(len(other), len(fuzzy)) + (len(other) + len(fuzzy))"
+why = "The bound only skips a candidate that cannot beat the best; this one is never below the true bound 2*min/(m+n), so it skips less and the result is the same, only slower."
+
+[[survivor]]
+target = "comdiff"
+signature = "0ec999aa600d15f3"
+kind = "equivalent"
+mutant = "ceiling = 3.0 * min(len(other), len(fuzzy)) / (len(other) + len(fuzzy))"
+why = "The bound only skips a candidate that cannot beat the best; this one is never below the true bound 2*min/(m+n), so it skips less and the result is the same, only slower."
+
+[[survivor]]
+target = "comdiff"
+signature = "dc240cb333c68fcc"
+kind = "equivalent"
+mutant = "ceiling = 2.0 * min(len(other), len(fuzzy)) * (len(other) + len(fuzzy))"
+why = "The bound only skips a candidate that cannot beat the best; this one is never below the true bound 2*min/(m+n), so it skips less and the result is the same, only slower."
+
+[[survivor]]
+target = "comdiff"
+signature = "def43a0c1f2afea8"
+kind = "equivalent"
+mutant = "ceiling = 2.0 ** min(len(other), len(fuzzy)) / (len(other) + len(fuzzy))"
+why = "The bound only skips a candidate that cannot beat the best; this one is never below the true bound 2*min/(m+n), so it skips less and the result is the same, only slower."
+
+[[survivor]]
+target = "comdiff"
+signature = "175ce55ca325c48b"
+kind = "equivalent"
+mutant = "ceiling = 2.0 * min(len(other), len(fuzzy)) / (len(other) / len(fuzzy))"
+why = "The bound only skips a candidate that cannot beat the best; this one is never below the true bound 2*min/(m+n), so it skips less and the result is the same, only slower."
+
+[[survivor]]
+target = "comdiff"
+signature = "b887e96ab4a03122"
+kind = "equivalent"
+mutant = "ceiling = 2.0 - min(len(other), len(fuzzy)) / (len(other) + len(fuzzy))"
+why = "The bound only skips a candidate that cannot beat the best; this one is never below the true bound 2*min/(m+n), so it skips less and the result is the same, only slower."
+
+[[survivor]]
+target = "comdiff"
+signature = "5a5e0e9a3e0eaec9"
+kind = "equivalent"
+mutant = "ceiling = 2.0 + min(len(other), len(fuzzy)) / (len(other) + len(fuzzy))"
+why = "The bound only skips a candidate that cannot beat the best; this one is never below the true bound 2*min/(m+n), so it skips less and the result is the same, only slower."
+
+[[survivor]]
+target = "comdiff"
+signature = "fa4e6d9fbffd4478"
+kind = "equivalent"
+mutant = "if ceiling is best:"
+why = "A float just computed is never the object best holds, so the bound never skips anything: slower, the same result."
+
+[[survivor]]
+target = "comdiff"
+signature = "e1d65e2fe78ecda2"
+kind = "equivalent"
+mutant = "if m.quick_ratio() is best:"
+why = "A float just computed is never the object best holds, so the bound never skips anything: slower, the same result."
+
+[[survivor]]
+target = "comdiff"
+signature = "8bbd675e64061595"
+kind = "equivalent"
+mutant = "elif score == best and score != 0:"
+why = "A ratio is never negative, so != 0 and > 0 agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "b3bf6d0365297751"
+kind = "equivalent"
+mutant = "elif score >= best and score > 0:"
+why = "The elif is reached only when score > best is false, and there >= and == agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "0c47fc2301463f81"
+kind = "equivalent"
+mutant = "if ea[0] is not eb[0]:"
+why = "Event kinds are string constants written in comdiff.py, which CPython interns, so is not and != agree for every event run_routine records."
+
+[[survivor]]
+target = "comdiff"
+signature = "161c4c54dd892112"
+kind = "equivalent"
+mutant = "if kind is \"r\" and ea != eb:"
+why = "Event kinds are string constants written in comdiff.py, which CPython interns, so is and == agree for every event run_routine records."
+
+[[survivor]]
+target = "comdiff"
+signature = "15077cefd0558594"
+kind = "equivalent"
+mutant = "if kind is \"w\":"
+why = "Event kinds are string constants written in comdiff.py, which CPython interns, so is and == agree for every event run_routine records."
+
+[[survivor]]
+target = "comdiff"
+signature = "fe72283855a2647d"
+kind = "equivalent"
+mutant = "if kind >= \"w\":"
+why = "No event kind sorts after w (call, in, int, left, out, r, w), so >= w and == w select the same events."
+
+[[survivor]]
+target = "comdiff"
+signature = "6f18f1f6de90583e"
+kind = "equivalent"
+mutant = "if kind is \"in\" and not _same(ea[1], eb[1], deltas):"
+why = "Event kinds are string constants written in comdiff.py, which CPython interns, so is and == agree for every event run_routine records."
+
+[[survivor]]
+target = "comdiff"
+signature = "5a75d2d6e78a450b"
+kind = "equivalent"
+mutant = "if kind >= \"out\" and not (_same(ea[1], eb[1], deltas) and _same(ea[2], eb[2], deltas)):"
+why = "Of the kinds from out on, an r or w event reaching this line has already matched its ordinal and size, which are what the test reads, so it fires for out alone either way."
+
+[[survivor]]
+target = "comdiff"
+signature = "bcf39620b21e718f"
+kind = "equivalent"
+mutant = "if kind is \"out\" and not (_same(ea[1], eb[1], deltas) and _same(ea[2], eb[2], deltas)):"
+why = "Event kinds are string constants written in comdiff.py, which CPython interns, so is and == agree for every event run_routine records."
+
+[[survivor]]
+target = "comdiff"
+signature = "2e7789d6ecc4709a"
+kind = "equivalent"
+mutant = "if kind is \"int\" and not (_same(ea[1], eb[1], deltas, 8) and ea[2] == eb[2]):"
+why = "Event kinds are string constants written in comdiff.py, which CPython interns, so is and == agree for every event run_routine records."
+
+[[survivor]]
+target = "comdiff"
+signature = "a003dff75d6303f2"
+kind = "equivalent"
+mutant = "if kind == \"int\" and not (_same(ea[1], eb[1], deltas, 8) and ea[2] is eb[2]):"
+why = "AH is a byte, and CPython keeps one object for every integer from -5 to 256, so is and == agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "ddcd2abaa703cf18"
+kind = "equivalent"
+mutant = "if name is \"flags\":"
+why = "Register names are the string constants _finish writes, which CPython interns, so is and == agree."
+
+[[survivor]]
+target = "comdiff"
+signature = "d41cbe8b48d5f473"
+kind = "equivalent"
+mutant = "if event[ -1] == \"left\":"
+why = "The only event whose last element is \"left\" is (\"left\",) itself; every other ends in a number or in its own kind."
+
+[[survivor]]
+target = "comdiff"
+signature = "d431c7e09e89d3b6"
+kind = "equivalent"
+mutant = "if event[0] is \"left\":"
+why = "Event kinds are string constants written in comdiff.py, which CPython interns, so is and == agree for every event run_routine records."

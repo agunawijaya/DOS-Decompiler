@@ -114,6 +114,6 @@ test = ["tests/annotate/regress.py"]
 [[target]]
 name = "comdiff"
 module = "tools/comdiff.py"
-functions = ["shape", "differing_numbers", "classify", "_same", "first_difference",
+functions = ["shape", "differing_numbers", "classify", "_same", "first_difference", "_acts",
              "confirm"]
 test = ["tests/comdiff/regress.py"]

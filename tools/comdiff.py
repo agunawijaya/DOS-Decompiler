@@ -255,13 +255,11 @@ class Program:
         return next(s for s in self.segments if s.file_start <= off < s.file_end)
 
     def instructions(self, routine):
-        """Capstone's reading of each instruction, at its own address."""
+        """Capstone's reading of each instruction, at its own address. The
+        walk decoded exactly these bytes, so each one decodes again."""
         seg = self.segment(routine["start"])
-        out = []
-        for off, size in routine["insns"]:
-            insn = next(self.md.disasm(self.image[off:off + size], seg.addr(off)), None)
-            out.append((off, insn))
-        return out
+        return [(off, next(self.md.disasm(self.image[off:off + size], seg.addr(off))))
+                for off, size in routine["insns"]]
 
 
 # ---------------------------------------------------------------- comparing
@@ -280,12 +278,6 @@ def shape(program, routine):
     index = {off: i for i, (off, _) in enumerate(insns)}
     exact, fuzzy, numbers = [], [], []
     for off, insn in insns:
-        if insn is None:                       # bytes capstone will not decode
-            raw = ("bytes", program.image[off:off + program.decoded[off]].hex())
-            exact.append(raw)
-            fuzzy.append(raw)
-            numbers.append(())
-            continue
         ops_exact, ops_fuzzy, nums = [], [], []
         relative = insn.mnemonic in comrec.BRANCH and len(insn.operands) == 1
         for op in insn.operands:
@@ -458,9 +450,8 @@ def run_routine(program, routine, regs):
     cs = LOAD_SEG + (delta >> 4)
     lo = (cs << 4) + seg.addr(routine["start"])
     hi = (cs << 4) + seg.addr(routine["end"])
-    calls = {(cs << 4) + seg.addr(off): size for off, insn in program.instructions(routine)
-             if insn is not None and insn.mnemonic in ("call", "lcall")
-             for size in [program.decoded[off]]}
+    calls = {(cs << 4) + seg.addr(off): insn.size for off, insn in program.instructions(routine)
+             if insn.mnemonic in ("call", "lcall")}
 
     uc = Uc(UC_ARCH_X86, UC_MODE_16)
     uc.mem_map(0, 0x110000)
@@ -604,6 +595,20 @@ def first_difference(oa, ob, deltas):
     return None
 
 
+def _acts(event):
+    """Whether an event says anything about what the routine does.
+
+    Every routine reads its own return frame on the way out, and one that
+    only jumps elsewhere has done nothing either: as emuverify leaves the
+    stack frame out of what makes a profile informative, these leave the
+    frame out."""
+    if event[0] == "left":
+        return False
+    if event[0] in ("r", "w"):
+        return event[1] >= FRAME_BYTES
+    return True
+
+
 def confirm(a, ra, b, rb, numbers):
     """Run an instruction-identical pair on every vector; what came of it."""
     deltas = {(y - x) & 0xFFFF for _, x, y in numbers}
@@ -619,7 +624,7 @@ def confirm(a, ra, b, rb, numbers):
         if why:
             return {"result": "differs", "vector": k, "why": why}
         changed = any(oa["regs"][n] != v for (n, _), v in zip(REGS, vector))
-        informative = informative or bool(oa["events"]) or changed
+        informative = informative or any(map(_acts, oa["events"])) or changed
     if not informative:
         return {"result": "uninformative",
                 "why": "touched nothing and changed no register on any vector"}
