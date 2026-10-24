@@ -458,6 +458,16 @@ build batch file, a README naming the modules. On Sopwith, `SW.MAK` listed its
 objects in link order — the recovered order came free from a file sitting in
 plain sight.
 
+**Isolate declared modules during sequence alignment.** When link order is
+supplied (`--module-order`), sequence alignment must restrict its source
+functions strictly to those declared modules. If unplaced or unlinked files
+found in the source tree (such as alternative monolithic releases `SOPWITH.C`
+and `sopwith2.c`) are appended to the sequence, global Needleman-Wunsch traces
+back through the duplicate tail, consumes the binary functions from the bottom
+up, and exhausts binary entries before reaching the true modular routines. That
+off-by-N shift drops known-order precision from 0.94+ to exactly 0.000 across
+the entire binary (report 12).
+
 ## What failed, and why it is recorded here
 
 **Iterative refinement of the module order.** Feed the alignment's output back

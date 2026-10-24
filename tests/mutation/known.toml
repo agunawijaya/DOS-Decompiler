@@ -1262,3 +1262,79 @@ signature = "2aed5608d595f588"
 kind = "equivalent"
 mutant = "id_of = {evidence.canonical({k: v for k, v in i.items() if k is not \"id\"}): i[\"id\"]"
 why = "Every key of an evidence item is a literal, here or in evidence.py, which CPython interns, so `is not \"id\"` holds exactly when != does."
+[[survivor]]
+target = "match"
+signature = "942bbf93b828a201"
+kind = "equivalent"
+mutant = "use_segments=True"
+why = "When segments is None, use_segments has no effect because segment-based ordering requires both."
+
+[[survivor]]
+target = "match"
+signature = "7bcf20591eac962f"
+kind = "code-problem"
+mutant = "if self.segments or self.use_segments:"
+why = "Dead code: segment-derived ordering was disabled after measurement showed anchor positions won."
+
+[[survivor]]
+target = "match"
+signature = "27d07430d45817df"
+kind = "code-problem"
+mutant = "if not self.segments and self.use_segments:"
+why = "Dead code: segment-derived ordering was disabled after measurement showed anchor positions won."
+
+[[survivor]]
+target = "match"
+signature = "f87a1c587f7dc5fa"
+kind = "code-problem"
+mutant = "if not order:"
+why = "Dead code: segment-derived ordering was disabled after measurement showed anchor positions won."
+
+[[survivor]]
+target = "match"
+signature = "281217b78986d5a7"
+kind = "equivalent"
+mutant = "key=lambda f: (file_rank.get(f.get(\"file\"), 9 ** 6)"
+why = "9 ** 6 is 531,441, safely greater than any translation unit count; an unplaced file still sorts after all placed modules."
+
+[[survivor]]
+target = "match"
+signature = "7553cb33c2e3271c"
+kind = "equivalent"
+mutant = "key=lambda f: (file_rank.get(f.get(\"file\"), 10 ** 7)"
+why = "10 ** 7 is 10,000,000, safely greater than any translation unit count; an unplaced file still sorts after all placed modules."
+
+[[survivor]]
+target = "match"
+signature = "f874db3959dd4db2"
+kind = "equivalent"
+mutant = "key=lambda f: (file_rank.get(f.get(\"file\"), 11 ** 6)"
+why = "11 ** 6 is 1,771,561, safely greater than any translation unit count; an unplaced file still sorts after all placed modules."
+
+[[survivor]]
+target = "match"
+signature = "f1a616161431f461"
+kind = "equivalent"
+mutant = "key=lambda f: (file_rank.get(f.get(\"file\"), 10 ** 5)"
+why = "10 ** 5 is 100,000, safely greater than any translation unit count; an unplaced file still sorts after all placed modules."
+
+[[survivor]]
+target = "match"
+signature = "ac7ea0afecd9916e"
+kind = "equivalent"
+mutant = "key=lambda f: (file_rank.get(f.get(\"file\"), 10 << 6)"
+why = "10 << 6 is 640, safely greater than the translation unit count of any modular DOS program; an unplaced file still sorts last."
+
+[[survivor]]
+target = "match"
+signature = "2210a382c8bf753a"
+kind = "equivalent"
+mutant = "f.get(\"line\") or 1"
+why = "When line is None or missing, defaulting to line 1 or line 0 preserves tie-breaking order among unnumbered routines."
+
+[[survivor]]
+target = "match"
+signature = "ada155623b5ef0ff"
+kind = "equivalent"
+mutant = "f.get(\"line\") or -1"
+why = "When line is None or missing, defaulting to line -1 or line 0 preserves tie-breaking order among unnumbered routines."

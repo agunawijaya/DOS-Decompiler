@@ -92,3 +92,9 @@ module = "tools/sweep.py"
 functions = ["idiv_form", "signed", "Program._on_divide", "Program._refused_by_8088",
              "limitations"]
 test = ["tests/sweep/regress.py"]
+# Sequence alignment in match.py: module isolation and ordered source.
+[[target]]
+name = "match"
+module = "tools/match.py"
+functions = ["Aligner.__init__", "Aligner.infer_module_order", "Aligner.ordered_source"]
+test = ["tests/match/regress.py"]

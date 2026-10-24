@@ -29,6 +29,8 @@ HERE = Path(__file__).resolve().parent
 TOOLS = HERE.parent.parent / "tools"
 sys.path.insert(0, str(TOOLS))
 
+from match import Aligner
+
 CASES = []
 
 def case(name):
@@ -36,6 +38,20 @@ def case(name):
         CASES.append((name, fn))
         return fn
     return deco
+
+
+class MockMatcher:
+    def __init__(self, src, binr, sim):
+        self.src = src
+        self.bin = binr
+        self.sim = sim
+        self.src_map = {s["name"]: i for i, s in enumerate(src)}
+        self.bin_map = {b["entry"]: j for j, b in enumerate(binr)}
+
+    def pair_score(self, s, b, neighbour_weight=0.0):
+        i = self.src_map[s["name"]]
+        j = self.bin_map[b["entry"]]
+        return self.sim[i][j]
 
 
 class OldAligner:
@@ -53,7 +69,7 @@ class OldAligner:
         for i, s in enumerate(S):
             for j, b in enumerate(B):
                 v = self.sim[i][j]
-                if self.anchors.get(s["name"]) == b:
+                if self.anchors.get(s["name"]) == b["entry"]:
                     v = 1.0
                 sim[i][j] = v if v >= floor else -0.05
 
@@ -74,62 +90,7 @@ class OldAligner:
         while i > 0 and j > 0:
             if dp[i][j] == dp[i - 1][j - 1] + sim[i - 1][j - 1]:
                 if sim[i - 1][j - 1] > 0:
-                    pairs[S[i - 1]["name"]] = (B[j - 1], self.raw[i - 1][j - 1])
-                i -= 1
-                j -= 1
-            elif dp[i][j] == dp[i - 1][j] + self.GAP:
-                i -= 1
-            else:
-                j -= 1
-        return pairs
-
-
-class NewAligner:
-    """The new alignment: restricts alignment to declared modules and absorbs perturbations."""
-    GAP = -0.25
-
-    def __init__(self, sim, raw, anchors, module_order=None):
-        self.sim = sim
-        self.raw = raw
-        self.anchors = anchors
-        self.module_order = set(module_order) if module_order else None
-
-    def align(self, S, B, floor=0.25):
-        if self.module_order is not None:
-            indices = [i for i, s in enumerate(S) if s.get("file") in self.module_order]
-        else:
-            indices = list(range(len(S)))
-
-        S_sub = [S[i] for i in indices]
-        n, mlen = len(S_sub), len(B)
-        sim = [[0.0] * mlen for _ in range(n)]
-        for i, s_idx in enumerate(indices):
-            s = S[s_idx]
-            for j, b in enumerate(B):
-                v = self.sim[s_idx][j]
-                if self.anchors.get(s["name"]) == b:
-                    v = 1.0
-                sim[i][j] = v if v >= floor else -0.05
-
-        dp = [[0.0] * (mlen + 1) for _ in range(n + 1)]
-        for i in range(1, n + 1):
-            dp[i][0] = dp[i - 1][0] + self.GAP
-        for j in range(1, mlen + 1):
-            dp[0][j] = dp[0][j - 1] + self.GAP
-        for i in range(1, n + 1):
-            row, prev = dp[i], dp[i - 1]
-            srow = sim[i - 1]
-            for j in range(1, mlen + 1):
-                row[j] = max(prev[j - 1] + srow[j - 1],
-                             prev[j] + self.GAP,
-                             row[j - 1] + self.GAP)
-
-        pairs, i, j = {}, n, mlen
-        while i > 0 and j > 0:
-            if dp[i][j] == dp[i - 1][j - 1] + sim[i - 1][j - 1]:
-                if sim[i - 1][j - 1] > 0:
-                    orig_idx = indices[i - 1]
-                    pairs[S_sub[i - 1]["name"]] = (B[j - 1], self.raw[orig_idx][j - 1])
+                    pairs[S[i - 1]["name"]] = (B[j - 1]["entry"], self.raw[i - 1][j - 1])
                 i -= 1
                 j -= 1
             elif dp[i][j] == dp[i - 1][j] + self.GAP:
@@ -141,36 +102,33 @@ class NewAligner:
 
 @case("inserted function near start: old shifts downstream, new absorbs locally")
 def _():
-    # S contains 10 declared modular functions in MOD.C, plus 10 duplicate unlinked functions
-    # from a monolithic alternative build in MONO.C.
-    # B has an inserted function b_ins at start, then b0..b9.
-    S = [{"name": f"s{i}", "file": "MOD.C"} for i in range(10)] + \
-        [{"name": f"s_dup{i}", "file": "MONO.C"} for i in range(10)]
-    B = ["b_ins"] + [f"b{i}" for i in range(10)]
+    S = [{"name": f"s{i}", "file": "MOD.C", "line": i} for i in range(10)] + \
+        [{"name": f"s_dup{i}", "file": "MONO.C", "line": i} for i in range(10)]
+    B = [{"entry": f"1000:{i:04x}"} for i in range(11)]
 
     sim = [[0.20] * len(B) for _ in range(len(S))]
     raw = [[0.20] * len(B) for _ in range(len(S))]
 
-    # True modular matches: si -> bi
     for i in range(10):
         sim[i][i + 1] = 0.45
         raw[i][i + 1] = 0.45
 
-    # Monolithic duplicates also match b0..b9 strongly
     for i in range(10):
         for j in range(1, 11):
             sim[10 + i][j] = 0.42
             raw[10 + i][j] = 0.42
 
-    anchors = {"s0": "b0", "s_dup9": "b9"}
+    anchors = {"s0": "1000:0001", "s_dup9": "1000:000a"}
     sim[0][1] = 1.0
     sim[19][10] = 1.0
 
     old = OldAligner(sim, raw, anchors).align(S, B)
-    new = NewAligner(sim, raw, {"s0": "b0", "s9": "b9"}, module_order=["MOD.C"]).align(S, B)
+    m = MockMatcher(S, B, sim)
+    new_aligner = Aligner(m, {"s0": "1000:0001", "s9": "1000:000a"}, module_order=["MOD.C"])
+    new = new_aligner.align()
 
-    old_correct = sum(1 for i in range(10) if old.get(f"s{i}", (None,))[0] == f"b{i}")
-    new_correct = sum(1 for i in range(10) if new.get(f"s{i}", (None,))[0] == f"b{i}")
+    old_correct = sum(1 for i in range(10) if old.get(f"s{i}", (None,))[0] == f"1000:{i+1:04x}")
+    new_correct = sum(1 for i in range(10) if new.get(f"s{i}", (None,))[0] == f"1000:{i+1:04x}")
 
     if old_correct == 10:
         raise AssertionError(f"old alignment did not fail (got {old_correct}/10)")
@@ -181,11 +139,9 @@ def _():
 
 @case("deleted function near start: old shifts module, new absorbs deletion")
 def _():
-    # S contains 10 declared modular functions in MOD.C, plus 10 duplicate unlinked functions.
-    # B is missing b0 (deleted / uncompiled in binary).
-    S = [{"name": f"s{i}", "file": "MOD.C"} for i in range(10)] + \
-        [{"name": f"s_dup{i}", "file": "MONO.C"} for i in range(10)]
-    B = [f"b{i}" for i in range(1, 10)]
+    S = [{"name": f"s{i}", "file": "MOD.C", "line": i} for i in range(10)] + \
+        [{"name": f"s_dup{i}", "file": "MONO.C", "line": i} for i in range(10)]
+    B = [{"entry": f"1000:{i:04x}"} for i in range(1, 10)]
 
     sim = [[0.20] * len(B) for _ in range(len(S))]
     raw = [[0.20] * len(B) for _ in range(len(S))]
@@ -199,15 +155,17 @@ def _():
             sim[10 + i][j] = 0.42
             raw[10 + i][j] = 0.42
 
-    anchors = {"s9": "b9", "s_dup9": "b9"}
+    anchors = {"s9": "1000:0009", "s_dup9": "1000:0009"}
     sim[9][8] = 1.0
     sim[19][8] = 1.0
 
     old = OldAligner(sim, raw, anchors).align(S, B)
-    new = NewAligner(sim, raw, {"s9": "b9"}, module_order=["MOD.C"]).align(S, B)
+    m = MockMatcher(S, B, sim)
+    new_aligner = Aligner(m, {"s9": "1000:0009"}, module_order=["MOD.C"])
+    new = new_aligner.align()
 
-    old_correct = sum(1 for i in range(1, 10) if old.get(f"s{i}", (None,))[0] == f"b{i}")
-    new_correct = sum(1 for i in range(1, 10) if new.get(f"s{i}", (None,))[0] == f"b{i}")
+    old_correct = sum(1 for i in range(1, 10) if old.get(f"s{i}", (None,))[0] == f"1000:{i:04x}")
+    new_correct = sum(1 for i in range(1, 10) if new.get(f"s{i}", (None,))[0] == f"1000:{i:04x}")
 
     if old_correct == 9:
         raise AssertionError(f"old alignment did not fail (got {old_correct}/9)")
@@ -218,26 +176,24 @@ def _():
 
 @case("swapped pair: perturbation is strictly localized")
 def _():
-    # S: s0..s9
-    # B: b0, b1, b3, b2, b4..b9 (b2 and b3 swapped in binary)
-    S = [{"name": f"s{i}", "file": "MOD.C"} for i in range(10)]
-    B = ["b0", "b1", "b3", "b2"] + [f"b{i}" for i in range(4, 10)]
-    sim = [[0.20] * len(B) for _ in range(len(S))]
-    raw = [[0.20] * len(B) for _ in range(len(S))]
-    for i in range(10):
-        target = f"b{i}"
-        if target in B:
-            j = B.index(target)
-            sim[i][j] = 0.45
-            raw[i][j] = 0.45
-    anchors = {"s0": "b0", "s7": "b7"}
-    sim[0][0] = 1.0
-    sim[7][B.index("b7")] = 1.0
+    S = [{"name": f"s{i}", "file": "MOD.C", "line": i} for i in range(10)]
+    entries = [f"1000:{i:04x}" for i in [0, 1, 3, 2, 4, 5, 6, 7, 8, 9]]
+    B = [{"entry": e} for e in entries]
+    b_map = {e: j for j, e in enumerate(entries)}
 
-    new = NewAligner(sim, raw, anchors, module_order=["MOD.C"]).align(S, B)
+    sim = [[0.20] * len(B) for _ in range(len(S))]
+    for i in range(10):
+        target = f"1000:{i:04x}"
+        sim[i][b_map[target]] = 0.45
+    anchors = {"s0": "1000:0000", "s7": "1000:0007"}
+    sim[0][0] = 1.0
+    sim[7][b_map["1000:0007"]] = 1.0
+
+    m = MockMatcher(S, B, sim)
+    new = Aligner(m, anchors, module_order=["MOD.C"]).align()
 
     outside = [0, 1, 4, 5, 6, 7, 8, 9]
-    new_outside_correct = sum(1 for i in outside if new.get(f"s{i}", (None,))[0] == f"b{i}")
+    new_outside_correct = sum(1 for i in outside if new.get(f"s{i}", (None,))[0] == f"1000:{i:04x}")
 
     if new_outside_correct != len(outside):
         raise AssertionError(f"new alignment perturbed outside functions: {new_outside_correct}/{len(outside)}")
@@ -246,37 +202,59 @@ def _():
 
 @case("run of near-identical small stubs: extra stub absorbed without cascading")
 def _():
-    # S: s0, s1, stub_a, stub_b, stub_c, s5..s9
-    # B: b0, b1, stub_extra, stub_a, stub_b, stub_c, b5..b9
     names = ["s0", "s1", "stub_a", "stub_b", "stub_c", "s5", "s6", "s7", "s8", "s9"]
-    S = [{"name": n, "file": "MOD.C"} for n in names]
-    B = ["b0", "b1", "stub_extra", "stub_a", "stub_b", "stub_c", "b5", "b6", "b7", "b8", "b9"]
+    S = [{"name": n, "file": "MOD.C", "line": i} for i, n in enumerate(names)]
+    b_names = ["b0", "b1", "stub_extra", "stub_a", "stub_b", "stub_c", "b5", "b6", "b7", "b8", "b9"]
+    B = [{"entry": f"1000:{i:04x}"} for i in range(len(b_names))]
+    b_entry_map = {name: f"1000:{i:04x}" for i, name in enumerate(b_names)}
 
     sim = [[0.20] * len(B) for _ in range(len(S))]
-    raw = [[0.20] * len(B) for _ in range(len(S))]
     for i, s in enumerate(names):
         if not s.startswith("stub"):
             target = s.replace("s", "b")
-            j = B.index(target)
+            j = b_names.index(target)
             sim[i][j] = 0.45
-            raw[i][j] = 0.45
         else:
-            for j, b in enumerate(B):
+            for j, b in enumerate(b_names):
                 if b.startswith("stub"):
                     sim[i][j] = 0.38
-                    raw[i][j] = 0.38
-    anchors = {"s0": "b0", "s9": "b9"}
+    anchors = {"s0": "1000:0000", "s9": b_entry_map["b9"]}
     sim[0][0] = 1.0
-    sim[9][B.index("b9")] = 1.0
+    sim[9][b_names.index("b9")] = 1.0
 
-    new = NewAligner(sim, raw, anchors, module_order=["MOD.C"]).align(S, B)
+    m = MockMatcher(S, B, sim)
+    new = Aligner(m, anchors, module_order=["MOD.C"]).align()
 
     non_stubs = ["s0", "s1", "s5", "s6", "s7", "s8", "s9"]
-    new_s_correct = sum(1 for f in non_stubs if new.get(f, (None,))[0] == f.replace("s", "b"))
+    new_s_correct = sum(1 for f in non_stubs
+                        if new.get(f, (None,))[0] == b_entry_map[f.replace("s", "b")])
 
     if new_s_correct != len(non_stubs):
         raise AssertionError(f"new alignment cascaded stub ambiguity into non-stubs ({new_s_correct}/{len(non_stubs)})")
     return f"new isolated stub ambiguity cleanly ({new_s_correct}/{len(non_stubs)})"
+
+
+@case("ordered_source preserves line order and handles unplaced files")
+def _():
+    placed_files = [f"MOD_{i:03d}.C" for i in range(100)]
+    src = [
+        {"name": "f_unplaced", "file": "UNPLACED.C", "line": 1},
+        {"name": "f_last_placed", "file": placed_files[-1], "line": 1},
+        {"name": "f2", "file": placed_files[0], "line": 20},
+        {"name": "f1", "file": placed_files[0], "line": 10},
+        {"name": "f0", "file": placed_files[0], "line": 0},
+        {"name": "f_none", "file": placed_files[0], "line": None},
+    ]
+    m = MockMatcher(src, [], [])
+    aligner = Aligner(m, {})
+    aligner.infer_module_order = lambda: placed_files
+    ordered = aligner.ordered_source()
+    names = [f["name"] for f in ordered]
+    if names[-1] != "f_unplaced":
+        raise AssertionError(f"unplaced file not ranked after 100 placed modules: {names}")
+    if names[0] not in ("f0", "f_none") or names[1] not in ("f0", "f_none"):
+        raise AssertionError(f"line 0/None did not sort before line 10: {names}")
+    return "line order and unplaced rank strictly preserved"
 
 
 def main():
