@@ -102,10 +102,116 @@ def load_spans(raw):
     return spans
 
 
-def load_symbols(path):
+MAYBE = "__maybe"
+ADDRESS = re.compile(r"\b0x([0-9A-Fa-f]{3,5})\b")
+WORD = re.compile(r"[a-z0-9]+")
+
+
+def _why(value):
+    """The evidence as one line of text, whichever form it was given in."""
+    if isinstance(value, list):
+        return "; ".join(str(e) for e in value)
+    return value or ""
+
+
+def check_evidence(raw):
+    """Count the evidence behind every name: (refusals, warnings).
+
+    A name is committed when it has no `__maybe` suffix, and a committed name
+    needs two independent observations (AGENTS.md, Step 4). When the symbol
+    file gives the evidence as a list, the first half of that can be checked:
+    a committed name with fewer than two entries is refused. Independence
+    cannot be proved by counting, but its commonest failures leave marks in
+    the text, and those are warned about:
+
+      * two entries cite the same address -- usually one instruction read
+        twice, once for what it reads and once for where;
+      * two entries cite the same routine;
+      * one entry cites a routine whose name is what another entry says the
+        named routine does. Moon Bugs' `main_program` was "installs keyboard
+        ISR, inits video" and, as its second source, "calls
+        install_keyboard_isr": the second is the first, read off the callee's
+        name.
+
+    Evidence given as one string, the older form, cannot be counted. It is
+    accepted, with one warning that says how many names gave it that way.
+    """
+    names = {v[0] for v in raw.get("routines", {}).values()}
+    refusals, warnings, strings = [], [], []
+    for kind in ("routines", "globals"):
+        for key, value in raw.get(kind, {}).items():
+            name = value[0]
+            evidence = value[1] if len(value) > 1 else ""
+            what = f"{kind[:-1]} {key} {name}"
+            if not isinstance(evidence, list):
+                strings.append(name)
+                continue
+            entries = [e.strip() for e in evidence if isinstance(e, str) and e.strip()]
+            if not name.endswith(MAYBE) and len(entries) < 2:
+                refusals.append(f"{what}: {len(entries)} evidence "
+                                f"{'entry' if len(entries) == 1 else 'entries'}; a name "
+                                f"without {MAYBE} needs two independent observations")
+            own = int(key.split(":")[-1], 16)
+            cited = [({int(a, 16) for a in ADDRESS.findall(e)} - {own},
+                      {n for n in names if n != name and re.search(rf"\b{re.escape(n)}\b", e)})
+                     for e in entries]
+            for i in range(len(entries)):
+                for j in range(i + 1, len(entries)):
+                    shared = cited[i][0] & cited[j][0]
+                    if shared:
+                        warnings.append(f"{what}: entries {i + 1} and {j + 1} both cite "
+                                        + ", ".join(f"0x{a:X}" for a in sorted(shared))
+                                        + " -- one observation, or two?")
+                    callees = cited[i][1] & cited[j][1]
+                    if callees:
+                        warnings.append(f"{what}: entries {i + 1} and {j + 1} both cite "
+                                        f"{', '.join(sorted(callees))} -- one observation, "
+                                        f"or two?")
+            for i, (_, callees) in enumerate(cited):
+                for callee in sorted(callees):
+                    for j, other in enumerate(entries):
+                        if j != i and _restates(callee, other):
+                            warnings.append(
+                                f"{what}: entry {i + 1} cites {callee}, and entry {j + 1} "
+                                f"says what that name says -- the same observation twice")
+    if strings:
+        warnings.append(f"{len(strings)} names give their evidence as one string, which "
+                        f"cannot be counted (first: {', '.join(strings[:3])}); write it as "
+                        f"a list of independent observations")
+    return refusals, warnings
+
+
+def _restates(callee, text):
+    """True when every word of a routine's name appears in the text's prose,
+    allowing the endings an English sentence adds (`install` in `installs`).
+
+    Identifiers are taken out first. Moon Bugs' `saved_data_seg` is "saved by
+    install_keyboard_isr" and "restored by keyboard_isr" -- a writer and a
+    reader, two observations -- and the first identifier happens to hold
+    every word of the second."""
+    parts = [p for p in callee.replace(MAYBE, "").lower().split("_") if p]
+    if len(parts) < 2:
+        return False
+    words = WORD.findall(re.sub(r"\b\w*_\w*\b", " ", text.lower()))
+    return all(any(w == p or (len(p) >= 4 and w.startswith(p)) for w in words)
+               for p in parts)
+
+
+def load_symbols(path, warn=print):
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
-    routines = {int(k, 16): tuple(v) for k, v in raw["routines"].items()}
-    globals_ = {_key(k): tuple(v) for k, v in raw["globals"].items()}
+    refusals, warnings = check_evidence(raw)
+    if refusals:
+        raise SystemExit(
+            f"{len(refusals)} names are committed on fewer than two observations:\n  "
+            + "\n  ".join(refusals)
+            + f"\n  Add the second observation, or add {MAYBE} to the name so the "
+              f"doubt stays visible. Nothing was written.")
+    for w in warnings:
+        warn(f"  warning: {w}")
+    routines = {int(k, 16): (v[0], _why(v[1] if len(v) > 1 else ""))
+                for k, v in raw["routines"].items()}
+    globals_ = {_key(k): (v[0], _why(v[1] if len(v) > 1 else ""))
+                for k, v in raw["globals"].items()}
 
     # Constants the symbol file has already ruled on: `_displacements` for a
     # field offset that only ever appears with a base register, and
