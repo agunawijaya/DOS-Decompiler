@@ -696,6 +696,81 @@ ever true.
 Regression fixtures live in `tests/com/`. They are written rather than taken
 from a real game, because games from the period are still under copyright.
 
+## Two programs, routine by routine
+
+`bindiff.py` and `emuverify.py` take MZ executables and linker maps, so the
+agent naming Moon Bugs (Windmill Software, 1983) wrote its own script to find
+what the game shares with Rollo, from the same company and year. Every
+Windmill game will ask that question. `tools/comdiff.py` answers it from the
+two `comrec` listings:
+
+```
+python tools/comdiff.py ROLLO.COM rollo.asm MOONBUGS.COM moonbugs.asm --json diff.json
+```
+
+**It proves it is reading the right listings first.** Each is assembled and
+refused unless the result is its `.COM`, byte for byte; then `comrec`'s own
+walk is run from the listing's labels and checked against the listing's
+instruction lines. A listing of another file, or one edited since, would
+compare the wrong code and nothing downstream could tell.
+
+**A routine starts where something calls it**, or at the entry, or where
+`comrec` decoded code that nothing in the listing branches to -- a handler
+installed by writing the vector table, a callback, a dispatch target -- and
+runs to the last instruction before the next. A `jmp word [...]` table's
+targets are the cases of the routine that jumps, not routines. The script it
+replaces took every label as a unit, so one routine counted once per branch
+target in it: Moon Bugs' long division is one routine of 176 bytes and was
+fifteen units, eight of them called byte-identical.
+
+**Each routine of the program read is classified against the one known:**
+byte-identical; instruction-identical, where only numbers differ --
+immediates, absolute addresses, displacements, the targets of calls and jumps
+out of the routine -- while every branch inside it lands on the same
+instruction; similar, with difflib's ratio over the instruction sequences
+(numbers abstracted) at or above 0.85; or no counterpart. Shorter than 12
+bytes is too small to call. The numbers that differ come out as pairs, and
+the memory ones map a global of one program onto its counterpart in the
+other: that is how a name carries across.
+
+**An instruction-identical pair is then run.** Same instructions with
+different numbers is a claim that two routines compute the same thing at
+different addresses, so both are run as `emuverify.py` runs MZ functions --
+alone, four register vectors, calls skipped with the same stub, interrupts
+recorded and skipped -- with one change the two programs force: memory is not
+theirs. Each byte gets a value the first time the routine touches it, chosen
+by the order of first touches, so the routine that reads `[0x13c7]` first in
+Rollo and `[0x1ebd]` first in Moon Bugs reads the same value in both, and what
+is compared is that the n-th byte touched is touched the same way. A value
+may differ by one of the pair's own number differences and still agree. On
+Rollo against Moon Bugs eight pairs are confirmed and one is not: the routine
+that looks a scancode up in the handler table has the same instructions in
+both, but counts 21 entries in Rollo and 15 in Moon Bugs, and the run says so
+-- at the sixteenth read one returns and the other reads on. The name
+carries; "the same routine" does not.
+
+| Rollo against Moon Bugs (219 routines of 12 bytes or more) | comdiff | Kimi's script (699 label units) |
+|---|---:|---:|
+| byte-identical | 3 | 14 |
+| instruction-identical | 9 (8 confirmed, 1 differs) | 20 |
+| similar, 0.85 or more | 48 | 52 |
+| no counterpart | 159 | 613 |
+
+Every difference between the two columns has one of four causes, checked unit
+by unit (`prompts/reports/13-report.md` has the table): a label unit is a
+fragment of a routine judged whole (25 units -- eight byte-identical pieces of
+the division are one routine, the reboot code is reached by a jump and so
+belongs to the routine before it, whose cheat-key check differs); a small
+immediate written in decimal, which the script's `0x` pattern left as a
+literal (two routines); a unit that ran past its `ret` to the next label
+(one); and a routine whose units were all under 12 bytes (one, the scancode
+lookup above). None of them is a disagreement about what a pair of routines
+is.
+
+`tests/comdiff/` has two sibling programs written for the purpose, one
+routine of each kind, and the MCP server has the tool as `comdiff`, reading
+the listing `comrec` wrote in each session.
+
 ## A rebuild is not a reading, and naming must not change it
 
 `comrec` finishing is the end of one job and the start of another. Karateka's
@@ -727,7 +802,10 @@ no longer true, which is the worst of both.
 names in this project were published without one and had to be withdrawn --
 "the joystick routine", "hand-written assembly", "health counters" -- and each
 had been believed in the meantime because it was written down. A name is a
-claim; store the reason beside it or do not store the name.
+claim; store the reason beside it or do not store the name. Given as a list
+of observations rather than one string, the evidence is counted: a name
+without `__maybe` on fewer than two is refused, and two entries that cite one
+address or one routine are warned about (`13-naming-hand-written-assembly.md`).
 
 The symbol file belongs to the game and the tool belongs here. The *output*
 belongs nowhere: a byte-identical reconstruction is the program, named or not.

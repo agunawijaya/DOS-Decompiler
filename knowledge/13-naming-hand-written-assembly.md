@@ -35,6 +35,91 @@ Name from what a routine does to what. If you cannot say that, leave it
 unnamed — `symbols.json` supports an `_unread` list for exactly this, and a
 count of 35 honest names reads better than 221 dishonest ones.
 
+## Two sources, and what makes them two
+
+AGENTS.md says never to commit a name on one source of evidence. Rollo
+(Windmill, 1983) was named with 97 of its 103 routine names committed, each
+on one free-text string, and nothing could count them. Moon Bugs, named next
+by the same agent, gave every name a list of two -- and the lists show that
+two entries are not two sources.
+
+**Two observations are independent when either could have been wrong while
+the other was right.** In practice they are of different kinds:
+
+- what the routine does to what: the ports it touches, the memory it writes
+  and reads, the interrupt it raises;
+- what the rest of the program does with it: who calls it with which
+  arguments, which reader consumes what it writes, which table holds its
+  address;
+- what another program shows: a routine `comdiff.py` finds
+  instruction-identical to one already named, *and* confirmed by running both
+  -- which carries over the other program's evidence, so it is worth only as
+  much as that name was;
+- what a run shows: the routine observed doing it under `comrun.py`;
+- what the program says about itself: a string it prints, a table of its own
+  variables.
+
+**Not two: one instruction described twice.** Two entries that cite one
+address are usually one `mov` read once for what it stores and once for
+where. Name the reader as the second source instead.
+
+**Not two: the callee's name restating the description.** Moon Bugs'
+top-level routine was "installs the keyboard ISR, sets up the video, runs the
+game loop" and, as its second source, "calls install_keyboard_isr". The
+second entry is the first, read off a name this same session gave the
+callee. If that name was wrong, both entries were.
+
+**Not two: a pair of names that confirm each other.** The key handlers'
+second entries were "paired with" the handler for the opposite edge of the
+same key. That is where the two sit in the dispatch table, which is one fact;
+the names on both sides came from the same reading. The handlers whose only
+other entry was "reached from the dispatch table" were rightly left
+`__maybe`.
+
+**Not two: how something is reached, for what it does.** Rollo's
+"require the CGA or die" routine was committed on one string: it calls the
+error printer, and it is used when the adapter check fails. The first is
+what it calls and the second where it is called from; neither says anything
+about the half of the name that claims the program stops.
+
+**Two, and worth copying.** Moon Bugs' saved data segment was named from its
+writer (the install routine stores DS there) and its reader (the interrupt
+handler loads DS from it) -- two instructions in two routines, and the reading
+confirms the purpose the writing only suggests (`12-hooking-the-right-thing.md`
+names globals the same way). Its keyboard handler stands on what it does --
+reads port 0x60, stores the scancode, acknowledges the PIC -- and on being
+instruction-identical to Rollo's, confirmed by running both.
+
+**And identity is not sameness.** The routine that looks a scancode up in the
+handler table has the same instructions in both games, but counts 21 entries
+in Rollo and 15 in Moon Bugs, and running both shows it: the name carries,
+"the same routine as Rollo's" does not. A claim made from the instruction
+comparison alone would have been wrong about the behaviour.
+
+### What `annotate.py` checks
+
+When a symbol file gives a name's evidence as a list -- `"0x062F1":
+["keyboard_isr", ["reads port 0x60 ...", "instruction-identical to ..."]]` --
+`annotate.py` counts it before writing anything:
+
+- a name without `__maybe` and with fewer than two non-blank entries is
+  **refused**, every such name listed, and nothing is written;
+- two entries that cite the same address (other than the entry's own), or the
+  same routine of the symbol file, are **warned** about;
+- an entry citing a routine whose name's words all appear in another entry's
+  prose is **warned** about as the same observation twice. Identifiers are
+  taken out of the prose first: the saved data segment's "saved by
+  install_keyboard_isr" and "restored by keyboard_isr" are a writer and a
+  reader, although the first identifier holds every word of the second.
+
+On the two games' symbol files: Moon Bugs' 70 names pass the count and draw
+one warning, the top-level routine above. Rollo's 198 give their evidence as
+one string each, which cannot be counted; that form is still accepted, with
+one warning saying how many. Counting is necessary and not sufficient: two
+entries can be independent and wrong, and three can restate one guess in
+words no check will match. The warnings are where to look; the judgement is
+still yours.
+
 ## Find the program's own account of its variables
 
 ParaTrooper's start-up zeroes its state from a table at `ds:0x1A30`: seventeen

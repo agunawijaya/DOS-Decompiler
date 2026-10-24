@@ -120,7 +120,13 @@ line. Before reporting:
 static reading against (its flags: `knowledge/12-hooking-the-right-thing.md`;
 give `--timer-isr` an interrupt number, not an address). **The static render
 is the deliverable and the emulator the referee.** If a screen resists being
-photographed, check whether it can be computed from the file first.
+photographed, check whether it can be computed from the file first. A game
+with its own INT 09h handler needs `--keyboard hw`; one that probes port
+0x201 needs `--no-joystick`, or its "button" is noise.
+
+`tools/comdiff.py KNOWN.COM known.asm GAME.COM game.asm` compares two .COM
+programs routine by routine. Instruction-identical pairs are run under
+emulation: quote `confirmed` or `differs`, not the instruction match alone.
 
 ### If it is packed
 
@@ -325,6 +331,11 @@ source almost always needed correcting; what survived had two
   of such names seeming to confirm each other;
 - naming something from its **effect** rather than its cause, which can invert
   the meaning while sounding reasonable.
+
+In `symbols.json` give the evidence as a list: `annotate.py` refuses a name
+without `__maybe` on fewer than two entries. Two entries citing one address,
+or the callee's name restating the first, are one observation
+(`knowledge/13-naming-hand-written-assembly.md`).
 
 **Find `main` by reading, not by rule** (`anchors.py`'s guess was right on one
 of two binaries): a call taking `(argc, argv)` followed by an endless loop.

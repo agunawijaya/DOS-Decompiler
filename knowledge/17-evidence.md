@@ -79,7 +79,7 @@ An **evidence item**:
 
 | status | means | used by |
 |---|---|---|
-| `ok` | ran to completion; the result describes the target. Nothing was compared against an oracle, so nothing is proved | triage, survey, mzinfo, `analysis_profile.py write`, `loadimage.py expected`, `bodies.py`, `applynames.py` when the batch was applied |
+| `ok` | ran to completion; the result describes the target. Nothing was compared against an oracle, so nothing is proved | triage, survey, mzinfo, `analysis_profile.py write`, `loadimage.py expected`, `bodies.py`, `applynames.py` when the batch was applied, `comdiff.py` (each pair's verdict is in the result and the evidence, not in the status: one envelope holds many) |
 | `verified` | compared with an independent oracle, and they agree | `analysis_profile.py check`, `loadimage.py verify`, `emuverify.py sweep` when every case agreed |
 | `mismatch` | compared, and they disagree; the evidence says where | `analysis_profile.py check`, `loadimage.py verify`, `emuverify.py sweep` at the first case that did not |
 | `unsupported` | the target is a kind of input the tool does not handle, and it says so instead of producing something | mzinfo on a file that is not MZ; `loadimage.py` on a header that fails its bounds |

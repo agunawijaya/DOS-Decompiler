@@ -34,7 +34,7 @@ It is not part of `tests/run-all.ps1`, because it is slow (below).
 
 `scope.toml` lists the targets, each a module or a set of its functions, and
 the suite that should catch a change there. The first five decide `verified`
-against `mismatch`; the last four were added after them.
+against `mismatch`; the rest were added after them.
 
 Measured on Windows 11, an i9-14900HX (24 cores), 24 workers. The first five
 rows, placements' and the evidence suite's figures are from before prompt 07's
@@ -54,6 +54,8 @@ high.
 | `comrec` | the round trip that proves a rebuild in `tools/comrec.py` | `tests/com` | 295 | 252 s |
 | `triage` | the verdict in `tools/triage.py`, and since prompt 09a the envelope that names what set it | the triage cases of `tests/evidence` | 399 | 1,254 s (prompt 09a, 16 workers) |
 | `sweep-8088` | the 8088's `IDIV` rule in `tools/sweep.py` | `tests/sweep` | 336 | 1,615 s |
+| `annotate` | the count of the evidence behind a name in `tools/annotate.py` | `tests/annotate` | 312 | 24 s (prompt 13, 16 workers) |
+| `comdiff` | the routine comparison and its emulation's verdict in `tools/comdiff.py` | `tests/comdiff` | 755 | 128 s (prompt 13, 16 workers) |
 
 The first five took 58 minutes of wall time together in prompt 07 (the
 handshake's 142 s in a run of its own); the last four take about an hour
@@ -76,6 +78,8 @@ code (`known.toml`):
 | `comrec` | 193 / 295 (65.4%), survivors not classified | not worked on | 199 / 294 (67.7%): `first_mismatch` done, the rest not classified |
 | `triage` | 101 / 315 (32.1%), survivors not classified | not worked on | 295 / 295; after 09a, with `envelope`, 373 / 373 |
 | `sweep-8088` | | | 316 / 316 |
+| `annotate` | 225 / 368 (61.1%), with `load_symbols` whole (prompt 13) | | 307 / 307 after prompt 13's tests, on `named` instead |
+| `comdiff` | 350 / 745 (47.0%) (prompt 13) | | 717 / 717 after prompt 13's tests |
 
 The scripts, and the suites that need Ghidra, are out of its reach; each of
 those tests was shown able to fail once by hand, with an injected fault

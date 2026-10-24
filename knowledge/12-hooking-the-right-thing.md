@@ -463,6 +463,82 @@ symptom.** "Budget exhausted" led to three runs and four and a half billion
 instructions. "Budget exhausted at 15FD:1784 (image 0x007654)" led to the
 answer in one disassembly.
 
+### The keyboard, the joystick and the screen are hardware too
+
+Rollo and Moon Bugs (Windmill Software, 1983) never call `INT 16h`. Each
+writes its own handler into the INT 09h slot of the vector table -- directly,
+not through DOS -- reads the scancode from port 0x60 when IRQ 1 fires, keeps a
+flag per key, and acknowledges the PIC itself. A `--keys` queue that only
+`INT 16h` consumes never reached either, and both runs stopped in their title
+loops. `--keyboard hw` makes a key what it is on the machine: a make code
+latched in port 0x60 and an interrupt through whatever vector 9 holds, then
+the break code the same way, `--key-every` instructions apart (200,000 by
+default: a press shorter than a frame is never seen by a game that polls its
+flags once a frame). Port 0x64 says when a scancode is waiting, for a program
+that polls with IRQ 1 masked; the PIC's mask (port 0x21) and end-of-interrupt
+(port 0x20) are kept, so a second scancode waits until the handler has
+acknowledged the first. A key that reaches the BIOS's own handler -- vector 9
+never replaced, or a handler that chains to the one it replaced -- goes on
+into the `INT 16h` buffer as the same AX `--keys` gave. `--keyboard auto`
+starts on `INT 16h` and switches the keys not yet read to the hardware at the
+instruction that writes vector 9. It watches the write rather than looking
+now and then: a program that installs its handler and reads its first key
+forty instructions later has used both keys through `INT 16h` before any
+periodic look notices. Five NASM fixtures in `tests/comrun/fixtures/` hold the
+shapes: the handler written into the table, polling with IRQ 1 masked, a
+handler that chains to the BIOS, the ordinary `INT 16h` reader, and a handler
+that never acknowledges (its next scancode is held, not nested).
+
+**The first key can be lost, and that is the program, not the harness.**
+Rollo clears its last-scancode byte when its title loop starts, at about
+342,000 instructions; a key delivered at 200,000 is wiped. A person presses
+after seeing the title, and so should a run: `--key-every 400000` or more.
+
+**Then the joystick took the game away from the keyboard.** Rollo probes for
+a joystick by firing port 0x201 and counting how long its bits stay set, and
+the alternating value every port read gets -- the answer that keeps timing
+loops moving -- passes the probe. Its title loop reads the "fire button"
+before the keyboard, and the noise sometimes held it down: an Esc, which in
+Rollo only moves the menu, appeared to start a game, because the keyboard
+handler's own port reads had shifted the noise. Zaxxon did the same, and a
+comment in `comrun.py` beside the port reads records it; now there is a
+switch: `--no-joystick` answers port
+0x201 with 0xFF, as a PC with no game adapter does, the probe times out, and
+the keyboard alone decides. Measured with it, over 20 million instructions:
+
+| keys (`--keyboard hw --no-joystick`) | title checks | first play step | menu |
+|---|---:|---:|---|
+| none | 2,003 | 3,741,829 (the attract demo, after the menu times out) | one player |
+| Esc, space | 1,084 | 1,682,310 | one player |
+| Esc, Esc, space | 227 | 2,709,998 | two players |
+
+(The first key of each row is the one lost above.) With only a space Rollo
+stops on "PRESS ANY KEY" with the roller where it started; with arrows after
+it the roller leaves its place and paints a trail.
+Moon Bugs is driven the same way: a space leaves its "PRESS ANY KEY", and
+"right, right" and "left, left" leave its ship in different places, one of
+them exploded.
+
+**What is on the screen is the adapter's business, not only memory's.** The
+same 16 KB at B800:0 is 320 by 200 four-colour pixels in one mode and eighty
+columns of character-and-attribute pairs in another, and the mode is in the
+CGA's registers: mode control at 0x3D8, colour select at 0x3D9, the CRTC's
+columns, rows, scanlines per row and start address behind 0x3D4/0x3D5.
+Moon Bugs plays in eighty-column text with two scanlines a row and a
+right-hand half block (0xDE) in every cell -- each cell two pixels, its
+attribute's background on the left and foreground on the right, 160 by 100
+in sixteen colours. Drawn as mode 4, as `comrun` always drew, that was
+vertical stripes: the capture Kimi took of it, and 121,560 of 128,000 pixels
+wrong on the fixture that reproduces it. `comrun` now keeps those registers,
+and the BIOS's mode and palette calls, which write the same registers, and
+draws from them once the program has touched any; a program that never does
+is drawn as before, and one that sets mode 4 through the BIOS gets a
+byte-identical picture. It also moved Rollo: its own `INT 10h` calls select
+palette 0 at low intensity -- green, red, brown -- where the old capture
+showed cyan, magenta and white. Text needs a font for anything but blank and
+the block characters, and the CGA's is in its ROM: `--font` takes 2,048 bytes
+of one, and without it other characters are boxes, counted.
+
 ## The referee is not the deliverable
 
 The hunting screen was chased for hours as a photograph — drive the game to it,
@@ -484,9 +560,9 @@ That is the correct division of labour, and it is stated at the top of
 It has just enough BIOS to get a game to its first frame, including a keyboard
 queue (`--keys`) and a clock that advances, both there because without them a
 title screen waits forever; `--stop-at ADDR --stop-after N` stops on the Nth
-arrival, to look at a frame other than the first. Its two flags for programs
-that supply their own hardware, `--poll-patience` (`04-pitfalls.md`) and
-`--timer-isr` (above), are off by default.
+arrival, to look at a frame other than the first. Its flags for programs
+that supply their own hardware, `--poll-patience` (`04-pitfalls.md`),
+`--timer-isr`, `--keyboard hw` and `--no-joystick` (above), are off by default.
 Reversing them cost most of a session. When a screen resists being
 photographed, check whether it can be *computed* first — and if the answer
 involves a table and a `Random`, it can.

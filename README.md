@@ -349,6 +349,23 @@ L_02B5F:
 Details and traps in
 [`knowledge/08-com-reconstruction.md`](knowledge/08-com-reconstruction.md).
 
+Three tools go with the rebuild. `comdiff.py` compares two `.COM` programs
+routine by routine from their listings -- byte-identical,
+instruction-identical (confirmed by running both), similar with a score, or
+no counterpart -- which is how Moon Bugs' keyboard handler, decompressor and
+long division were found to be Rollo's. `annotate.py` applies a symbol file of
+names without changing a byte, and counts the evidence behind each: given as
+a list, a name without `__maybe` on fewer than two observations is refused.
+`comrun.py` runs the program to check a static reading against: keys through
+`INT 16h` or, with `--keyboard hw`, through port 0x60 and IRQ 1 for a game
+with its own keyboard handler; the screen drawn from what the program told the
+CGA, so a game that sets its mode through the ports is drawn as it looks.
+
+```powershell
+python tools\comdiff.py ROLLO.COM rollo.asm MOONBUGS.COM moonbugs.asm --json diff.json
+python tools\comrun.py GAME.COM --keyboard hw --no-joystick --keys " ,0x4D00" --png screen.png
+```
+
 ---
 
 ## Setup
@@ -627,6 +644,12 @@ python tools\triage.py unpacked.exe
 #     Rebuilds the file byte-for-byte and says so, or says why not.
 python tools\comrec.py path\to\GAME.COM --out src\game.asm
 nasm -f bin -o rebuilt.com src\game.asm      # then compare SHA-256 yourself
+#     What it shares with a .COM you have already read, routine by routine;
+#     instruction-identical pairs are run under emulation to confirm them.
+python tools\comdiff.py KNOWN.COM known.asm GAME.COM src\game.asm --json diff.json
+#     Run it: keys through port 0x60 for a game with its own INT 09h handler,
+#     the screen drawn from the CGA's registers.
+python tools\comrun.py path\to\GAME.COM --keyboard hw --no-joystick --keys " " --png screen.png
 
 # 1. Structure, decompilation, function recovery. Writes profile.json first,
 #    corrects the two loads Ghidra is known to get wrong (load-corrections.json),
@@ -839,6 +862,7 @@ interface and `AGENTS.md` stays the method.
 | `survey`, `triage` | `survey.py`, `triage.py` |
 | `open_binary`, `close_binary`, `list_sessions` | sessions: the target copied into a session folder; the original is never written |
 | `unpack`, `comrec` | `unpack.py`, `comrec.py`, writing inside the session |
+| `comdiff` | `comdiff.py` on two `.COM` sessions, each through the listing `comrec` wrote in it |
 | `analyze` | `pipeline.ps1`, with progress by stage; cached by target SHA-256, profile id and a hash of the pipeline's Python |
 | `verify_load_image`, `address_map`, `read_bytes` | `loadimage.py verify` and `map`; bytes as loaded, stopping at uninitialised memory |
 | `list_functions`, `function` | `functions.json`; one function's body, C, disassembly, calls out and in (`parts` picks any of `c`, `asm`, `record`) |
@@ -982,7 +1006,13 @@ tools/
   comrec.py                  rebuild a .COM as NASM source, byte-for-byte, and prove it
     annotate.py              apply a symbol file without changing a single byte,
                              and report what it does not cover: call targets,
-                             tail-call entries, bracketed constants
+                             tail-call entries, bracketed constants; refuse a
+                             name committed on fewer than two observations
+    comdiff.py               compare two .COM programs routine by routine, and
+                             run the instruction-identical pairs to confirm them
+    comrun.py                run a program and capture its screen: keys through
+                             INT 16h or the keyboard hardware, the picture from
+                             the CGA's registers
     docaudit.py              find every count in the documents, so a stale one
                              is a line number rather than a surprise
     probelib.py              name C library routines by calling them
@@ -1071,6 +1101,11 @@ tests/run-all.ps1            every suite this machine can run; skips say why
 tests/sopwith/               the validation fixture and full case study
 tests/com/                   .COM fixtures, rebuilt byte-identically on every run;
                              two it cannot rebuild, refused at the right byte
+tests/comdiff/               two sibling .COM programs, one routine of each kind
+                             comdiff.py tells apart, and its refusals
+tests/comrun/                comrun's keyboard (INT 16h, port 0x60, IRQ 1, the
+                             PIC), its timer, and the CGA drawn from its registers
+tests/annotate/              a name's evidence counted: refused, warned, accepted
 tests/libscan/               entry-point recovery, checked against the MZ header
 tests/evidence/              envelopes, the handshake's logic, stale-result refusal;
                              triage's verdict for every shape, and every threshold

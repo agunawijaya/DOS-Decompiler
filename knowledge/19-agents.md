@@ -334,7 +334,9 @@ limit than any measured here.
 
 ## Tool names and schemas against each agent's limits
 
-Checked against the 19 tools the server lists (no tool changed in this pass):
+Checked against the 19 tools the server listed then. Prompt 13 added a
+twentieth, `comdiff` -- 7 characters, a 349-character description, `int`,
+`float` and `bool` arguments -- and nothing in the table changes:
 
 | | Value | Limit found |
 |---|---|---|

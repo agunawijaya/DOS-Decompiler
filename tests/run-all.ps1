@@ -91,10 +91,17 @@ $testsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Prerequisites = @{
     # Reads the agent-specific files only; runs no agent.
     'agents'     = @()
+    # Its last case rebuilds a fixture through comrec and skips by itself,
+    # saying so, without NASM or capstone.
+    'annotate'   = @()
     'applynames' = @('nasm', 'ghidra', 'java')
     # Its Ghidra half skips by itself, as loadimage's does.
     'bodies'     = @('nasm', 'capstone')
     'com'        = @('nasm', 'capstone')
+    # The emulation of instruction-identical pairs is part of what it checks.
+    'comdiff'    = @('nasm', 'capstone', 'unicorn')
+    # Its fixtures for the keyboard and the CGA skip by themselves without
+    # NASM, saying so; the rest need only unicorn.
     'comrun'     = @('unicorn')
     'evidence'   = @('nasm')
     # Its Ghidra half skips by itself, as loadimage's does.
