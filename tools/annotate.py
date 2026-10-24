@@ -197,8 +197,10 @@ def _restates(callee, text):
                for p in parts)
 
 
-def load_symbols(path, warn=print):
-    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+def named(raw, warn=print):
+    """The routines and globals as {key: (name, why)}, once the evidence has
+    been counted: a refusal stops here, naming every name refused, and each
+    warning goes through `warn`."""
     refusals, warnings = check_evidence(raw)
     if refusals:
         raise SystemExit(
@@ -212,6 +214,12 @@ def load_symbols(path, warn=print):
                 for k, v in raw["routines"].items()}
     globals_ = {_key(k): (v[0], _why(v[1] if len(v) > 1 else ""))
                 for k, v in raw["globals"].items()}
+    return routines, globals_
+
+
+def load_symbols(path, warn=print):
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    routines, globals_ = named(raw, warn)
 
     # Constants the symbol file has already ruled on: `_displacements` for a
     # field offset that only ever appears with a base register, and

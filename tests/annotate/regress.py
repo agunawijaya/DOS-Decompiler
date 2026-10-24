@@ -113,7 +113,8 @@ def _():
     _, w = check(symbols({"0x00B31": ["keyboard_isr", [
         "stores the scancode at [0x13c7]",
         "the dispatch routine reads [0x13c7] to choose a handler"]]}))
-    if len(w) != 1 or "0x13C7" not in w[0]:
+    if w != ["routine 0x00B31 keyboard_isr: entries 1 and 2 both cite 0x13C7 -- one "
+             "observation, or two?"]:
         raise AssertionError(f"warnings {w}")
     return w[0][:60] + "..."
 
@@ -134,7 +135,8 @@ def _():
         "0x00AEF": ["install_keyboard_isr", ["writes vector 9", "saves the old vector"]],
         "0x00099": ["main_program", ["calls install_keyboard_isr first",
                                      "install_keyboard_isr is called before the loop"]]}))
-    if len(w) != 1 or "install_keyboard_isr" not in w[0] or "main_program" not in w[0]:
+    if w != ["routine 0x00099 main_program: entries 1 and 2 both cite install_keyboard_isr "
+             "-- one observation, or two?"]:
         raise AssertionError(f"warnings {w}")
     return w[0][:60] + "..."
 
@@ -146,7 +148,8 @@ def _():
         "0x00099": ["main_program", [
             "top-level routine: installs keyboard ISR, inits video, runs game loop",
             "calls install_keyboard_isr and the CGA init routine"]]}))
-    if len(w) != 1 or "entry 2 cites install_keyboard_isr" not in w[0]:
+    if w != ["routine 0x00099 main_program: entry 2 cites install_keyboard_isr, and entry 1 "
+             "says what that name says -- the same observation twice"]:
         raise AssertionError(f"warnings {w}")
     return "warned: the same observation twice"
 
@@ -184,6 +187,196 @@ def _():
     if r or len(w) != 1 or not w[0].startswith("3 names give their evidence as one string"):
         raise AssertionError(f"refusals {r}, warnings {w}")
     return w[0][:60] + "..."
+
+
+@case("three entries are accepted: two is a floor, not a count")
+def _():
+    r, w = check(symbols({"0x00100": ["reboot", [
+        "writes 0x1234 to 40:72", "far jumps to F000:FFF0", "reached after the key combination"]]}))
+    if r or w:
+        raise AssertionError(f"refusals {r}, warnings {w}")
+    return "accepted"
+
+
+@case("a name with no evidence at all counts as the old form, and does not crash")
+def _():
+    r, w = check(symbols({"0x00000": ["start"]}))
+    if r or w != ["1 names give their evidence as one string, which cannot be counted "
+                  "(first: start); write it as a list of independent observations"]:
+        raise AssertionError(f"refusals {r}, warnings {w}")
+    return "one warning"
+
+
+@case("entries that are not text are not evidence")
+def _():
+    r, _ = check(symbols({"0x00100": ["reboot", [12, "writes 0x1234 to 40:72"]]}))
+    if r != ["routine 0x00100 reboot: 1 evidence entry; a name without __maybe needs two "
+             "independent observations"]:
+        raise AssertionError(f"refusals {r}")
+    return "a number does not count"
+
+
+@case("shared addresses: which entries, and every address, in order")
+def _():
+    _, w = check(symbols({"0x00100": ["middle", [
+        "reads [0x2000]", "writes 0x13C9 and 0x13c7", "reads 0x13c7, then 0x13C9"]]}))
+    want = ["routine 0x00100 middle: entries 2 and 3 both cite 0x13C7, 0x13C9 -- one "
+            "observation, or two?"]
+    if w != want:
+        raise AssertionError(f"warnings {w}")
+    return "entries 2 and 3, 0x13C7, 0x13C9"
+
+
+@case("a global's own address is not a citation, prefix and all")
+def _():
+    _, w = check(symbols(globals_={"cs:0x0781": ["key_state", [
+        "the handler writes [cs:0x0781]", "the game reads [0x0781] each frame"]]}))
+    if w:
+        raise AssertionError(f"warnings {w}")
+    return "no warning"
+
+
+@case("shared routines: which entries, and every routine, sorted")
+def _():
+    _, w = check(symbols({
+        "0x00100": ["middle", ["calls alpha_one and zeta_two", "writes a flag",
+                               "zeta_two and alpha_one are called in turn; middle loops"]],
+        "0x00200": ["alpha_one", ["x", "y"]], "0x00300": ["zeta_two", ["x", "y"]]}))
+    want = ["routine 0x00100 middle: entries 1 and 3 both cite alpha_one, zeta_two -- one "
+            "observation, or two?"]
+    if w != want:
+        raise AssertionError(f"warnings {w}")
+    return "entries 1 and 3, before and after its own name in sort order"
+
+
+@case("shared routines between the second and third entries are numbered so")
+def _():
+    _, w = check(symbols({
+        "0x00100": ["middle", ["writes a flag", "calls alpha_one", "alpha_one returns here"]],
+        "0x00200": ["alpha_one", ["x", "y"]]}))
+    want = ["routine 0x00100 middle: entries 2 and 3 both cite alpha_one -- one "
+            "observation, or two?"]
+    if w != want:
+        raise AssertionError(f"warnings {w}")
+    return "entries 2 and 3"
+
+
+@case("a global named like a routine is not cited by its own name")
+def _():
+    # Two equal names as two different string objects, as two places in a
+    # JSON file are: the exclusion has to be by value.
+    routine_name, global_name = "".join(["fl", "ag"]), "".join(["f", "lag"])
+    _, w = check(symbols({"0x00100": [routine_name, ["x", "y"]]},
+                         {"0x0200": [global_name, ["flag is set here", "flag is read there"]]}))
+    if w:
+        raise AssertionError(f"warnings {w}")
+    return "no warning"
+
+
+@case("a routine's own name in two entries is not a shared citation")
+def _():
+    _, w = check(symbols({"0x00100": ["middle", ["middle reads the port",
+                                                 "middle is called from the ISR"]]}))
+    if w:
+        raise AssertionError(f"warnings {w}")
+    return "no warning"
+
+
+@case("restated, the citing entry first: the warning names both, in order")
+def _():
+    _, w = check(symbols({
+        "0x00B31": ["keyboard_isr", ["reads port 0x60", "acknowledges the PIC"]],
+        "0x00099": ["main_program", ["calls keyboard_isr at start",
+                                     "the keyboard ISR is where input comes from"]]}))
+    want = ["routine 0x00099 main_program: entry 1 cites keyboard_isr, and entry 2 says what "
+            "that name says -- the same observation twice"]
+    if w != want:
+        raise AssertionError(f"warnings {w}")
+    return "a two-word name, entry 1 then entry 2"
+
+
+@case("an entry that cites a routine and explains it is not a restatement of itself")
+def _():
+    _, w = check(symbols({
+        "0x062AF": ["install_keyboard_isr", ["writes vector 9", "saves the old vector"]],
+        "0x00099": ["main_program", [
+            "calls install_keyboard_isr to install the keyboard ISR", "then loops"]]}))
+    if w:
+        raise AssertionError(f"warnings {w}")
+    return "no warning"
+
+
+@case("a four-letter word matches its longer forms; a three-letter one only itself")
+def _():
+    base = {"0x00200": ["init_video", ["x", "y"]], "0x00300": ["set_palette", ["x", "y"]]}
+    _, w4 = check(symbols(dict(base, **{"0x00100": ["start", [
+        "calls init_video", "initialises the video"]]})))
+    _, w3 = check(symbols(dict(base, **{"0x00100": ["start", [
+        "calls set_palette", "sets the palette"]]})))
+    if len(w4) != 1 or w3:
+        raise AssertionError(f"init: {w4}; set: {w3}")
+    return "'init' in 'initialises' counts, 'set' in 'sets' does not"
+
+
+@case("__maybe is not a word of the name it marks")
+def _():
+    _, w = check(symbols({
+        "0x00200": ["draw_box__maybe", ["x"]],
+        "0x00100": ["start__maybe", ["calls draw_box__maybe", "draws a box"]]}))
+    want = ["routine 0x00100 start__maybe: entry 1 cites draw_box__maybe, and entry 2 says "
+            "what that name says -- the same observation twice"]
+    if w != want:
+        raise AssertionError(f"warnings {w}")
+    return "restated without 'maybe' in the text"
+
+
+@case("the string-form warning names the first three, and counts all")
+def _():
+    _, w = check(symbols({"0x00001": ["a1", "x"], "0x00002": ["b2", "x"],
+                          "0x00003": ["c3", "x"], "0x00004": ["d4", "x"]}))
+    want = ["4 names give their evidence as one string, which cannot be counted (first: a1, "
+            "b2, c3); write it as a list of independent observations"]
+    if w != want:
+        raise AssertionError(f"warnings {w}")
+    return "4, first three named"
+
+
+@case("named(): warnings through warn, each marked; why as text in every form")
+def _():
+    said = []
+    routines, globals_ = annotate.named(symbols(
+        {"0x00000": ["start", ["one", "two"]], "0x00010": ["old", "a string"],
+         "0x00020": ["bare"]},
+        {"cs:0x0040": ["flag", ["set here", "read there"]], "0x0050": ["bare_global"]}),
+        warn=said.append)
+    if said != ["  warning: 3 names give their evidence as one string, which cannot be "
+                "counted (first: old, bare, bare_global); write it as a list of independent "
+                "observations"]:
+        raise AssertionError(f"said {said}")
+    want_r = {0x0: ("start", "one; two"), 0x10: ("old", "a string"), 0x20: ("bare", "")}
+    want_g = {("cs", 0x40): ("flag", "set here; read there"), (None, 0x50): ("bare_global", "")}
+    if routines != want_r or globals_ != want_g:
+        raise AssertionError(f"routines {routines}, globals {globals_}")
+    return "3 routines, 2 globals, 1 warning"
+
+
+@case("named(): the refusal lists every name, and says what to do")
+def _():
+    try:
+        annotate.named(symbols({"0x00000": ["start", ["one"]]},
+                               {"0x0040": ["flag", []]}), warn=lambda _: None)
+    except SystemExit as e:
+        want = ("2 names are committed on fewer than two observations:\n"
+                "  routine 0x00000 start: 1 evidence entry; a name without __maybe needs "
+                "two independent observations\n"
+                "  global 0x0040 flag: 0 evidence entries; a name without __maybe needs two "
+                "independent observations\n"
+                "  Add the second observation, or add __maybe to the name so the doubt "
+                "stays visible. Nothing was written.")
+        if str(e) != want:
+            raise AssertionError(f"message: {e}")
+        return "both named"
+    raise AssertionError("not refused")
 
 
 @case("a refusal stops the run before anything is written")

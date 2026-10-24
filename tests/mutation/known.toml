@@ -1338,3 +1338,40 @@ signature = "ada155623b5ef0ff"
 kind = "equivalent"
 mutant = "f.get(\"line\") or -1"
 why = "When line is None or missing, defaulting to line -1 or line 0 preserves tie-breaking order among unnumbered routines."
+
+# ---- annotate (prompt 13): the count of the evidence behind a name.
+
+[[survivor]]
+target = "annotate"
+signature = "5b11aab9ff5b74d9"
+kind = "equivalent"
+mutant = "evidence = value[1] if len(value) != 1 else \"\""
+why = "value[0] is read on the line before, so an empty entry fails either way, and for every length from one up != 1 and > 1 agree."
+
+[[survivor]]
+target = "annotate"
+signature = "e0870ad3a7c70fb9"
+kind = "equivalent"
+mutant = "{'entry' if len(entries) >= 1 else 'entries'}"
+why = "The message is built only for fewer than two entries, and on zero and one the two comparisons agree."
+
+[[survivor]]
+target = "annotate"
+signature = "b3dc33d51a94321e"
+kind = "equivalent"
+mutant = "if j is not i and _restates(callee, other):"
+why = "i and j are entry indices, and CPython keeps one object for every integer from -5 to 256, so identity and equality agree for any list of evidence a name has."
+
+[[survivor]]
+target = "annotate"
+signature = "65705dfd6d0366a2"
+kind = "equivalent"
+mutant = "routines = {int(k, 16): (v[0], _why(v[1] if len(v) != 1 else \"\"))"
+why = "v[0] is evaluated first in the same tuple, so an empty entry fails either way, and for every length from one up != 1 and > 1 agree."
+
+[[survivor]]
+target = "annotate"
+signature = "e5d33e6ff78a01e2"
+kind = "equivalent"
+mutant = "globals_ = {_key(k): (v[0], _why(v[1] if len(v) != 1 else \"\"))"
+why = "v[0] is evaluated first in the same tuple, so an empty entry fails either way, and for every length from one up != 1 and > 1 agree."

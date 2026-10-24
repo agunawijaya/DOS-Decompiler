@@ -98,3 +98,22 @@ name = "match"
 module = "tools/match.py"
 functions = ["Aligner.__init__", "Aligner.infer_module_order", "Aligner.ordered_source"]
 test = ["tests/match/regress.py"]
+
+# annotate.py's count of the evidence behind a name (prompt 13): the refusal
+# of a committed name on fewer than two observations, and the warnings about
+# two entries that cite one address, one routine, or restate each other.
+[[target]]
+name = "annotate"
+module = "tools/annotate.py"
+functions = ["_why", "check_evidence", "_restates", "named"]
+test = ["tests/annotate/regress.py"]
+
+# comdiff.py's verdicts (prompt 13): the shape two routines are compared by,
+# the numbers that differ, the classification, and the emulation's
+# comparison of two runs.
+[[target]]
+name = "comdiff"
+module = "tools/comdiff.py"
+functions = ["shape", "differing_numbers", "classify", "_same", "first_difference",
+             "confirm"]
+test = ["tests/comdiff/regress.py"]
