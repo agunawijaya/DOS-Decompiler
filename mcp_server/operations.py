@@ -261,6 +261,33 @@ def comrec(session_id, out=None, keep_to=None, limit=None, cursor=None):
                                    result=report), limit, cursor)
 
 
+@guarded("comdiff")
+def comdiff(session_a, session_b, min_bytes=None, similar=None, emulate=True, limit=None,
+            cursor=None):
+    """comdiff.py on two .COM sessions, each read through the listing comrec
+    wrote in it. session_a is the program known, session_b the one read."""
+    import comdiff as tool
+    sides = []
+    for sid in (session_a, session_b):
+        s = sessions.get(sid)
+        if s.format != "com":
+            raise Refused(f"session {sid} holds an MZ; comdiff compares .COM programs",
+                          "two builds of an MZ go to emuverify")
+        listing = s.folder / "comrec" / f"{s.copy.stem}.asm"
+        if not listing.exists():
+            raise Refused(f"session {sid} has no comrec listing at {listing}",
+                          f"run comrec on session {sid} first, without out")
+        sides.append((s, listing))
+    (a, la), (b, lb) = sides
+    try:
+        result = tool.compare(str(a.copy), str(la), str(b.copy), str(lb),
+                              tool.MIN_BYTES if min_bytes is None else min_bytes,
+                              tool.SIMILAR if similar is None else similar, emulate)
+    except tool.Refused as e:
+        raise Refused(str(e), "read the reason: it names what to do")
+    return paged(tool.envelope(result), limit, cursor)
+
+
 # ---------------------------------------------------------------- analysis
 
 def ghidra_env():

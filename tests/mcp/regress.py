@@ -35,11 +35,12 @@ ROOT = HERE.parent.parent
 SERVER = ROOT / "mcp_server" / "server.py"
 SWEEP_FIX = ROOT / "tests" / "sweep" / "fixtures"
 COM_FIX = ROOT / "tests" / "com" / "fixtures"
+COMDIFF_FIX = ROOT / "tests" / "comdiff" / "fixtures"
 
 TOOLS = ["survey", "triage", "open_binary", "close_binary", "list_sessions", "unpack",
          "analyze", "verify_load_image", "address_map", "read_bytes", "list_functions",
          "function", "coverage", "anchors", "libsig", "apply_names", "emuverify", "sweep",
-         "comrec"]
+         "comrec", "comdiff"]
 
 CASES = []
 
@@ -55,6 +56,7 @@ class Fix:
     work = None          # temporary folder for fixtures and DOSDEC_WORK
     sweep_exe = None
     com = None
+    siblings = ()        # the two programs tests/comdiff compares
     labels = {}
     session = None       # the MCP client session
 
@@ -406,6 +408,33 @@ async def _():
     return "auto and mz refused, com admitted and rebuilt byte-identical; an MZ refused as com"
 
 
+@case("comdiff: refused before comrec, then two .COM programs routine by routine")
+async def _():
+    sids = []
+    for path in Fix.siblings:
+        env, err = await call("open_binary", path=str(path), format="com")
+        check(not err, f"open_binary: {env['result']}")
+        sids.append(env["result"]["session_id"])
+    env, err = await call("comdiff", session_a=sids[0], session_b=sids[1])
+    check(err and env["status"] == "blocked" and "run comrec on session" in
+          env["result"]["next_step"], f"comdiff without a listing: {env['result']}")
+    for sid in sids:
+        env, err = await call("comrec", session_id=sid)
+        check(env["status"] == "verified", f"comrec: {env['status']}")
+    env, err = await call("comdiff", session_a=sids[0], session_b=sids[1])
+    envelope_ok(env)
+    r = env["result"]
+    check(not err and env["status"] == "ok" and r["counts"]["byte-identical"] == 1
+          and r["counts"]["instruction-identical"] == 5
+          and r["emulation"] == {"confirmed": 4, "differs": 1, "uninformative": 0,
+                                 "not run": 0}, f"comdiff: {r['counts']} {r['emulation']}")
+    check(env["target"]["path"].endswith("CMPB.COM") and len(env["unknowns"]) == 1,
+          f"target {env['target']}, unknowns {env['unknowns']}")
+    for sid in sids:
+        await call("close_binary", session_id=sid)
+    return "blocked without comrec; then 1 byte-, 5 instruction-identical, 4 confirmed"
+
+
 @case("function refuses parts it does not know, before reading anything")
 async def _():
     for parts in (["c", "source"], []):
@@ -607,6 +636,10 @@ def build():
     Fix.labels = labels(lst)
     Fix.com = Fix.work / "games" / "PLAIN.COM"
     subprocess.run([nasm, "-f", "bin", "-o", str(Fix.com), str(COM_FIX / "plain.asm")], check=True)
+    Fix.siblings = tuple(Fix.work / "games" / f"{n.upper()}.COM" for n in ("cmpa", "cmpb"))
+    for out, n in zip(Fix.siblings, ("cmpa", "cmpb")):
+        subprocess.run([nasm, "-f", "bin", "-o", str(out), str(COMDIFF_FIX / f"{n}.asm")],
+                       check=True)
     # A Microsoft LINK map of the sweep fixture, from its labels.
     L = Fix.labels
     dg = L["data_start"] // 16
@@ -672,7 +705,8 @@ def main():
         if why:
             print(f"mcp regress: {why}")
             return 77
-        originals = {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in (Fix.sweep_exe, Fix.com)}
+        originals = {p: (p.stat().st_mtime_ns, p.read_bytes())
+                     for p in (Fix.sweep_exe, Fix.com, *Fix.siblings)}
         failures, skipped, run = asyncio.run(run_all(args.only))
         left = [p for p in (Fix.work / "sessions").glob("*") if p.name != "_cache"] \
             if (Fix.work / "sessions").exists() else []

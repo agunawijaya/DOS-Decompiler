@@ -162,6 +162,19 @@ async def comrec(session_id: str, out: str | None = None, keep_to: str | None = 
     return await call(op.comrec, session_id, out, keep_to, limit, cursor)
 
 
+@server.tool()
+async def comdiff(session_a: str, session_b: str, min_bytes: int | None = None,
+                  similar: float | None = None, emulate: bool = True,
+                  limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """Compare two .COM programs routine by routine: byte-identical,
+    instruction-identical (only numbers differ; run under emulation to
+    confirm), similar with a score, or no counterpart. session_a is the
+    program you know, session_b the one you are reading; run comrec on both
+    first. min_bytes (12) and similar (0.85) as on the command line."""
+    return await call(op.comdiff, session_a, session_b, min_bytes, similar, emulate,
+                      limit, cursor)
+
+
 # ---------------------------------------------------------------- analysis
 
 @server.tool()
