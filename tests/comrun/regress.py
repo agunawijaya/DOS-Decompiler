@@ -482,9 +482,9 @@ def _():
     return "128,000 of 128,000, yellow on black"
 
 
-@nasm_case("INT 10h palette calls: Rollo's palette 0 on blue")
+@nasm_case("INT 10h palette calls: palette 0, intensified, on green")
 def _():
-    colours = [CGA_COLOURS[1], CGA_COLOURS[2], CGA_COLOURS[4], CGA_COLOURS[6]]
+    colours = [CGA_COLOURS[2], CGA_COLOURS[10], CGA_COLOURS[12], CGA_COLOURS[14]]
     size, wrong = compare_png("biospal", 320, 200, 3,
                               lambda x, y: expected_320(x, y, 0, colours))
     if wrong:
