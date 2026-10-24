@@ -240,19 +240,282 @@ def _():
     return "None"
 
 
+# ---------------------------------------------------------------- NASM fixtures
+#
+# The cases below run programs written for the purpose in fixtures/, assembled
+# here. Without NASM they are skipped, and say so; the cases above still run.
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures"
+NASM_CASES = []
+_built = {}
+
+
+def nasm_case(name):
+    def wrap(fn):
+        NASM_CASES.append((name, fn))
+        return fn
+    return wrap
+
+
+def find_nasm():
+    import os
+    import shutil
+    nasm = os.environ.get("NASM") or shutil.which("nasm")
+    return nasm if nasm and Path(nasm).exists() else None
+
+
+def build(name):
+    """A fixture's .COM bytes, assembled once."""
+    if name not in _built:
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / f"{name}.com"
+            r = subprocess.run([find_nasm(), "-f", "bin", "-o", str(out),
+                                str(FIXTURES / f"{name}.asm")],
+                               capture_output=True, text=True)
+            if r.returncode != 0:
+                raise AssertionError(f"{name}.asm does not assemble: {r.stderr.strip()}")
+            _built[name] = out.read_bytes()
+    return _built[name]
+
+
+def run_keys(name, keyboard, keys, budget=3_000_000):
+    m = comrun.Machine(build(name), keys=[ord(k) for k in keys])
+    m.keyboard = keyboard
+    if keyboard == "hw":
+        m.hw_keys, m.keys = m.keys, []
+    why = m.run(budget=budget)
+    return "".join(m.output), why, m
+
+
+@nasm_case("a program with its own INT 09h handler hangs on INT 16h keys")
+def _():
+    # The bug, reproduced: Rollo and Moon Bugs stop in their title loops.
+    printed, why, m = run_keys("kbdisr", "bios", "ab")
+    if printed or "budget exhausted" not in why:
+        raise AssertionError(f"the fixture did not hang: printed {printed!r}, {why}")
+    return "budget exhausted, nothing printed -- as Rollo did"
+
+
+@nasm_case("--keyboard hw: the handler gets two make codes from port 0x60")
+def _():
+    printed, why, m = run_keys("kbdisr", "hw", "ab")
+    if printed != "1E30":
+        raise AssertionError(f"printed {printed!r} ({why}); 'a' is 1E and 'b' is 30")
+    if m.kbd_log["irq"] < 3 or m.kbd_log["eoi"] < 3:
+        raise AssertionError(f"IRQ 1 or the EOI not counted: {m.kbd_log}")
+    return f"printed {printed}, {m.kbd_log['irq']} IRQ 1, {m.kbd_log['eoi']} EOI"
+
+
+@nasm_case("--keyboard auto sees the vector written and switches")
+def _():
+    printed, why, m = run_keys("kbdisr", "auto", "ab")
+    if printed != "1E30" or m.kbd_route != "hardware":
+        raise AssertionError(f"printed {printed!r}, route {m.kbd_route} ({why})")
+    # The fixture writes the vector in its ninth instruction. A periodic look
+    # would decide thousands of instructions later; the write hook decides
+    # there.
+    if m.kbd_hooked[0] > 20:
+        raise AssertionError(f"decided at instruction {m.kbd_hooked[0]}, not at the write")
+    return f"route decided at instruction {m.kbd_hooked[0]}"
+
+
+@nasm_case("no scancode is delivered while IRQ 1 is still in service")
+def _():
+    # The PIC will not raise IRQ 1 again until the last one is acknowledged.
+    # With one already in service and no EOI ever coming, every scancode has
+    # to wait, counted as held, rather than nest into the handler.
+    m = comrun.Machine(build("kbdisr"), keys=[ord("a")])
+    m.keyboard, m.hw_every = "hw", 1_000
+    m.hw_keys, m.keys = m.keys, []
+    m.in_service.add(1)                  # an IRQ 1 already in service
+    m.run(budget=20_000)
+    if m.kbd_log["irq"] != 0 or m.kbd_log["held"] == 0:
+        raise AssertionError(f"delivered while IRQ 1 was in service: {m.kbd_log}")
+    return f"held {m.kbd_log['held']} times, delivered none"
+
+
+@nasm_case("--keyboard hw: polling port 0x64 with IRQ 1 masked")
+def _():
+    printed, why, m = run_keys("kbdpoll", "hw", "ab")
+    if printed != "1E30":
+        raise AssertionError(f"printed {printed!r} ({why})")
+    if m.kbd_log["irq"] or not m.kbd_log["masked"]:
+        raise AssertionError(f"an IRQ was raised although masked: {m.kbd_log}")
+    return f"printed {printed}, no IRQ raised"
+
+
+@nasm_case("a handler that chains to the BIOS puts the keys in INT 16h")
+def _():
+    printed, why, m = run_keys("kbdchain", "hw", "ab")
+    # 'a' and 'b' read through INT 16h, then the count of scancodes the
+    # handler saw: make a, break a, make b -- the break of b comes after the
+    # program has exited.
+    if printed != "ab3":
+        raise AssertionError(f"printed {printed!r} ({why})")
+    return f"printed {printed}"
+
+
+@nasm_case("INT 16h: the same keys arrive by every route")
+def _():
+    # The program reads INT 16h and nothing else. Whichever way the keys go
+    # in, it has to print the same: the character and the scancode's high
+    # digit, which for a --keys character is 0 -- as it always was.
+    seen = {}
+    for mode in ("bios", "auto", "hw"):
+        seen[mode], _, _ = run_keys("int16", mode, "ab")
+    if len(set(seen.values())) != 1 or seen["bios"] != "a0b0":
+        raise AssertionError(f"different output by route: {seen}")
+    return f"{seen['bios']} by bios, auto and hw"
+
+
+# The CGA's colours, written out again here rather than imported, so that a
+# wrong entry in comrun's table cannot agree with itself.
+CGA_COLOURS = [(0, 0, 0), (0, 0, 170), (0, 170, 0), (0, 170, 170),
+               (170, 0, 0), (170, 0, 170), (170, 85, 0), (170, 170, 170),
+               (85, 85, 85), (85, 85, 255), (85, 255, 85), (85, 255, 255),
+               (255, 85, 85), (255, 85, 255), (255, 255, 85), (255, 255, 255)]
+
+
+def graphics_byte(start, row, col, scan, half):
+    """The byte the CRTC reads in graphics mode, filled as its offset's low
+    byte by every fixture: word address start + row * 40 + col, doubled, the
+    odd scanline from the second bank."""
+    word = start + row * 40 + col
+    return ((((word * 2) & 0x1FFF) | (scan << 13)) + half) & 0xFF
+
+
+def expected_320(x, y, start, colours):
+    row, scan = y >> 1, y & 1
+    v = graphics_byte(start, row, x // 8, scan, (x % 8) // 4)
+    return colours[(v >> (6 - 2 * (x % 4))) & 3]
+
+
+def expected_640(x, y):
+    row, scan = y >> 1, y & 1
+    v = graphics_byte(0, row, x // 16, scan, (x % 16) // 8)
+    return CGA_COLOURS[14] if (v >> (7 - x % 8)) & 1 else CGA_COLOURS[0]
+
+
+def expected_160(x, y):
+    """Eighty columns of character 0xDE, two scanlines a row: the left four
+    pixels of each cell are its background, the right four its foreground."""
+    attr = ((y >> 1) * 80 + x // 8) & 0xFF
+    return CGA_COLOURS[attr & 0x0F] if x % 8 >= 4 else CGA_COLOURS[attr >> 4]
+
+
+def compare_png(name, width, height, across, expected, render="cga"):
+    """Run a fixture, draw it, and count the pixels that disagree, each
+    sampled at the middle of its scaled block."""
+    import tempfile
+    from PIL import Image
+    m = comrun.Machine(build(name))
+    m.run(budget=200_000)
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "screen.png"
+        comrun.draw_screen(m, str(path), render)
+        img = Image.open(path).convert("RGB")
+        size = img.size
+        px = img.load()
+        wrong = []
+        for y in range(height):
+            for x in range(width):
+                sx, sy = x * across + across // 2, y * 3 + 1
+                if sx >= size[0] or sy >= size[1] or px[sx, sy] != expected(x, y):
+                    wrong.append((x, y))
+    return size, wrong
+
+
+@nasm_case("320-wide graphics set through the ports: every pixel")
+def _():
+    colours = [CGA_COLOURS[4], CGA_COLOURS[3], CGA_COLOURS[5], CGA_COLOURS[7]]
+    size, wrong = compare_png("cga320", 320, 200, 3,
+                              lambda x, y: expected_320(x, y, 0x14, colours))
+    if size != (960, 600) or wrong:
+        raise AssertionError(f"{size}, {len(wrong)} wrong pixels, first {wrong[:3]}")
+    return "64,000 of 64,000, start address and low-intensity palette 1 on red"
+
+
+@nasm_case("the 160x100 text arrangement Moon Bugs uses: every pixel")
+def _():
+    size, wrong = compare_png("cga160", 640, 200, 2, expected_160)
+    if size != (1280, 600) or wrong:
+        raise AssertionError(f"{size}, {len(wrong)} wrong pixels, first {wrong[:3]}")
+    return "128,000 of 128,000, all 256 attributes, blink off"
+
+
+@nasm_case("drawn as mode 4, the 160x100 screen is the stripes Kimi saw")
+def _():
+    # The bug, reproduced: --render mode4 is the old renderer.
+    size, wrong = compare_png("cga160", 640, 200, 2, expected_160, render="mode4")
+    if not wrong:
+        raise AssertionError("the old renderer drew it right; the fixture tests nothing")
+    return f"{len(wrong):,} of 128,000 pixels wrong, as expected"
+
+
+@nasm_case("640-wide graphics, with registers written a word at a time")
+def _():
+    size, wrong = compare_png("cga640", 640, 200, 2, expected_640)
+    if size != (1280, 600) or wrong:
+        raise AssertionError(f"{size}, {len(wrong)} wrong pixels, first {wrong[:3]}")
+    return "128,000 of 128,000, yellow on black"
+
+
+@nasm_case("INT 10h palette calls: Rollo's palette 0 on blue")
+def _():
+    colours = [CGA_COLOURS[1], CGA_COLOURS[2], CGA_COLOURS[4], CGA_COLOURS[6]]
+    size, wrong = compare_png("biospal", 320, 200, 3,
+                              lambda x, y: expected_320(x, y, 0, colours))
+    if wrong:
+        raise AssertionError(f"{len(wrong)} wrong pixels, first {wrong[:3]}")
+    return "64,000 of 64,000"
+
+
+@nasm_case("mode 4 through INT 10h draws exactly what the old renderer drew")
+def _():
+    import tempfile
+    m = comrun.Machine(build("int16"), keys=[ord("a"), ord("b")])
+    m.run(budget=200_000)
+    if not m.cga.programmed:
+        raise AssertionError("INT 10h AH=00 did not reach the CGA model")
+    with tempfile.TemporaryDirectory() as td:
+        new, old = Path(td) / "new.png", Path(td) / "old.png"
+        comrun.draw_screen(m, str(new))
+        comrun.to_png(m.framebuffer(), str(old), "1")
+        if new.read_bytes() != old.read_bytes():
+            raise AssertionError("the PNG differs from the old renderer's")
+    return "byte-identical PNG"
+
+
+@nasm_case("a program that never touches the adapter is drawn as before")
+def _():
+    m = comrun.Machine(build("kbdpoll"))
+    m.run(budget=200_000)
+    if m.cga.programmed:
+        raise AssertionError("the CGA counts as programmed by a program that never was")
+    return "not programmed, so mode 4 as always"
+
+
 def main():
     failures = 0
-    for name, fn in CASES:
+    cases = list(CASES)
+    nasm = find_nasm()
+    if nasm:
+        cases += NASM_CASES
+    for name, fn in cases:
         try:
-            print(f"  PASS  {name:<58} {fn()}")
+            print(f"  PASS  {name:<62} {fn()}")
         except AssertionError as e:
-            print(f"  FAIL  {name:<58} {e}")
+            print(f"  FAIL  {name:<62} {e}")
             failures += 1
     print()
+    if not nasm:
+        print(f"{len(NASM_CASES)} checks skipped: NASM not found (set NASM or put it on PATH)")
     if failures:
-        print(f"{failures} of {len(CASES)} checks failed.")
+        print(f"{failures} of {len(cases)} checks failed.")
         return 1
-    print(f"All {len(CASES)} comrun checks pass.")
+    print(f"All {len(cases)} comrun checks pass.")
     return 0
 
 

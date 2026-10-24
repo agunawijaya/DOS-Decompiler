@@ -25,11 +25,14 @@ What it emulates, and what it refuses to
 ----------------------------------------
 Enough DOS and BIOS to get a game to its first screen, and no more:
 
-  * INT 10h  video mode set and a few calls, recorded and otherwise ignored
+  * INT 10h  a mode set and a palette call go into the CGA's registers, for
+             drawing (below); everything else is recorded and ignored
   * INT 21h  the handful of functions a game uses before drawing
   * INT 20h  terminate
   * IN/OUT   port reads return a value that keeps timing loops moving, writes
-             are logged; there is no hardware here
+             are logged; there is no hardware here, except the CGA's
+             registers, which are kept, and the keyboard, the PIC's mask and
+             its end-of-interrupt, when keys go through the hardware
 
 It does not emulate a disk or a timer. It does emulate a keyboard, but only
 because it has to: a title screen that asks for one or two players never
@@ -42,6 +45,29 @@ until something answers `INT 16h`.
 after which the program is told the keyboard is empty again. Each entry is
 either a character (`1`) or a full `AX` as scancode:ASCII (`0x4800` for the up
 arrow, which has no character at all).
+
+A game that installs its own `INT 09h` handler never asks `INT 16h` anything:
+it reads port 0x60 when IRQ 1 fires. Rollo and Moon Bugs (Windmill, 1983) are
+written that way and stopped in their title loops for want of a key. With
+`--keyboard hw` the same queue goes through the hardware instead: each key is
+a make code in port 0x60 and an interrupt through whatever vector 9 holds,
+then its break code the same way, `--key-every` instructions apart; port
+0x64 says when a scancode is waiting, for a program that polls with IRQ 1
+masked; the PIC's mask and end-of-interrupt are honoured. A key that reaches
+the BIOS's own handler goes on into the `INT 16h` buffer, as it would on the
+machine. `--keyboard auto` starts on `INT 16h` and moves the keys not yet read
+to the hardware the moment the program replaces vector 9. The default is
+`bios`, and with it nothing here behaves differently from before.
+
+What it draws
+-------------
+The framebuffer at B800:0, as the CGA's registers say to draw it once the
+program has set any of them -- mode control (0x3D8), colour select (0x3D9),
+the CRTC's columns, rows, scanlines per row and start address (0x3D4/0x3D5),
+or a mode or palette through `INT 10h`, which writes the same registers. Until
+it has, the picture is 320x200 mode 4 in palette 1, as it always was. Text
+screens need an 8x8 font for anything but blank and the block characters
+(`--font`); the CGA's own is in its ROM and is not shipped here.
 
 What it loads
 -------------
@@ -74,6 +100,7 @@ Usage:
     python comrun.py GAME.COM --png screen.png
     python comrun.py GAME.EXE --files . --png screen.png
     python comrun.py GAME.COM --keys 1 --stop-at 0x3B1 --png frame.png
+    python comrun.py GAME.COM --keyboard hw --keys 0x3B00,1 --png frame.png
     python comrun.py GAME.COM --call 0x14D8 --png level1.png
     python comrun.py GAME.COM --call 0x14D8 --watch 0x217,0x268,0x2b1 \\
                               --json blits.json
@@ -87,7 +114,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 
 try:
-    from unicorn import (Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_CODE,
+    from unicorn import (Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_CODE, UC_HOOK_MEM_WRITE,
                          UC_HOOK_INTR, UC_HOOK_INSN, UC_PROT_ALL,
                          UcError)
     from unicorn.x86_const import (
@@ -116,7 +143,37 @@ PALETTES = {
 
 ZF = 0x40                       # the zero flag, bit 6 of FLAGS
 IF = 0x200                      # the interrupt flag, bit 9 -- see _fire_isr
+TF = 0x100                      # the trap flag, cleared with IF on entry
 CF = 0x01                       # the carry flag -- DOS's error flag
+
+# Instructions between two scancodes from --keyboard hw: a key is pressed,
+# held this long, released, and the next one pressed this long after. An
+# 8088 at 4.77 MHz runs very roughly 300,000 to 600,000 instructions a
+# second, so this is a short press. It has to be long, not short: a game that
+# reads its keyboard through its own handler usually keeps a flag per key,
+# set on the make code and cleared on the break, and polls the flags once a
+# frame. A press shorter than a frame is never seen.
+KEY_EVERY = 200_000
+KEY_RETRY = 500                 # a scancode waiting for IF or an EOI asks again
+
+# Scancode set 1, the XT's, for the keys a character can name. A key with no
+# character (an arrow, a function key) is given as a full AX, 0xSSCC, exactly
+# as --keys already takes it, and its scancode is SS. Shift is not pressed for
+# you: an upper-case letter is its key, unshifted.
+SCANCODES = {"\x1b": 0x01, "-": 0x0C, "=": 0x0D, "\x08": 0x0E, "\t": 0x0F,
+             "[": 0x1A, "]": 0x1B, "\r": 0x1C, ";": 0x27, "'": 0x28, "`": 0x29,
+             "\\": 0x2B, ",": 0x33, ".": 0x34, "/": 0x35, " ": 0x39}
+SCANCODES.update({c: 0x02 + i for i, c in enumerate("1234567890")})
+SCANCODES.update({c: 0x10 + i for i, c in enumerate("qwertyuiop")})
+SCANCODES.update({c: 0x1E + i for i, c in enumerate("asdfghjkl")})
+SCANCODES.update({c: 0x2C + i for i, c in enumerate("zxcvbnm")})
+
+
+def scancode_of(ax):
+    """The make code for a --keys entry, or None if it names no key."""
+    if ax > 0xFF:
+        return ax >> 8
+    return SCANCODES.get(chr(ax).lower())
 
 # One fixed timestamp for every file, packed the way DOS packs them: the date
 # is (year-1980)<<9 | month<<5 | day and the time is hour<<11 | minute<<5 |
@@ -143,6 +200,221 @@ def mz_header(data):
     return {"hdr": hdr, "end": min(end, len(data)), "nreloc": nreloc,
             "reloc": reloc, "cs": cs, "ip": ip, "ss": ss, "sp": sp,
             "minalloc": minalloc}
+
+
+# The CGA's sixteen colours, in RGBI order.
+RGBI = [(0, 0, 0), (0, 0, 170), (0, 170, 0), (0, 170, 170),
+        (170, 0, 0), (170, 0, 170), (170, 85, 0), (170, 170, 170),
+        (85, 85, 85), (85, 85, 255), (85, 255, 85), (85, 255, 255),
+        (255, 85, 85), (255, 85, 255), (255, 255, 85), (255, 255, 255)]
+
+
+class CGA:
+    """What the program told the colour adapter, register by register.
+
+    The framebuffer alone does not say what is on the screen. The same 16 KB
+    is 320 by 200 four-colour pixels in mode 4 and eighty columns of
+    character-and-attribute pairs in text mode, and which one is decided by
+    the mode-control register at port 0x3D8, the colour-select register at
+    0x3D9 and the 6845 CRTC behind 0x3D4/0x3D5. Moon Bugs programs all three
+    itself: for play it sets eighty-column text with two scanlines per
+    character row and fills the screen with character 0xDE, a right-hand half
+    block, so that every cell is two pixels in two of sixteen colours -- a
+    160 by 100 picture. Read as mode 4 that is vertical stripes, which is what
+    the capture of it showed.
+
+    INT 10h counts too, because the BIOS sets a mode by writing these same
+    registers (the IBM BIOS's tables, below) and a palette call by writing
+    0x3D9. A program that sets mode 4 through the BIOS and then pokes 0x3D9
+    is rendered with both.
+
+    Nothing here is consulted until the program touches the adapter: until
+    then `programmed` is False and the picture is drawn as mode 4, as it
+    always was. A mode this does not model (INT 10h AL=7 and above) also
+    falls back to that, and says so.
+    """
+
+    # 0x3D8 after INT 10h AH=00 for modes 0..6, and the CRTC tables the IBM
+    # BIOS loads with them. Moon Bugs' own graphics table is the third with
+    # R2 one less -- the horizontal position it lets the player adjust.
+    MODE_CONTROL = {0: 0x2C, 1: 0x28, 2: 0x2D, 3: 0x29, 4: 0x2A, 5: 0x2E, 6: 0x1E}
+    CRTC_40 = [0x38, 0x28, 0x2D, 0x0A, 0x1F, 0x06, 0x19, 0x1C,
+               0x02, 0x07, 0x06, 0x07, 0x00, 0x00, 0x00, 0x00]
+    CRTC_80 = [0x71, 0x50, 0x5A, 0x0A, 0x1F, 0x06, 0x19, 0x1C,
+               0x02, 0x07, 0x06, 0x07, 0x00, 0x00, 0x00, 0x00]
+    CRTC_GFX = [0x38, 0x28, 0x2D, 0x0A, 0x7F, 0x06, 0x64, 0x70,
+                0x02, 0x01, 0x06, 0x07, 0x00, 0x00, 0x00, 0x00]
+
+    def __init__(self):
+        # What DOS hands a program on a colour adapter: mode 3.
+        self.mode, self.color = self.MODE_CONTROL[3], 0x30
+        self.crtc = list(self.CRTC_80) + [0, 0]
+        self.index = 0
+        self.programmed = False
+        self.unsupported = None     # a BIOS mode number this does not model
+        self.writes = {"bios": [], "ports": set()}
+
+    def bios_mode(self, al):
+        """INT 10h AH=00, as the IBM BIOS does it."""
+        mode = al & 0x7F
+        self.programmed = True
+        self.writes["bios"].append(f"mode {mode}")
+        if mode not in self.MODE_CONTROL:
+            self.unsupported = mode
+            return
+        self.unsupported = None
+        self.mode = self.MODE_CONTROL[mode]
+        # 0x30 for every mode but 6, whose 0x3F is the foreground colour.
+        self.color = 0x3F if mode == 6 else 0x30
+        table = (self.CRTC_40 if mode in (0, 1) else
+                 self.CRTC_80 if mode in (2, 3) else self.CRTC_GFX)
+        self.crtc[:16] = table
+
+    def bios_palette(self, bh, bl):
+        """INT 10h AH=0Bh. BH=0 sets the background (bits 0-3) and, in
+        320-wide graphics, the intensity (bit 4); BH=1 the palette."""
+        self.programmed = True
+        self.writes["bios"].append(f"palette BH={bh} BL={bl}")
+        if bh == 0:
+            self.color = (self.color & 0xE0) | (bl & 0x1F)
+        elif bh == 1:
+            self.color = (self.color & 0xDF) | ((bl & 1) << 5)
+
+    def out(self, port, value, size=1):
+        """A write to the adapter's ports. True when the port was one of its.
+
+        0x3D0 to 0x3D7 all reach the CRTC: the even ones select a register
+        and the odd ones write it. A word written to the index port writes
+        the data port too, AL first, which is how `out dx, ax` programs a
+        register in one instruction."""
+        if not 0x3D0 <= port <= 0x3D9:
+            return False
+        self.programmed = True
+        self.writes["ports"].add(port)
+        if port == 0x3D8:
+            self.mode = value & 0xFF
+        elif port == 0x3D9:
+            self.color = value & 0xFF
+        elif port <= 0x3D7 and port % 2 == 0:
+            self.index = value & 0x1F
+            if size == 2:
+                self._crtc_write((value >> 8) & 0xFF)
+        elif port <= 0x3D7:
+            self._crtc_write(value & 0xFF)
+        return True
+
+    def _crtc_write(self, value):
+        if self.index < len(self.crtc):
+            self.crtc[self.index] = value
+
+    def describe(self):
+        m, r = self.mode, self.crtc
+        if not m & 0x08:
+            kind = "video disabled"
+        elif m & 0x02:
+            kind = ("640-wide graphics" if m & 0x10 else "320-wide graphics")
+        else:
+            kind = f"{r[1]}-column text"
+        return (f"{kind}, 3D8=0x{m:02X} 3D9=0x{self.color:02X}, {r[1]} columns by "
+                f"{r[6]} rows of {(r[9] & 0x1F) + 1} scanlines, start "
+                f"0x{(r[12] << 8 | r[13]) & 0x3FFF:04X}")
+
+
+# The glyphs a picture can be drawn from without a font: blank, the full
+# block and the four half blocks, which are geometry, not lettering. They are
+# what the 160 by 100 arrangement draws with. Anything else needs --font, the
+# 2,048 bytes of an 8-by-8 font (the CGA's own is in its ROM, and is not
+# shipped here); without one it is drawn as a hollow box and counted.
+BLOCK_GLYPHS = {0x00: [0] * 8, 0x20: [0] * 8, 0xFF: [0] * 8,
+                0xDB: [0xFF] * 8, 0xDC: [0] * 4 + [0xFF] * 4,
+                0xDD: [0xF0] * 8, 0xDE: [0x0F] * 8, 0xDF: [0xFF] * 4 + [0] * 4}
+UNKNOWN_GLYPH = [0x00, 0x7E, 0x42, 0x42, 0x42, 0x42, 0x7E, 0x00]
+MAX_LINES = 300                 # more than a CGA's 262 can show
+
+
+def render_cga(fb, cga, palette=None, font=None):
+    """The picture the registers describe: (PIL image, notes).
+
+    The image is at pixel resolution and already scaled for viewing: three
+    times in both directions for a 320-wide picture, as the old renderer
+    did, so a standard mode 4 comes out identical to it; twice across and
+    three times down for a 640-wide one, which keeps roughly the same shape.
+    `palette` ("0" or "1") overrides 0x3D9's palette in 320-wide graphics.
+    """
+    from PIL import Image
+    notes = []
+    m, r = cga.mode, cga.crtc
+    cols, rows, lines = r[1], r[6] & 0x7F, (r[9] & 0x1F) + 1
+    start = (r[12] << 8 | r[13]) & 0x3FFF
+    graphics, hires = bool(m & 0x02), bool(m & 0x10)
+    if graphics:
+        width = cols * (16 if hires else 8)
+    else:
+        width = cols * 8
+    height = min(rows * lines, MAX_LINES)
+    if rows * lines > MAX_LINES:
+        notes.append(f"{rows} rows of {lines} scanlines is more than a CGA shows; "
+                     f"the first {MAX_LINES} are drawn")
+    if not m & 0x08 or not width or not height:
+        why = ("video is disabled (3D8 bit 3 clear)" if not m & 0x08 else
+               f"the CRTC displays {cols} columns by {rows} rows")
+        notes.append(f"the screen is blank: {why}. The framebuffer still holds "
+                     f"whatever was drawn; --render mode4 shows it as before")
+        img = Image.new("RGB", (max(width, 320), max(height, 200)))
+        return img.resize((img.width * 3, img.height * 3), Image.NEAREST), notes
+
+    img = Image.new("RGB", (width, height))
+    px = img.load()
+    if graphics and not hires:
+        if palette is not None:
+            colours = list(PALETTES[palette])
+            colours[0] = RGBI[cga.color & 0x0F]
+        else:
+            bright = 8 if cga.color & 0x10 else 0
+            which = ((3, 4, 7) if m & 0x04 else
+                     (3, 5, 7) if cga.color & 0x20 else (2, 4, 6))
+            colours = [RGBI[cga.color & 0x0F]] + [RGBI[c + bright] for c in which]
+    elif graphics:
+        colours = [RGBI[0], RGBI[cga.color & 0x0F]]
+    unknown = 0
+    for line in range(height):
+        row, scan = divmod(line, lines)
+        base = start + row * cols                # a word address, as the CRTC counts
+        for col in range(cols):
+            if graphics:
+                at = (((base + col) * 2) & 0x1FFF) | ((scan & 1) << 13)
+                for half in (0, 1):
+                    v = fb[at + half]
+                    if hires:
+                        x0 = col * 16 + half * 8
+                        for k in range(8):
+                            px[x0 + k, line] = colours[(v >> (7 - k)) & 1]
+                    else:
+                        x0 = col * 8 + half * 4
+                        for k in range(4):
+                            px[x0 + k, line] = colours[(v >> (6 - k * 2)) & 3]
+            else:
+                at = ((base + col) * 2) & 0x3FFF
+                ch, attr = fb[at], fb[(at + 1) & 0x3FFF]
+                if font is not None:
+                    bits = font[ch * 8 + (scan & 7)]
+                else:
+                    glyph = BLOCK_GLYPHS.get(ch)
+                    if glyph is None:
+                        glyph = UNKNOWN_GLYPH
+                        if scan == 0:
+                            unknown += 1
+                    bits = glyph[scan & 7]
+                fg = RGBI[attr & 0x0F]
+                bg = RGBI[(attr >> 4) & (0x07 if m & 0x20 else 0x0F)]
+                for k in range(8):
+                    px[col * 8 + k, line] = fg if (bits >> (7 - k)) & 1 else bg
+    if unknown:
+        notes.append(f"{unknown} character cells hold a character with no built-in "
+                     f"glyph and are drawn as boxes; give --font with an 8x8 font "
+                     f"(2,048 bytes) to draw them")
+    across = 3 if width <= 320 else 2
+    return img.resize((width * across, height * 3), Image.NEAREST), notes
 
 
 class Machine:
@@ -220,6 +492,26 @@ class Machine:
         self.trace_io = False
         self.io_log = []
         self.pending_key = None     # what port 0x60 should hand over next
+        # The hardware keyboard: --keyboard hw or auto. Off by default, and
+        # while off nothing below is consulted and INT 16h, port 0x60 and the
+        # run loop behave exactly as they always have. See _keyboard_step.
+        self.keyboard = "bios"
+        self.hw_keys = []           # AX values still to go through the hardware
+        self.hw_every = KEY_EVERY   # instructions between two scancodes
+        self.hw_due = None          # self.steps at which the next one is due
+        self.hw_scancodes = []      # make then break of the key in flight
+        self.hw_ax = 0              # that key's AX, for a BIOS that reads it
+        self.hw_waiting = False     # latched in port 0x60, IRQ 1 not yet taken
+        self.kbd_latch = 0          # what port 0x60 holds
+        self.kbd_full = False       # port 0x64 bit 0: a scancode nobody read
+        self.kbd_route = None       # what --keyboard auto decided, once it has
+        self.kbd_hooked = None      # (step, segment, offset) of the program's INT 09h
+        self.kbd_log = {"scancodes": 0, "irq": 0, "to_bios": 0, "held": 0,
+                        "masked": 0, "eoi": 0}
+        self.pic_mask = 0           # port 0x21; bit 1 masks the keyboard
+        self.in_service = set()     # IRQ levels taken and not yet acknowledged
+        self._watching_vector9 = False
+        self.cga = CGA()            # what the program told the display adapter
         self.files = Path(files) if files else None
         self.open_files = {}        # handle -> [bytes, position, name]
         self.next_handle = 5        # 0-4 are the standard ones
@@ -429,6 +721,19 @@ class Machine:
             uc.emu_stop()
         elif num == 0x21:
             self._dos(uc, ah)
+        elif num == 0x10 and ah == 0x00:
+            self.cga.bios_mode(uc.reg_read(UC_X86_REG_AX) & 0xFF)
+        elif num == 0x10 and ah == 0x0B:
+            bx = uc.reg_read(UC_X86_REG_BX)
+            self.cga.bios_palette(bx >> 8, bx & 0xFF)
+        elif num == 0x09 and self._hardware_keys():
+            self._bios_keyboard()
+        elif num == 0x08 and self._hardware_keys():
+            # The BIOS's timer handler, reached by a program that chains to
+            # it. It acknowledges IRQ 0 itself, and so must this, or the PIC
+            # model holds IRQ 0 in service for ever and the keyboard's own
+            # acknowledgement is taken as IRQ 0's.
+            self.in_service.discard(0)
         elif num == 0x1A and ah == 0x00:
             # The BIOS tick count. Answering with a constant is not "no
             # effect": `int 0x1a / cmp dl, [last] / je` is how a game waits for
@@ -647,6 +952,10 @@ class Machine:
                 uc.reg_write(UC_X86_REG_ES, seg)
             else:
                 uc.mem_write(n, struct.pack("<HH", dx, ds))
+                if n == 9 * 4:
+                    self._vector9_set(ds, dx)
+                    if self.kbd_route is not None and self.hw_keys:
+                        uc.emu_stop()
             return
         if ah == 0x1A:                      # set disk transfer address
             self.dta = ((ds << 4) + dx)
@@ -800,6 +1109,21 @@ class Machine:
             self.pending_key = None
             self.ports.append(("in", port, v))
             return v
+        if port in (0x60, 0x64) and self._hardware_keys():
+            # The keyboard as hardware. Port 0x60 holds the last scancode
+            # until the next replaces it -- reading it twice gives the same
+            # byte, which handlers that read it once to decide and once to
+            # store rely on. Port 0x64 is the AT controller's status: bit 0
+            # says a scancode is waiting, which is what a program polling
+            # with IRQ 1 masked looks at; bits 2 and 4 say the system passed
+            # its self-test and the keyboard is not inhibited.
+            if port == 0x60:
+                v = self.kbd_latch
+                self.kbd_full = False
+            else:
+                v = 0x14 | (1 if self.kbd_full else 0)
+            self.ports.append(("in", port, v))
+            return v
         # Timing loops read a port until a bit changes. Alternating the value
         # keeps them moving instead of spinning forever; a constant is how an
         # emulator hangs on 1980s code.
@@ -808,6 +1132,18 @@ class Machine:
 
     def _on_out(self, uc, port, size, value, _=None):
         self.ports.append(("out", port, value))
+        self.cga.out(port, value, size)
+        if port == 0x20 and (value == 0x20 or 0x60 <= value <= 0x67):
+            # End of interrupt: 0x20 acknowledges the most urgent level in
+            # service (the lowest number), 0x60+n acknowledges level n.
+            level = (min(self.in_service) if value == 0x20 and self.in_service
+                     else value - 0x60 if value != 0x20 else None)
+            if level is not None:
+                self.in_service.discard(level)
+                if level == 1:
+                    self.kbd_log["eoi"] += 1
+        elif port == 0x21:
+            self.pic_mask = value & 0xFF
         return True
 
     # -- running -------------------------------------------------------------
@@ -824,22 +1160,48 @@ class Machine:
         addr = BASE + LOAD + start
         end = BASE + LOAD + stop if stop is not None else BASE + 0xFFFF
         left = budget
+        # Without a keyboard to drive this is the loop it always was: one
+        # slice for the whole budget, or one per timer interrupt, delivered at
+        # the same instruction counts as before. The keyboard only shortens a
+        # slice to reach the moment its next scancode is due.
+        timer_left = self.isr_every
+        if self.keyboard == "hw" and self.hw_keys and self.hw_due is None:
+            self.hw_due = self.steps + self.hw_every
+        if self.keyboard == "auto" and not self._watching_vector9:
+            # Only for auto: a memory hook, even on four bytes, is a cost on
+            # every run, and nothing else needs it.
+            self.uc.hook_add(UC_HOOK_MEM_WRITE, self._on_vector9_write, None,
+                             9 * 4, 9 * 4 + 3)
+            self._watching_vector9 = True
         while left > 0:
-            n = min(left, self.isr_every) if self.isr_vector else left
+            n = min(left, timer_left) if self.isr_vector else left
+            wait = self._keyboard_wait()
+            if wait is not None:
+                n = min(n, max(1, wait))
+            before = self.steps
             try:
                 self.uc.emu_start(addr, end, count=n)
             except UcError as e:
                 self.stopped = self.stopped or f"fault: {e} at {self._where()}"
                 break
-            left -= n
+            # What actually ran, which is n unless --keyboard auto ended the
+            # slice at the moment the program replaced vector 9.
+            ran = self.steps - before
+            left -= ran
+            timer_left -= ran
             if self.stopped is not None:
                 break
             cs = self.uc.reg_read(UC_X86_REG_CS)
             ip = self.uc.reg_read(UC_X86_REG_IP)
             addr = (cs << 4) + ip
-            if addr == end or not self.isr_vector or left <= 0:
+            wait = self._keyboard_wait()
+            if addr == end or left <= 0 or not (self.isr_vector or wait is not None):
                 break
-            addr = self._fire_isr(cs, ip)
+            if self.isr_vector and timer_left <= 0:
+                timer_left = self.isr_every
+                addr = self._fire_isr(cs, ip)
+            elif wait is not None and wait <= 0:
+                addr = self._keyboard_step(cs, ip)
         if self.stopped is None:
             if stop is not None:
                 self.stopped = "reached the stop address"
@@ -853,6 +1215,162 @@ class Machine:
                 # had stopped making progress long before either limit.
                 self.stopped = f"budget exhausted at {self._where()}"
         return self.stopped
+
+    # -- the keyboard as hardware ------------------------------------------
+    #
+    # Rollo and Moon Bugs (Windmill Software, 1983) never call INT 16h. Each
+    # writes its own handler into the INT 09h slot of the vector table, reads
+    # the scancode from port 0x60, keeps a flag per key, and acknowledges the
+    # PIC; the game polls the flags. A queue consumed by INT 16h never reaches
+    # it, and both runs stop in their title loops. So a key here can also be
+    # what it is on the machine: a make code in port 0x60 and an interrupt on
+    # IRQ 1, through whatever vector 9 holds, then the break code the same way.
+
+    def _hardware_keys(self):
+        """True while keys go through port 0x60 rather than INT 16h."""
+        return self.keyboard == "hw" or self.kbd_route == "hardware"
+
+    def _vector9(self):
+        off, seg = struct.unpack("<HH", self.uc.mem_read(9 * 4, 4))
+        return seg, off
+
+    def _keyboard_wait(self):
+        """Instructions until the keyboard next wants the run to stop, or None
+        when it has nothing to do -- in which case the loop is the old one."""
+        if not self._hardware_keys():
+            return None
+        if not (self.hw_keys or self.hw_scancodes or self.hw_waiting):
+            return None
+        if self.hw_due is None:
+            self.hw_due = self.steps + self.hw_every
+        return self.hw_due - self.steps
+
+    def _on_vector9_write(self, uc, access, address, size, value, _):
+        """--keyboard auto: the moment the program writes vector 9.
+
+        Watching the write, rather than looking at the vector now and then, is
+        what makes auto mean what it says. A program that installs its handler
+        and reads its first key within forty instructions has had both keys
+        through INT 16h before any periodic look would notice."""
+        if self.keyboard != "auto" or self.kbd_route is not None:
+            return
+        vector = bytearray(uc.mem_read(9 * 4, 4))
+        at = address - 9 * 4
+        vector[at:at + size] = value.to_bytes(8, "little")[:size][:4 - at]
+        off, seg = struct.unpack("<HH", bytes(vector))
+        self._vector9_set(seg, off)
+        if self.kbd_route is not None and self.hw_keys:
+            uc.emu_stop()       # so the run loop starts the schedule now
+
+    def _vector9_set(self, seg, off):
+        """The program's vector 9 is now seg:off; with --keyboard auto, decide."""
+        if self.keyboard != "auto" or self.kbd_route is not None:
+            return
+        if seg == (STUBS >> 4) or (seg, off) == (0, 0):
+            return
+        # The program has its own handler now, so the keys it has not read
+        # yet go the way its handler expects them.
+        self.kbd_route = "hardware"
+        self.kbd_hooked = (self.steps, seg, off)
+        self.hw_keys, self.keys = self.keys, []
+        self._sync_kbd()
+        self.hw_due = self.steps + self.hw_every
+
+    def _keyboard_step(self, cs, ip):
+        """Between two slices: latch a scancode in port 0x60 and raise IRQ 1.
+        Returns where execution continues."""
+        here = (cs << 4) + ip
+        if self.hw_due is None or self.steps < self.hw_due:
+            return here
+        if not self.hw_waiting:
+            if not self.hw_scancodes:
+                if not self.hw_keys:
+                    return here
+                self.hw_ax = self.hw_keys.pop(0)
+                make = scancode_of(self.hw_ax)
+                self.hw_scancodes = [make, make | 0x80]
+            # The scancode is in port 0x60 from now on, whether or not the
+            # interrupt can be taken yet.
+            self.kbd_latch = self.hw_scancodes.pop(0)
+            self.kbd_full = True
+            self.hw_waiting = True
+            self.kbd_log["scancodes"] += 1
+        if self.pic_mask & 0x02:
+            # IRQ 1 is masked: the program polls port 0x64 instead, and the
+            # scancode waits in port 0x60 for it.
+            self.kbd_log["masked"] += 1
+            self.hw_waiting = False
+            self.hw_due = self.steps + self.hw_every
+            return here
+        flags = self.uc.reg_read(UC_X86_REG_EFLAGS) & 0xFFFF
+        if not flags & IF or self.in_service & {0, 1}:
+            # Not now: interrupts are off, or the PIC has not been told the
+            # last one was handled (or the timer's, which outranks it). The
+            # hardware would hold IRQ 1 pending; ask again shortly.
+            self.kbd_log["held"] += 1
+            self.hw_due = self.steps + KEY_RETRY
+            return here
+        seg, off = self._vector9()
+        hooked = seg != (STUBS >> 4) and (seg, off) != (0, 0)
+        if hooked and self.kbd_hooked is None:
+            self.kbd_hooked = (self.steps, seg, off)
+        sp = (self.uc.reg_read(UC_X86_REG_SP) - 6) & 0xFFFF
+        ss = self.uc.reg_read(UC_X86_REG_SS)
+        self.uc.mem_write((ss << 4) + sp, struct.pack("<HHH", ip, cs, flags))
+        self.uc.reg_write(UC_X86_REG_SP, sp)
+        # The CPU clears IF and TF on the way in; the handler's iret puts back
+        # the FLAGS pushed above.
+        self.uc.reg_write(UC_X86_REG_EFLAGS, flags & ~(IF | TF))
+        self.uc.reg_write(UC_X86_REG_CS, seg)
+        self.in_service.add(1)
+        self.hw_waiting = False
+        self.kbd_log["irq"] += 1
+        self.hw_due = self.steps + self.hw_every
+        return (seg << 4) + off
+
+    def _bios_keyboard(self):
+        """What the BIOS's own INT 09h handler does with a scancode: a make
+        code becomes a key in the INT 16h buffer; the PIC is acknowledged.
+
+        Reached when IRQ 1 finds vector 9 still pointing at the BIOS, or when
+        the program's handler chains to the vector it replaced. The key put
+        in the buffer is the --keys entry itself, so INT 16h hands over the
+        same AX it would have without the hardware in between."""
+        code = self.kbd_latch
+        self.kbd_full = False
+        if not code & 0x80:
+            self.keys.append(self.hw_ax)
+            self._sync_kbd()
+            self.kbd_log["to_bios"] += 1
+        self.in_service.discard(1)
+
+    def keyboard_summary(self, total):
+        """One line on where the keys went, for the end of a run."""
+        k = self.kbd_log
+        left = len(self.hw_keys)
+        if self.keyboard == "auto" and self.kbd_route is None:
+            return ("keyboard  : auto -- INT 09h was never replaced, so every key went "
+                    "to INT 16h, as with --keyboard bios")
+        how = ("--keyboard hw" if self.keyboard == "hw" else
+               f"auto: the program replaced INT 09h at instruction "
+               f"{self.kbd_hooked[0]:,}")
+        line = (f"keyboard  : hardware ({how}): {k['scancodes']} scancodes in port "
+                f"0x60, IRQ 1 taken {k['irq']} times")
+        if self.kbd_hooked:
+            line += f" by the handler at {self.kbd_hooked[1]:04X}:{self.kbd_hooked[2]:04X}"
+        if k["to_bios"]:
+            line += f"; {k['to_bios']} reached the BIOS handler and so INT 16h"
+        if k["masked"]:
+            line += f"; {k['masked']} left in the port with IRQ 1 masked"
+        if k["held"]:
+            line += f"; {k['held']} times held back for IF or an EOI"
+        line += f"; {left} of {total} keys never pressed"
+        if self.hw_scancodes or self.hw_waiting:
+            line += ", and the last was still down when the run ended"
+        if k["irq"] and not k["eoi"] and not k["to_bios"] and k["held"]:
+            line += ("\n            the handler never acknowledged the PIC (no EOI on "
+                     "port 0x20), so every later IRQ 1 waited for one")
+        return line
 
     def _enable_interrupts(self):
         """Start with IF set, the way DOS hands a program control.
@@ -918,6 +1436,16 @@ class Machine:
         sp = (sp - 6) & 0xFFFF
         self.uc.mem_write((ss << 4) + sp, struct.pack("<HHH", ip, cs, flags))
         self.uc.reg_write(UC_X86_REG_SP, sp)
+        if self._hardware_keys():
+            # The CPU clears IF on the way into any interrupt. This did not,
+            # and nothing could tell while the timer was the only interrupt
+            # delivered; with a keyboard as well, a scancode taken one
+            # instruction into a timer handler nests where hardware would not
+            # let it. Runs without hardware keys keep the old behaviour, so
+            # their timer deliveries land exactly where they always did.
+            self.uc.reg_write(UC_X86_REG_EFLAGS, flags & ~(IF | TF))
+            if self.isr_vector == 0x08:
+                self.in_service.add(0)
         # CS must move with the jump. Unicorn keeps a segment base and a
         # 16-bit IP separately, so restarting at the handler's linear address
         # while CS still names the interrupted segment leaves the two
@@ -1072,6 +1600,27 @@ def to_png(fb, path, palette="1", scale=3):
     return img
 
 
+def draw_screen(machine, path, render="cga", palette=None, font=None):
+    """Write the screen to a PNG; the lines that say how it was drawn.
+
+    As mode 4, exactly as before, when asked to or when the program never
+    touched the adapter -- and then there is nothing to say. Otherwise from
+    the CGA's registers, and the lines say what they held."""
+    cga = machine.cga
+    if render == "mode4" or not cga.programmed or cga.unsupported is not None:
+        to_png(machine.framebuffer(), path, palette or "1")
+        if cga.unsupported is not None and render == "cga":
+            return [f"screen    : INT 10h set mode {cga.unsupported}, which this "
+                    f"renderer does not model; drawn as mode 4"]
+        return []
+    img, notes = render_cga(machine.framebuffer(), cga, palette, font)
+    img.save(path)
+    how = ", ".join(cga.writes["bios"][-3:] +
+                    [f"port 0x{p:X}" for p in sorted(cga.writes["ports"])])
+    return ([f"screen    : CGA {cga.describe()}", f"            set by {how}"]
+            + [f"            {note}" for note in notes])
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1120,6 +1669,20 @@ def main():
     ap.add_argument("--keys", help="keystrokes for INT 16h, comma separated: "
                                    "a character, or a full AX as 0xSSCC "
                                    "(scancode:ASCII)")
+    ap.add_argument("--keyboard", choices=("bios", "hw", "auto"), default="bios",
+                    help="where --keys go. bios (the default): to INT 16h, as "
+                         "always. hw: through the hardware -- each key a make "
+                         "and a break code in port 0x60, each raising IRQ 1 "
+                         "through whatever INT 09h vector holds, for a game "
+                         "with its own keyboard handler; a key that reaches "
+                         "the BIOS's handler goes on to INT 16h. auto: INT 16h "
+                         "until the program replaces vector 9, then the keys "
+                         "not yet read go through the hardware. The output "
+                         "says which happened")
+    ap.add_argument("--key-every", type=int, default=KEY_EVERY, metavar="N",
+                    help=f"with --keyboard hw or auto, instructions between "
+                         f"two scancodes: how long a key is held, and how long "
+                         f"until the next (default {KEY_EVERY:,})")
     ap.add_argument("--ax", help="value to put in AX before --call")
     ap.add_argument("--handler", help="INT 9 handler offset, for --scancodes")
     ap.add_argument("--scancodes",
@@ -1134,7 +1697,20 @@ def main():
                          "message and exits")
     ap.add_argument("--budget", type=int, default=20_000_000)
     ap.add_argument("--png")
-    ap.add_argument("--palette", default="1", choices=sorted(PALETTES))
+    ap.add_argument("--palette", default=None, choices=sorted(PALETTES),
+                    help="force the 320-wide palette (0 or 1, as bright as "
+                         "mode 4's default). Without it the palette is what "
+                         "the program set, or 1 if it set none")
+    ap.add_argument("--render", choices=("cga", "mode4"), default="cga",
+                    help="cga (the default): draw what the CGA's registers "
+                         "say -- mode, palette, columns, rows, scanlines per "
+                         "row, start address -- once the program has set "
+                         "any of them, by port or by INT 10h. mode4: draw the "
+                         "framebuffer as 320x200 mode 4 whatever was set, as "
+                         "before")
+    ap.add_argument("--font", metavar="FILE",
+                    help="an 8x8 font, 2,048 bytes, for text screens. Without "
+                         "it only blank and the block characters are drawn")
     ap.add_argument("--json")
     ap.add_argument("--exec-map", metavar="FILE",
                     help="write every image offset the program executed, "
@@ -1146,9 +1722,28 @@ def main():
     for k in (args.keys.split(",") if args.keys else []):
         keys.append(int(k, 0) if k.lower().startswith("0x") else ord(k[0]))
 
+    if args.keyboard != "bios":
+        unnamed = [k for k in keys if scancode_of(k) is None]
+        if unnamed:
+            ap.error(f"no scancode for {', '.join(repr(chr(k)) for k in unnamed)}; give "
+                     f"such a key as 0xSSCC, its scancode and ASCII code")
+        if args.gate or args.at:
+            ap.error("--gate and --at hand keys to INT 16h at chosen places; with "
+                     "--keyboard hw or auto the keys go through port 0x60 on a "
+                     "schedule instead. Use one or the other")
+    font = None
+    if args.font:
+        font = Path(args.font).read_bytes()
+        if len(font) != 2048:
+            ap.error(f"{args.font} is {len(font):,} bytes; an 8x8 font for 256 "
+                     f"characters is 2,048")
+
     image = Path(args.binary).read_bytes()
     m = Machine(image, keys=keys,
                 files=args.files or Path(args.binary).parent)
+    m.keyboard, m.hw_every = args.keyboard, args.key_every
+    if args.keyboard == "hw":
+        m.hw_keys, m.keys = m.keys, []
     if args.exec_map:
         m.exec_map = set()
 
@@ -1207,7 +1802,9 @@ def main():
         print(f"  timer interrupts delivered: {m.isr_fired:,}"
               + (f", {m.isr_masked:,} skipped with interrupts disabled"
                  if m.isr_masked else ""))
-    if args.keys:
+    if args.keys and args.keyboard != "bios":
+        print("  " + m.keyboard_summary(len(keys)))
+    if args.keys and (args.keyboard == "bios" or m.keys_read):
         print(f"  keyboard: {m.keys_read} reads, {len(m.keys)} of "
               f"{len(keys)} keys unused")
 
@@ -1275,7 +1872,11 @@ def main():
         print("  " + data.hex(" "))
 
     if args.png:
-        to_png(m.framebuffer(), args.png, args.palette)
+        lines = draw_screen(m, args.png, args.render, args.palette, font)
+        if lines:
+            print("")
+            for line in lines:
+                print(line)
         print(f"\nwrote {args.png}")
     if args.json:
         Path(args.json).write_text(json.dumps(
