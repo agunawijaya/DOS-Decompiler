@@ -232,6 +232,26 @@ def _():
     return f"counter {counter}, escaped to jmp $"
 
 
+@case("--no-joystick: port 0x201 reads 0xFF, and alternates without it")
+def _():
+    # in al, dx with DX = 0x201, twice, each stored: 0201 and 0202.
+    probe = bytes((0xBA, 0x01, 0x02,            # mov dx, 0x201
+                   0xEC, 0xA2, 0x01, 0x02,      # in al, dx / mov [0x201], al
+                   0xEC, 0xA2, 0x02, 0x02,      # in al, dx / mov [0x202], al
+                   0xEB, 0xFE))                 # jmp $
+    seen = {}
+    for absent in (False, True):
+        m = comrun.Machine(probe)
+        m.no_joystick = absent
+        m.run(budget=1_000)
+        seen[absent] = bytes(m.uc.mem_read(comrun.BASE + 0x201, 2))
+    if seen[True] != b"\xff\xff":
+        raise AssertionError(f"with no joystick the port read {seen[True].hex()}")
+    if seen[False][0] == seen[False][1]:
+        raise AssertionError(f"without it the reads did not alternate: {seen[False].hex()}")
+    return f"0xFF twice; {seen[False].hex(' ')} by default, as before"
+
+
 @case("no timer ISR by default")
 def _():
     m = comrun.Machine(b"\xEB\xFE")

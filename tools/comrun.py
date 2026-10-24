@@ -512,6 +512,7 @@ class Machine:
         self.in_service = set()     # IRQ levels taken and not yet acknowledged
         self._watching_vector9 = False
         self.cga = CGA()            # what the program told the display adapter
+        self.no_joystick = False    # port 0x201 as a machine with no game adapter
         self.files = Path(files) if files else None
         self.open_files = {}        # handle -> [bytes, position, name]
         self.next_handle = 5        # 0-4 are the standard ones
@@ -1124,6 +1125,15 @@ class Machine:
                 v = 0x14 | (1 if self.kbd_full else 0)
             self.ports.append(("in", port, v))
             return v
+        if port == 0x201 and self.no_joystick:
+            # No game adapter: an empty port reads 0xFF, so the axis bits
+            # never fall and no button is down. Rollo probes for a joystick
+            # this way, and the alternating answer below told it one was
+            # there; its title loop then took a "button" from the noise and
+            # started a game nobody asked for -- an Esc that should only have
+            # changed the menu appeared to start play.
+            self.ports.append(("in", port, 0xFF))
+            return 0xFF
         # Timing loops read a port until a bit changes. Alternating the value
         # keeps them moving instead of spinning forever; a constant is how an
         # emulator hangs on 1980s code.
@@ -1679,6 +1689,12 @@ def main():
                          "until the program replaces vector 9, then the keys "
                          "not yet read go through the hardware. The output "
                          "says which happened")
+    ap.add_argument("--no-joystick", action="store_true",
+                    help="answer port 0x201 with 0xFF, as a PC with no game "
+                         "adapter does. Without it the port's alternating "
+                         "answer passes a joystick probe, and a game that "
+                         "finds one reads its buttons from noise (Zaxxon, "
+                         "Rollo)")
     ap.add_argument("--key-every", type=int, default=KEY_EVERY, metavar="N",
                     help=f"with --keyboard hw or auto, instructions between "
                          f"two scancodes: how long a key is held, and how long "
@@ -1742,6 +1758,7 @@ def main():
     m = Machine(image, keys=keys,
                 files=args.files or Path(args.binary).parent)
     m.keyboard, m.hw_every = args.keyboard, args.key_every
+    m.no_joystick = args.no_joystick
     if args.keyboard == "hw":
         m.hw_keys, m.keys = m.keys, []
     if args.exec_map:
