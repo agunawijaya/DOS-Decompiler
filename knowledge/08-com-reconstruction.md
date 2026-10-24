@@ -764,8 +764,8 @@ belongs to the routine before it, whose cheat-key check differs); a small
 immediate written in decimal, which the script's `0x` pattern left as a
 literal (two routines); a unit that ran past its `ret` to the next label
 (one); and a routine whose units were all under 12 bytes (one, the scancode
-lookup above). None of them is a disagreement about what a pair of routines
-is.
+lookup above). The middle two are slips in the script's fingerprint, not a
+different reading of the code: the pairs it missed have the same instructions.
 
 `tests/comdiff/` has two sibling programs written for the purpose, one
 routine of each kind, and the MCP server has the tool as `comdiff`, reading
