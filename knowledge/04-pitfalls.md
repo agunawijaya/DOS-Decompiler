@@ -391,15 +391,15 @@ the first. The first version therefore called the second fault of a sweep a
 at the start of every case; it costs 0.4 microseconds. A tool that makes a
 fresh instance per run never sees this, which is why the comparison never did.
 
-**`emuverify.py`'s comparison has a wall-clock limit.** Each run is
-`emu_start(..., timeout=2_000_000)`: two seconds, then it stops, and a
-function stopped that way is dropped as unrunnable. On a busy machine that
-can change the count. Comparing Talisman against itself (`--limit 60`), one
-run profiled 59 functions on side A and 60 on side B, though both sides were
-the same file. Eight later runs, in four pairs, did not repeat it: each pair
-was byte-identical. Treat a one-function wobble in "functions profiled" as
-this before anything else. The sweep budgets by
-instruction count only, so it cannot wobble this way.
+**`emuverify.py`'s comparison previously had a wall-clock limit.** Each run used
+`emu_start(..., timeout=2_000_000)`: two seconds, then it stopped, and a
+function stopped that way was dropped as unrunnable. On a busy machine that
+wobbled the count. In prompt 11 (commit `f79b2c5`), this was replaced with a
+deterministic instruction budget of 50,000 instructions and `timeout=0`. The
+budget was derived from measuring the slowest legitimate returning routine on
+Sopwith (`movedata_` at 32,787 instructions, providing 52% headroom), and tested
+under a 5.17x CPU load variation (112.15 s vs 580.25 s) to prove 100% bit-for-bit
+identical profiles and matches.
 
 ## Analysis
 
