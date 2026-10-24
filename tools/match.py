@@ -366,13 +366,17 @@ class Aligner:
 
     GAP = -0.25   # cost of leaving a function unmatched
 
-    def __init__(self, matcher, anchors, segments=None, use_segments=False):
+    def __init__(self, matcher, anchors, segments=None, use_segments=False,
+                 module_order=None):
         self.m = matcher
         self.anchors = anchors
         self.segments = segments
         self.use_segments = use_segments
+        self.module_order = module_order
 
     def infer_module_order(self):
+        if getattr(self, "module_order", None) is not None:
+            return list(self.module_order)
         # Segment-derived ordering was implemented and measured, and it is
         # worse. See _order_from_segments. Anchor positions win, so they are
         # the default and segments stay opt-in for experimentation.
@@ -445,9 +449,18 @@ class Aligner:
         return ranked + unplaced
 
     def ordered_source(self):
-        file_rank = {f: i for i, f in enumerate(self.infer_module_order())}
+        order = self.infer_module_order()
+        file_rank = {f: i for i, f in enumerate(order)}
+        if getattr(self, "module_order", None) is not None:
+            # Explicit module order: align only functions from declared modules.
+            # Unlinked source files in the same directory (e.g. monolithic alternative
+            # builds or test harnesses) are excluded so their duplicate symbols
+            # and extra functions do not contaminate the sequence alignment.
+            src_list = [f for f in self.m.src if f.get("file") in file_rank]
+        else:
+            src_list = self.m.src
         return sorted(
-            self.m.src,
+            src_list,
             key=lambda f: (file_rank.get(f.get("file"), 10 ** 6),
                            f.get("line") or 0))
 
@@ -652,11 +665,10 @@ def main():
 
     if args.align:
         anchors = dict(m.mapping)
-        aligner = Aligner(m, anchors)
+        order = None
         if args.module_order:
             order = json.loads(Path(args.module_order).read_text(encoding="utf-8"))
-            aligner.infer_module_order = lambda: list(order) + sorted(
-                {f.get("file") for f in m.src} - set(order))
+        aligner = Aligner(m, anchors, module_order=order)
         pairs = aligner.align(floor=args.align_floor)
         m.mapping, m.reverse, m.scores = {}, {}, {}
         for sname, (bentry, sc) in pairs.items():
