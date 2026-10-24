@@ -52,16 +52,21 @@ TOOLS = HERE.parent.parent / "tools"
 # Floors, not targets. Set a little under the measured figures so that normal
 # variation between Ghidra versions does not cause spurious failures, but a
 # real regression does.
-FLOOR_ENTRY_RECALL = 0.75
-FLOOR_PRECISION_KNOWN_ORDER = 0.85
+# Measured by the architect at b5d630c (after prompt 12), from a fresh pipeline
+# run with the env.ps1 build and source: entries 121/148, known order
+# 0.944/0.562, inferred 0.587/0.223, emulation 109 at 1.000. Report 12's own
+# figures (0.972, 0.726, 138/166) came from folders it did not record and could
+# not be reproduced, so they are not the reference.
+FLOOR_ENTRY_RECALL = 0.80
+FLOOR_PRECISION_KNOWN_ORDER = 0.92
 FLOOR_PRECISION_INFERRED = 0.58
-FLOOR_RECALL_KNOWN_ORDER = 0.46
+FLOOR_RECALL_KNOWN_ORDER = 0.54
 FLOOR_LIBRARY_PRECISION = 0.95    # a false positive discards real game code
 FLOOR_LIBRARY_RECALL = 0.80
 # Emulation decides equivalence rather than scoring resemblance, so anything
 # below a perfect score means the harness is wrong, not merely weak.
 FLOOR_EMU_PRECISION = 1.0
-FLOOR_EMU_MATCHES = 100
+FLOOR_EMU_MATCHES = 105
 
 
 def run(cmd):
