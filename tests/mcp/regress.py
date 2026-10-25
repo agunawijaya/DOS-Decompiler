@@ -36,11 +36,13 @@ SERVER = ROOT / "mcp_server" / "server.py"
 SWEEP_FIX = ROOT / "tests" / "sweep" / "fixtures"
 COM_FIX = ROOT / "tests" / "com" / "fixtures"
 COMDIFF_FIX = ROOT / "tests" / "comdiff" / "fixtures"
+COMRUN_FIX = ROOT / "tests" / "comrun" / "fixtures"
+OVERLAY_FIX = ROOT / "tests" / "overlays" / "fixtures"
 
 TOOLS = ["survey", "triage", "open_binary", "close_binary", "list_sessions", "unpack",
          "analyze", "verify_load_image", "address_map", "read_bytes", "list_functions",
          "function", "coverage", "anchors", "libsig", "apply_names", "emuverify", "sweep",
-         "comrec", "comdiff"]
+         "comrec", "comdiff", "comrun", "overlays"]
 
 CASES = []
 
@@ -57,6 +59,7 @@ class Fix:
     sweep_exe = None
     com = None
     siblings = ()        # the two programs tests/comdiff compares
+    extra = {}           # prompt 15's: swint, a .COM named .PTL, overlaid, EXEPACK
     labels = {}
     session = None       # the MCP client session
 
@@ -500,6 +503,92 @@ async def _():
     return env["result"]["reason"][:90]
 
 
+@case("unpack an EXEPACK file: the layout read from its stub, the agreement, an MZ that loads")
+async def _():
+    env, err = await call("open_binary", path=str(Fix.extra["packed"]))
+    check(not err, f"open_binary: {env['result']}")
+    sid, folder = env["result"]["session_id"], Path(env["result"]["folder"])
+    env, err = await call("unpack", session_id=sid)
+    info, exepack = env["result"]["info"], env["result"]["exepack"]
+    check(not err and env["status"] == "ok"
+          and info["layout"] == "the 18-byte layout, with skip_len"
+          and info["agreeing_bytes"] == info["compared_bytes"] and info["relocations"] == 8
+          and any(w.startswith("skip_len at [0x0E]") for w in exepack["layout_why"])
+          and "an MZ that loads" in env["result"]["next_step"], f"unpack: {env['result']}")
+    check(Path(env["result"]["written"]).parent.parent == folder, "written outside the session")
+    await call("close_binary", session_id=sid)
+    return f"{info['agreement']} bytes agree, {info['relocations']} relocations rebuilt"
+
+
+@case("comrun: a .COM's own INT 80h, 60h and 21h reached, the run as data, the screen kept")
+async def _():
+    env, err = await call("open_binary", path=str(Fix.extra["swint"]), format="com")
+    sid, folder = env["result"]["session_id"], Path(env["result"]["folder"])
+    env, err = await call("comrec", session_id=sid, seeds_from="session")
+    check(err and "no exec map" in env["result"]["reason"], f"seeds before a run: {env['result']}")
+    env, err = await call("comrun", session_id=sid, budget=100_000, exec_map=True,
+                          bios_text=True, no_joystick=True)
+    envelope_ok(env)
+    r = env["result"]
+    check(not err and env["status"] == "ok" and len(r["printed"]) == 3
+          and r["dispatched"]["80h"]["count"] == 1 and r["dispatched"]["21h"]["count"] == 4
+          and r["replaced_vectors"] == ["21h", "60h", "80h"] and "vectors" in r["summary_lines"],
+          f"comrun: {env['status']} {r}")
+    check(all(Path(p).is_file() and Path(p).parent.parent == folder for p in r["written"])
+          and len(r["written"]) == 3, f"written: {r['written']}")
+    env, err = await call("comrec", session_id=sid, seeds_from="session")
+    check(not err and env["status"] == "verified"
+          and any("executed addresses" in line for line in env["result"]["lines"]),
+          f"comrec with the session's seeds: {env['status']} {env['result'].get('lines')}")
+    env, err = await call("comrun", session_id=sid, keyboard="sideways")
+    check(err and "bios, hw or auto" in env["result"]["reason"], "a bad keyboard was taken")
+    await call("close_binary", session_id=sid)
+    return "3 lines, INT 21h 4 times through its own; comrec seeded from the run, verified"
+
+
+@case("format: open_binary and triage say a .PTL looks like a .COM; triage and survey take com")
+async def _():
+    ptl = Fix.extra["ptl"]
+    env, err = await call("open_binary", path=str(ptl))
+    check(err and "looks like a .COM image" in env["result"]["reason"], f"auto: {env['result']}")
+    env, err = await call("triage", path=str(ptl))
+    check(env["result"]["format"] == "not-MZ" and "looks_like_com" in env["result"],
+          f"triage auto: {env['result']}")
+    env, err = await call("triage", path=str(ptl), format="com")
+    check(not err and env["result"]["format"] == "COM", f"triage com: {env['result']}")
+    env, err = await call("triage", path=str(ptl), format="mz")
+    check(err and env["status"] == "blocked" and "no MZ header" in env["result"]["reason"],
+          f"triage mz: {env['result']}")
+    env, err = await call("survey", folder=str(ptl.parent), format="com")
+    coms = [f["path"] for f in env["result"]["com_files"]]
+    check(not err and "GAME.PTL" in coms, f"survey com: {coms}")
+    env, err = await call("survey", folder=str(ptl.parent), format="mz")
+    check(err, "survey took format mz")
+    return "refused with the hint; COM with format com; mz blocked; survey triages it"
+
+
+@case("overlays: listed, views written in the session, a view opened with its record")
+async def _():
+    env, err = await call("open_binary", path=str(Fix.extra["overlaid"]))
+    sid, folder = env["result"]["session_id"], Path(env["result"]["folder"])
+    env, err = await call("overlays", session_id=sid)
+    listing = env["result"]["listing"]
+    check(not err and [m["overlay"] for m in listing["modules"]] == [1, 2]
+          and listing["int3f_calls"] == 3 and not env["result"]["views"], f"list: {listing}")
+    env, err = await call("overlays", session_id=sid, views=True)
+    views = env["result"]["views"]
+    check(not err and len(views) == 2 and all(Path(v["view"]).parent.parent == folder
+                                               for v in views), f"views: {env['result']}")
+    env, err = await call("open_binary", path=views[1]["view"])
+    vid = env["result"]["session_id"]
+    record = env["result"].get("overlay_view_record")
+    check(not err and record and json.loads(Path(record).read_text())["result"]["overlay"] == 2,
+          f"open the view: {env['result']}")
+    for s in (vid, sid):
+        await call("close_binary", session_id=s)
+    return "2 modules, 3 int 3Fh; 2 views in the session; view 2 opened with its record"
+
+
 @case("sweep on prompt 05's fixture with its Python candidate")
 async def _():
     sid, _ = await open_mz()
@@ -640,6 +729,31 @@ def build():
     for out, n in zip(Fix.siblings, ("cmpa", "cmpb")):
         subprocess.run([nasm, "-f", "bin", "-o", str(out), str(COMDIFF_FIX / f"{n}.asm")],
                        check=True)
+    # Prompt 15's, in a folder of their own: a .COM with its own INT 80h, 60h
+    # and 21h; a .COM image named .PTL; an MZ with two LINK overlays; and an
+    # EXEPACK file of the 18-byte layout, packed by tests/unpack's packer.
+    extra = Fix.work / "more"
+    extra.mkdir()
+    Fix.extra = {"swint": extra / "SWINT.COM", "ptl": extra / "GAME.PTL",
+                 "overlaid": extra / "OVERLAID.EXE", "packed": extra / "PACKED.EXE"}
+    subprocess.run([nasm, "-f", "bin", "-o", str(Fix.extra["swint"]),
+                    str(COMRUN_FIX / "swint.asm")], check=True)
+    subprocess.run([nasm, "-f", "bin", "-o", str(Fix.extra["ptl"]),
+                    str(COM_FIX / "jmpstub.asm")], check=True)
+    subprocess.run([nasm, "-f", "bin", "-o", str(Fix.extra["overlaid"]),
+                    str(OVERLAY_FIX / "overlaid.asm")], check=True)
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("unpack_regress",
+                                                  ROOT / "tests" / "unpack" / "regress.py")
+    packer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(packer)
+    program = Fix.work / "program.exe"
+    stub = Fix.work / "stub18.bin"
+    subprocess.run([nasm, "-f", "bin", "-o", str(program),
+                    str(ROOT / "tests" / "unpack" / "fixtures" / "program.asm")], check=True)
+    subprocess.run([nasm, "-f", "bin", "-DHEADER=18", "-o", str(stub),
+                    str(ROOT / "tests" / "unpack" / "fixtures" / "stub.asm")], check=True)
+    Fix.extra["packed"].write_bytes(packer.pack(program.read_bytes(), stub.read_bytes(), 18))
     # A Microsoft LINK map of the sweep fixture, from its labels.
     L = Fix.labels
     dg = L["data_start"] // 16
@@ -706,7 +820,7 @@ def main():
             print(f"mcp regress: {why}")
             return 77
         originals = {p: (p.stat().st_mtime_ns, p.read_bytes())
-                     for p in (Fix.sweep_exe, Fix.com, *Fix.siblings)}
+                     for p in (Fix.sweep_exe, Fix.com, *Fix.siblings, *Fix.extra.values())}
         failures, skipped, run = asyncio.run(run_all(args.only))
         left = [p for p in (Fix.work / "sessions").glob("*") if p.name != "_cache"] \
             if (Fix.work / "sessions").exists() else []
@@ -716,8 +830,9 @@ def main():
         run += 1
         touched = [p.name for p, (mtime, data) in originals.items()
                    if p.stat().st_mtime_ns != mtime or p.read_bytes() != data]
-        beside = sorted(p.name for p in Fix.sweep_exe.parent.iterdir()
-                        if p not in originals)
+        beside = sorted(p.name for folder in (Fix.sweep_exe.parent,
+                                              Fix.extra["swint"].parent)
+                        for p in folder.iterdir() if p not in originals)
         if touched or beside:
             print(f"  FAIL  {'the originals are untouched and nothing was written beside them':<78} "
                   f"changed {touched}, new beside them {beside}")

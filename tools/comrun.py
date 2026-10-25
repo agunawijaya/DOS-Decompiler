@@ -2128,6 +2128,37 @@ def exec_map_json(machine, loaded, binary):
             "executed": sorted(rows)}
 
 
+def run_summary(machine, args, why, keys, screen_lines):
+    """What --summary-json writes: the run's result as data, for a caller that
+    is not a terminal (the MCP server's comrun). The same facts the printed
+    report gives, read from the machine, not parsed back out of the text."""
+    m = machine
+    lines = {}
+    if args.timer != "bios":
+        lines["timer"] = m.timer_summary()
+    if args.keys and args.keyboard != "bios":
+        lines["keyboard"] = m.keyboard_summary(len(keys))
+    if m.dispatched:
+        lines["vectors"] = m.vector_summary()
+    printed = "".join(m.output).replace("\r\n", "\n").strip()
+    return {
+        "binary": str(args.binary), "format": "COM" if m.mz is None else "MZ",
+        "instructions": m.steps, "stopped": why,
+        "interrupts": sorted({f"{n:02X}h" for n, _ in m.ints}),
+        "ports_written": [f"0x{p:X}" for p in sorted({p for d, p, _ in m.ports if d == "out"})],
+        "keys_given": len(keys), "keys_read": m.keys_read,
+        "replaced_vectors": [f"{n:02X}h" for n in m.replaced_vectors()],
+        "dispatched": {f"{n:02X}h": {"count": c, "handlers": [f"{s:04X}:{o:04X}" for s, o in h]}
+                       for n, (c, h) in sorted(m.dispatched.items())},
+        "files_opened": list(dict.fromkeys(m.file_reads)),
+        "files_not_found": list(dict.fromkeys(m.file_misses)),
+        "printed": printed.split("\n") if printed else [],
+        "bios_characters": m.bios_chars, "summary_lines": lines,
+        "screen": screen_lines, "png": args.png, "exec_map_json": args.exec_map_json,
+        "exec_map": args.exec_map,
+    }
+
+
 def draw_screen(machine, path, render="cga", palette=None, font=None):
     """Write the screen to a PNG; the lines that say how it was drawn.
 
@@ -2278,6 +2309,11 @@ def main():
                          "ones loaded when the run ended: what comrec "
                          "--seeds-from checks against its layout")
     ap.add_argument("--dump", help="write a memory range as OFF:LEN")
+    ap.add_argument("--summary-json", metavar="FILE",
+                    help="also write the run's result as JSON: where it stopped, "
+                         "the interrupts, the vectors the program replaced and "
+                         "the `int`s sent to them, files, what it printed, how the "
+                         "screen was drawn. The printed report is unchanged")
     args = ap.parse_args()
 
     keys = []
@@ -2454,8 +2490,10 @@ def main():
         print(f"\nmemory at {off}, {n} bytes:")
         print("  " + data.hex(" "))
 
+    screen_lines = []
     if args.png:
         lines = draw_screen(m, args.png, args.render, args.palette, font)
+        screen_lines = lines
         if lines:
             print("")
             for line in lines:
@@ -2483,6 +2521,10 @@ def main():
         print(f"executed {len(data['executed']):,} distinct CS:IP"
               + (f", {changed:,} of them in bytes changed since they were loaded"
                  if changed else "") + f" -> {args.exec_map_json}")
+    if args.summary_json:
+        Path(args.summary_json).write_text(
+            json.dumps(run_summary(m, args, why, keys, screen_lines), indent=2),
+            encoding="utf-8")
     return 0
 
 

@@ -107,19 +107,24 @@ async def call(fn, *args, **kwargs):
 # ---------------------------------------------------------------- admission
 
 @server.tool()
-async def survey(folder: str, limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+async def survey(folder: str, limit: int | None = None, cursor: str | None = None,
+                 format: str = "auto") -> CallToolResult:
     """Survey a game folder: every executable triaged, batch files read, and
-    which executable looks like the game and why. folder is absolute."""
-    return await call(op.survey, folder, limit, cursor)
+    which executable looks like the game and why. folder is absolute. Files
+    whose content looks like a .COM image under another name are listed;
+    format "com" triages them as .COM images."""
+    return await call(op.survey, folder, limit, cursor, format)
 
 
 @server.tool()
 async def triage(session_id: str | None = None, path: str | None = None,
-                 limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+                 limit: int | None = None, cursor: str | None = None,
+                 format: str = "auto") -> CallToolResult:
     """Is this program in scope? Packers, overlays, interpreted engines,
     memory model, with the file offset of each finding. Run this first.
-    Pass a session_id, or an absolute path."""
-    return await call(op.triage, session_id, path, limit, cursor)
+    Pass a session_id (triaged as it was opened), or an absolute path with
+    format auto, com (a .COM image whatever its name) or mz."""
+    return await call(op.triage, session_id, path, limit, cursor, format)
 
 
 @server.tool()
@@ -155,11 +160,53 @@ async def unpack(session_id: str, out: str | None = None,
 
 @server.tool()
 async def comrec(session_id: str, out: str | None = None, keep_to: str | None = None,
-                 limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+                 limit: int | None = None, cursor: str | None = None,
+                 seeds_from: str | None = None) -> CallToolResult:
     """Rebuild a .COM as NASM source and prove it byte-identical (status
     verified) or say why not. The .asm is written inside the session (out,
-    if given, must be inside it); keep_to keeps a copy elsewhere."""
-    return await call(op.comrec, session_id, out, keep_to, limit, cursor)
+    if given, must be inside it); keep_to keeps a copy elsewhere. seeds_from
+    is an exec map comrun wrote -- an absolute path, or "session" for the one
+    this session's comrun wrote with exec_map -- whose executed addresses the
+    walk starts from too, each checked against the origin it ran at."""
+    return await call(op.comrec, session_id, out, keep_to, limit, cursor, seeds_from)
+
+
+@server.tool()
+async def comrun(session_id: str, keys: str | None = None, keyboard: str = "bios",
+                 timer: str = "bios", no_joystick: bool = False, bios_text: bool = False,
+                 budget: int = 2_000_000, key_every: int | None = None,
+                 timer_every: int | None = None, png: bool = True, exec_map: bool = False,
+                 files: str | None = None, stop_at: str | None = None, timeout: int = 900,
+                 keep_to: str | None = None, limit: int | None = None,
+                 cursor: str | None = None) -> CallToolResult:
+    """Run the session's program under emulation (comrun.py) and capture what
+    it draws and does: where it stopped, interrupts, the vectors it replaced
+    and the `int`s sent to its own handlers, files, what it printed, and the
+    screen as comrun/screen.png in the session. keys as on the command line
+    ("1,a,0x4800"); keyboard and timer bios, hw or auto -- auto moves keys and
+    ticks to the program's own INT 09h and 08h when it installs them;
+    no_joystick for a program that probes port 0x201; bios_text to draw text
+    printed through INT 10h. exec_map writes comrun/exec-map.json for comrec's
+    seeds_from="session". files is the data folder, read only; by default the
+    original's. Stopped after timeout seconds."""
+    return await call(op.comrun, session_id, keys, keyboard, timer, no_joystick, bios_text,
+                      budget, key_every, timer_every, png, exec_map, files, stop_at,
+                      timeout, keep_to, limit, cursor)
+
+
+@server.tool()
+async def overlays(session_id: str, views: bool = False, root_session: str | None = None,
+                   load_segment: str | None = None, keep_to: str | None = None,
+                   limit: int | None = None, cursor: str | None = None) -> CallToolResult:
+    """The Microsoft LINK overlays appended to an MZ session, found as LINK's
+    overlay manager finds them, with the overlay area's segment and the
+    root's int 3Fh calls. views writes one view per module inside the
+    session -- the root with that module in place, both relocation tables --
+    each with a record; open_binary a view and analyze it, and its
+    loadimage.json says which overlay it is. A packed root: unpack first, or
+    pass the unpacked root as root_session."""
+    return await call(op.overlays, session_id, views, root_session, load_segment, keep_to,
+                      limit, cursor)
 
 
 @server.tool()

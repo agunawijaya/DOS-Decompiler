@@ -108,20 +108,29 @@ def quietly(fn, *args, **kwargs):
 # ---------------------------------------------------------------- admission
 
 @guarded("survey")
-def survey(folder, limit=None, cursor=None):
+def survey(folder, limit=None, cursor=None, format="auto"):
+    """survey.py on a folder. format "com" triages a file whose content looks
+    like a .COM image as one, whatever its name."""
     import survey as tool
+    if format not in ("auto", "com"):
+        raise Refused(f"format {format!r} is not auto or com", "pass one of those")
     p = safety.absolute(folder, "folder", kind="dir")
-    return paged(tool.envelope(str(p)), limit, cursor)
+    return paged(tool.envelope(str(p), format), limit, cursor)
 
 
 @guarded("triage")
-def triage(session_id=None, path=None, limit=None, cursor=None):
+def triage(session_id=None, path=None, limit=None, cursor=None, format="auto"):
+    """triage.py on a session's copy, as the session was admitted, or on an
+    absolute path with format auto, com or mz."""
     import triage as tool
+    if format not in tool.FORMATS:
+        raise Refused(f"format {format!r} is not auto, com or mz", "pass one of those")
     if session_id:
-        p = sessions.get(session_id).copy
+        s = sessions.get(session_id)
+        p, format = s.copy, ("com" if s.format == "com" else "auto")
     else:
         p = safety.absolute(path, "path", kind="file")
-    return paged(tool.envelope(str(p)), limit, cursor)
+    return paged(tool.envelope(str(p), format), limit, cursor)
 
 
 @guarded("open_binary")
@@ -138,10 +147,13 @@ def open_binary(path, format="auto"):
         raise Refused(f"format {format!r} is not auto, mz or com", "pass one of those")
     if format == "auto":
         if not is_mz:
+            import triage as tool
+            looks = tool.looks_like_com(p.read_bytes()) if size <= MAX_COM else None
             raise Refused(
                 f"{p.name} does not start with MZ, so it is not an MZ executable; and a "
                 f".COM has no header to recognise it by, so neither its name nor a guess "
-                f"is enough to read it as one",
+                f"is enough to read it as one"
+                + (f". It looks like a .COM image, though: {looks['why']}" if looks else ""),
                 'if it is a .COM, open it again with format="com"')
         fmt = "mz"
     elif format == "mz":
@@ -157,10 +169,16 @@ def open_binary(path, format="auto"):
                           "check the file: DOS would refuse to run it as a .COM")
         fmt = "com"
     s = sessions.admit(p, fmt)
-    return evidence.envelope("open_binary", s.record["original"], status="ok", result={
-        "session_id": s.id, "format": fmt, "folder": str(s.folder), "copy": str(s.copy),
-        "original": str(p),
-        "next_step": "triage it" if fmt == "mz" else "comrec it: a .COM takes the .COM route"})
+    result = {"session_id": s.id, "format": fmt, "folder": str(s.folder), "copy": str(s.copy),
+              "original": str(p),
+              "next_step": "triage it" if fmt == "mz" else "comrec it: a .COM takes the .COM route"}
+    # An overlay view comes with the record overlays.py wrote beside it, and
+    # pipeline.ps1 finds the record beside the copy under the same name.
+    record = p.with_suffix(".view.json")
+    if fmt == "mz" and record.is_file():
+        shutil.copy2(record, s.copy.with_suffix(".view.json"))
+        result["overlay_view_record"] = str(s.copy.with_suffix(".view.json"))
+    return evidence.envelope("open_binary", s.record["original"], status="ok", result=result)
 
 
 @guarded("close_binary")
@@ -227,25 +245,40 @@ def unpack(session_id, out=None, keep_to=None):
         raise Refused("a .COM is not unpacked by this tool", "use comrec for a .COM")
     out = safety.output_inside(out, "out", s.folder) if out else \
         s.folder / "unpacked" / f"{s.copy.stem}-unpacked.exe"
-    (data, info), notes = quietly(tool.unpack, str(s.copy))
-    info = {k: v for k, v in info.items() if isinstance(v, (int, str, bool, float, type(None)))}
+    (data, full), notes = quietly(tool.unpack, str(s.copy))
+    info = {k: v for k, v in full.items() if isinstance(v, (int, str, bool, float, type(None)))}
+    # EXEPACK's layout, as read from its stub, and the two readings compared.
+    exepack = {k: full[k] for k in ("layout_why", "static") if k in full}
     if data is None:
         return evidence.envelope("unpack", target_of(s), status="blocked", result={
-            "reason": "no unpacked entry point was reached: either the file is not packed, "
-                      "or its decompressor needs more of DOS than unpack.py stubs out",
+            "reason": full.get("problem") or (
+                "no unpacked entry point was reached: either the file is not packed, "
+                "or its decompressor needs more of DOS than unpack.py stubs out"),
             "next_step": "triage says whether it is packed; nothing was written",
-            "info": info, "notes": notes})
+            "info": info, "exepack": exepack, "notes": notes})
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_bytes(data)
+    loads = full.get("relocations") is not None
     return evidence.envelope("unpack", target_of(s), status="ok", result={
         "written": str(out), "kept": keep([out], keep_to, s.original), "info": info,
-        "notes": notes,
-        "next_step": f"open_binary {out} to work on the unpacked image; it is for "
-                     f"analysis, and relocations are not reconstructed, so it will not run"})
+        "exepack": exepack, "notes": notes,
+        "next_step": (f"open_binary {out}: an MZ that loads, with EXEPACK's own relocation "
+                      f"table, and any overlays carried across" if loads else
+                      f"open_binary {out} to work on the unpacked image; it is for "
+                      f"analysis, and relocations are not reconstructed, so it will not run")})
+
+
+def session_exec_map(s):
+    """The exec map the session's last comrun wrote, if it wrote one."""
+    return s.folder / "comrun" / "exec-map.json"
 
 
 @guarded("comrec")
-def comrec(session_id, out=None, keep_to=None, limit=None, cursor=None):
+def comrec(session_id, out=None, keep_to=None, limit=None, cursor=None, seeds_from=None):
+    """comrec.py on a .COM session. seeds_from is an exec map comrun wrote --
+    an absolute path, or "session" for the one the session's own comrun wrote
+    with exec_map -- whose addresses the walk starts from as well, each
+    checked against the origin it ran at."""
     import comrec as tool
     s = sessions.get(session_id)
     if s.format != "com":
@@ -254,7 +287,16 @@ def comrec(session_id, out=None, keep_to=None, limit=None, cursor=None):
                       "run tools/comrec.py on it directly if that is what you mean")
     out = safety.output_inside(out, "out", s.folder) if out else \
         s.folder / "comrec" / f"{s.copy.stem}.asm"
-    report, code = tool.reconstruct(str(s.copy), str(out), mapfile=str(out.with_suffix(".map")))
+    seeds = None
+    if seeds_from == "session":
+        seeds = session_exec_map(s)
+        if not seeds.is_file():
+            raise Refused(f"session {s.id} has no exec map: its comrun has not run with "
+                          f"exec_map", "run comrun on the session with exec_map true first")
+    elif seeds_from:
+        seeds = safety.absolute(seeds_from, "seeds_from", kind="file")
+    report, code = tool.reconstruct(str(s.copy), str(out), mapfile=str(out.with_suffix(".map")),
+                                    seeds_from=str(seeds) if seeds else None)
     report["kept"] = keep(report["written"], keep_to, s.original)
     return paged(evidence.envelope("comrec", target_of(s),
                                    status="verified" if report["byte_identical"] else "mismatch",
@@ -286,6 +328,106 @@ def comdiff(session_a, session_b, min_bytes=None, similar=None, emulate=True, li
     except tool.Refused as e:
         raise Refused(str(e), "read the reason: it names what to do")
     return paged(tool.envelope(result), limit, cursor)
+
+
+COMRUN_TIMEOUT = 900           # seconds for one run; 40 million instructions take ~110
+KEYBOARD = ("bios", "hw", "auto")
+
+
+@guarded("comrun")
+def comrun(session_id, keys=None, keyboard="bios", timer="bios", no_joystick=False,
+           bios_text=False, budget=2_000_000, key_every=None, timer_every=None,
+           png=True, exec_map=False, files=None, stop_at=None, timeout=COMRUN_TIMEOUT,
+           keep_to=None, limit=None, cursor=None):
+    """comrun.py on the session's copy, as the command line runs it, with the
+    capture written inside the session: comrun/screen.png, comrun/exec-map.json
+    (what comrec's seeds_from="session" reads) and comrun/summary.json, whose
+    content is the result. files is the folder the program's data is read
+    from, never written: by default the original's own."""
+    s = sessions.get(session_id)
+    if keyboard not in KEYBOARD or timer not in KEYBOARD:
+        raise Refused(f"keyboard {keyboard!r} and timer {timer!r} must each be bios, hw "
+                      f"or auto", "pass one of those")
+    budget = parse_number(budget, "budget")
+    if not 1 <= budget <= 400_000_000:
+        raise Refused(f"budget {budget:,} is not between 1 and 400,000,000 instructions",
+                      "a first screen takes a few million; ask for less")
+    data_dir = safety.absolute(files, "files", kind="dir") if files else s.original.parent
+    folder = s.folder / "comrun"
+    shutil.rmtree(folder, ignore_errors=True)
+    folder.mkdir(parents=True)
+    summary = folder / "summary.json"
+    args = [sys.executable, str(TOOLS / "comrun.py"), str(s.copy), "--files", str(data_dir),
+            "--keyboard", keyboard, "--timer", timer, "--budget", str(budget),
+            "--summary-json", str(summary)]
+    if keys:
+        args += ["--keys", str(keys)]
+    if no_joystick:
+        args.append("--no-joystick")
+    if bios_text:
+        args.append("--bios-text")
+    for flag, value in (("--key-every", key_every), ("--timer-every", timer_every)):
+        if value is not None:
+            args += [flag, str(parse_number(value, flag[2:]))]
+    if stop_at is not None:
+        args += ["--stop-at", f"{parse_number(stop_at, 'stop_at'):x}"]
+    written = [summary]
+    if png:
+        args += ["--png", str(folder / "screen.png")]
+        written.append(folder / "screen.png")
+    if exec_map:
+        args += ["--exec-map-json", str(session_exec_map(s))]
+        written.append(session_exec_map(s))
+    code, log = safety.run(args, timeout, "comrun.py", cwd=str(folder))
+    if code != 0 or not summary.is_file():
+        raise Refused(f"comrun.py stopped (exit {code}) before writing its summary",
+                      "read its output: " + " | ".join(log.strip().splitlines()[-8:]))
+    result = json.loads(summary.read_text(encoding="utf-8"))
+    result.update(session_id=s.id, files=str(data_dir), output=log.strip().splitlines(),
+                  written=[str(p) for p in written if p.exists()])
+    result["kept"] = keep([p for p in written if p.exists()], keep_to, s.original)
+    return paged(evidence.envelope("comrun", target_of(s), status="ok", result=result),
+                 limit, cursor, whole=("interrupts", "ports_written", "replaced_vectors"))
+
+
+@guarded("overlays")
+def overlays(session_id, views=False, root_session=None, load_segment=None, keep_to=None,
+             limit=None, cursor=None):
+    """overlays.py on an MZ session: the Microsoft LINK overlays appended to
+    it and, with views, one view per module written inside the session, each
+    with its record. A view is opened with open_binary like any file; its
+    record goes with it, and analyze records which overlay it is. A packed
+    root needs unpacking first: unpack carries the overlays across, or pass
+    the unpacked root as root_session."""
+    import overlays as tool
+    s = sessions.get(session_id)
+    if s.format != "mz":
+        raise Refused("a .COM has no overlays in LINK's format", "use comrec for a .COM")
+    root = sessions.get(root_session).copy if root_session else None
+    data = s.copy.read_bytes()
+    found = tool.find(data)
+    root_found = tool.find(root.read_bytes()) if root else None
+    listing = tool.describe(str(s.copy), found, str(root) if root else None, root_found)
+    result = {"listing": listing, "views": [], "refused": []}
+    if views:
+        folder = s.folder / "overlays"
+        segment = parse_number(load_segment, "load_segment")
+        try:
+            made = tool.write_views(str(s.copy), str(folder), str(root) if root else None, segment)
+        except SystemExit as e:
+            raise Refused(str(e), "read the reason: it names what to do")
+        for overlay, view, record in made:
+            if view is None:
+                result["refused"].append({"overlay": overlay, "reason": record})
+            else:
+                result["views"].append({"overlay": overlay, "view": str(view),
+                                        "record": str(record)})
+        result["kept"] = keep([Path(v[k]) for v in result["views"] for k in ("view", "record")],
+                              keep_to, s.original)
+        result["next_step"] = ("open_binary a view, then analyze it: the record beside it "
+                               "goes along, and loadimage.json says which overlay it is")
+    return paged(evidence.envelope("overlays", target_of(s), status="ok", result=result),
+                 limit, cursor)
 
 
 # ---------------------------------------------------------------- analysis
