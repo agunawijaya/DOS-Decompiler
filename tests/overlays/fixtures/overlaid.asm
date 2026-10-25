@@ -98,14 +98,14 @@ fix_entry_data equ $ - 2
 handler:
     push bp
     mov bp, sp
-    push ax
-    push bx
-    push cx
-    push dx
-    push si
-    push di
     push ds
+    push ax
+    push si
     push es
+    push bx
+    push di
+    push dx
+    push cx
     mov ds, [bp + 4]
     mov si, [bp + 2]
     lodsb
@@ -123,14 +123,14 @@ fix_handler_data equ $ - 2
     mov ax, [psp - data_start]
     add ax, 0x10 + AREA_SEG
     mov [cs:target_seg - code_start], ax
-    pop es
-    pop ds
-    pop di
-    pop si
-    pop dx
     pop cx
+    pop dx
+    pop di
     pop bx
+    pop es
+    pop si
     pop ax
+    pop ds
     pop bp
     jmp far [cs:target_off - code_start]
 
@@ -259,9 +259,9 @@ area_start:
     times AREA_PARAS * 16 db 0          ; the overlay area: empty in the file
 
 data_start:
-line_root:   db 'root: calling into the overlays', 0x0D, 0x0A, '$'
-line_done:   db 'root: three overlay calls returned', 0x0D, 0x0A, '$'
-line_failed: db 'root: the overlay could not be loaded', 0x0D, 0x0A, '$'
+line_root:   db 'root: calling overlays', 0x0D, 0x0A, '$'
+line_done:   db 'root: 3 overlay calls back', 0x0D, 0x0A, '$'
+line_failed: db 'root: overlay load failed', 0x0D, 0x0A, '$'
 file_name:   db 'OVERLAID.EXE', 0
 calls:       db 0
 resident:    db 0
@@ -320,7 +320,7 @@ ov1_fix_data equ $ - 2
     pop ds
     iret
 ov1_text:       db 'overlay 1: called', 0x0D, 0x0A, '$'
-ov1_text_again: db 'overlay 1: called again, read from the file again', 0x0D, 0x0A, '$'
+ov1_text_again: db 'overlay 1: called again, reloaded', 0x0D, 0x0A, '$'
 ov1_end:
     times (OV1_TOTAL + 511) / 512 * 512 - ($ - ov1) db 0
 
@@ -355,7 +355,7 @@ ov2_hello:
     call OV2_SEG2:(ov2_count - ov2_second)
 ov2_fix_far equ $ - 2
     iret
-ov2_text: db 'overlay 2: called, its second segment next', 0x0D, 0x0A, '$'
+ov2_text: db 'overlay 2: called, segment 2 next', 0x0D, 0x0A, '$'
     align 16, db 0
 ov2_second:
 ov2_count:

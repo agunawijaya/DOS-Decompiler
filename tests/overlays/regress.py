@@ -315,7 +315,7 @@ def _():
     m = comrun.Machine(EXE.read_bytes(), files=EXE.parent)
     why = m.run(budget=200_000)
     printed = [line for line in "".join(m.output).splitlines() if line]
-    if len(printed) != 5 or printed[-1] != "root: three overlay calls returned":
+    if len(printed) != 5 or printed[-1] != "root: 3 overlay calls back":
         raise AssertionError(f"printed {printed}, stopped: {why}")
     counts = {n: c for n, (c, _) in m.dispatched.items()}
     assert counts == {0x3F: 3}, counts

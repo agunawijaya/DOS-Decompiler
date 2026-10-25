@@ -822,7 +822,7 @@ class Machine:
     # the vector table, so a vector the program has replaced was never used:
     # Tapper (1983) installs an INT 80h that reads its data file sector by
     # sector through DOS, and its `int 80h` reached nothing here, the read
-    # never happened, and the game printed "Disk Error". So an `int n` goes
+    # never happened, and the game stopped on its disk error. So an `int n` goes
     # where the CPU would send it -- the handler in vector n, with FLAGS, CS
     # and the return IP pushed and IF and TF cleared -- whenever vector n is
     # no longer the stub this harness put there. Every other `int` is
