@@ -33,14 +33,27 @@ what this reports.
 
 Segments
 --------
-Some .COM programs relocate themselves to a fresh segment boundary and jump
-there, so the same file holds regions whose addresses are relative to different
-bases. Pass `--segment FILE_OFFSET:BASE` for each; anything before the first is
-assumed to be the usual .COM layout at 0x100.
+Some .COM programs move to a fresh segment boundary and jump there, so the
+same file holds regions whose addresses are relative to different bases. A far
+jump the walk reaches -- a far return after pushing CS + N and an offset, a
+`jmp far [ptr]` through a pointer just written, a `jmp seg:off` whose operand
+was -- is followed when everything it loads is a constant or CS itself, and
+the file is split where it lands; one whose target is computed is reported
+and not followed. Pass `--segment FILE_OFFSET:BASE` to give the layout
+yourself; anything before the first is the usual .COM layout at 0x100, and far
+jumps are then only reported against it.
+
+What a run executed
+-------------------
+`--seeds-from` takes the exec map comrun wrote and walks from every address
+the program executed that the walk here did not reach. From `--exec-map-json`
+each comes with the CS:IP it ran at, and one that ran at an origin this layout
+does not give it is refused, with the --segment that would agree.
 
 Usage:
     python comrec.py GAME.COM --out src/game.asm
     python comrec.py GAME.COM --out src/game.asm --segment 0x2B40:0 --entry 0x2B40
+    python comrec.py GAME.COM --out src/game.asm --seeds-from exec-map.json
 """
 
 import argparse
@@ -54,7 +67,8 @@ import tempfile
 from pathlib import Path
 
 try:
-    from capstone import Cs, CS_ARCH_X86, CS_MODE_16
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_16, CS_AC_WRITE
+    from capstone.x86 import X86_OP_IMM, X86_OP_MEM, X86_OP_REG
 except ImportError:  # pragma: no cover
     print("comrec: capstone is required (pip install capstone)", file=sys.stderr)
     raise
@@ -144,6 +158,16 @@ def to_nasm(insn):
     ops = ops.replace("ptr ", "")
     # es:[0x10] -> [es:0x10]
     ops = re.sub(r"\b(cs|ds|es|ss|fs|gs):\[", r"[\1:", ops)
+
+    # Capstone's `ljmp` and `lcall` are not NASM's: a far jump through memory
+    # is `jmp far [0x140]`, a direct one `jmp 0x1234:0x0`, and capstone writes
+    # the direct far call's two halves with a comma. Unspelled, every one was
+    # pinned to bytes, Moon Patrol's entry stub among them.
+    if mn in ("ljmp", "lcall"):
+        mn = mn[1:]
+        if ops.startswith("["):
+            return f"{mn} far {ops}"
+        return f"{mn} {ops.replace(', ', ':')}"
     # NASM wants no space inside the size specifier it already understands
     ops = re.sub(r"\s+", " ", ops).strip()
     return f"{mn} {ops}".strip() if ops else mn
@@ -187,6 +211,213 @@ def variants(text, has_label):
     return out
 
 
+# Every part of a register by the name capstone gives it, and the word it
+# belongs to: writing AL changes AX, and AX is then no longer the constant it
+# was.
+WORD_OF = {"al": "ax", "ah": "ax", "eax": "ax", "bl": "bx", "bh": "bx", "ebx": "bx",
+           "cl": "cx", "ch": "cx", "ecx": "cx", "dl": "dx", "dh": "dx", "edx": "dx",
+           "esi": "si", "edi": "di", "ebp": "bp", "esp": "sp"}
+WORDS = ("ax", "bx", "cx", "dx", "si", "di", "bp")
+SEGMENT_REGS = ("cs", "ds", "es", "ss")
+
+
+class FarTrace:
+    """What a straight run of instructions leaves in the registers, on the
+    stack and in memory, where a constant or CS can say it.
+
+    A far jump is not followed on trust. Moon Patrol (1983) begins
+
+        mov ax, cs / add ax, 0x20 / mov [0x142], ax / xor ax, ax
+        mov [0x140], ax / jmp far [0x140]
+
+    and the target, CS + 0x20 : 0, is a fact only because every value on the
+    way to it is a constant or CS itself. So each value here is one of
+
+        ("cs", k)              the segment k paragraphs above this code's CS
+        ("const", v)           a number
+        ("?", at, text, why)   not known, and the instruction that made it so
+
+    and every instruction this does not model makes whatever it writes
+    unknown. The evaluator this replaced did the opposite -- anything it did
+    not recognise was assumed to leave the registers alone -- and on
+    `add ax, [extra]` it kept CS + 0x20, split the file where the program
+    never goes, and still rebuilt it byte for byte.
+
+    Memory is followed only at constant addresses, a word at a time, keyed
+    by the segment register's value where it is known: the stub's
+    `mov [0x142], ax` and its `jmp far [0x140]` both go through DS, and at a
+    .COM's entry DS is the program's own segment. A write through a register
+    forgets all of memory, an interrupt or a call forgets every register it
+    could return in, and a call forgets the stack.
+    """
+
+    def __init__(self, start, entry=False):
+        self.start = start
+        self.regs = {"cs": ("cs", 0)}
+        if entry:
+            # How DOS starts a .COM: every segment register at the PSP.
+            for name in ("ds", "es", "ss"):
+                self.regs[name] = ("cs", 0)
+        self.generation = dict.fromkeys(SEGMENT_REGS, 0)
+        self.mem = {}
+        self.stack = []
+        self.stack_lost = None      # the instruction that moved SP by hand
+        self.pushed = 0             # words this run pushed itself
+
+    def reg(self, name):
+        if name in self.regs:
+            return self.regs[name]
+        return ("?", self.start, None, f"{name} is set before file 0x{self.start:05X}, "
+                                       f"where this straight run begins")
+
+    def _segment(self, name):
+        """What a memory key is made of: the segment's value where it is
+        known, and otherwise a name that changes whenever the register does."""
+        value = self.reg(name)
+        return value if value[0] != "?" else ("seg", name, self.generation[name])
+
+    def _address(self, insn, op):
+        """(segment, offset) of a memory operand at a constant address, else None."""
+        if op.mem.base or op.mem.index:
+            return None
+        seg = insn.reg_name(op.mem.segment) if op.mem.segment else "ds"
+        return self._segment(seg), op.mem.disp & 0xFFFF
+
+    def _read(self, insn, op, here):
+        if op.type == X86_OP_IMM:
+            return ("const", op.imm & 0xFFFF)
+        if op.type == X86_OP_REG:
+            name = insn.reg_name(op.reg)
+            if name in WORDS or name in SEGMENT_REGS:
+                return self.reg(name)
+            return ("?", *here, f"{name} is part of a register; only whole words are followed")
+        key = self._address(insn, op)
+        if key is None or op.size != 2:
+            return ("?", *here, "reads memory through a register")
+        if key not in self.mem:
+            return ("?", *here, f"reads [{key[1]:#x}], which this run does not write")
+        return self.mem[key]
+
+    def _write(self, insn, op, value, here):
+        if op.type == X86_OP_REG:
+            name = insn.reg_name(op.reg)
+            if name in WORDS or name in SEGMENT_REGS:
+                self._write_name(name, value)
+            elif WORD_OF.get(name) in WORDS:
+                self.regs[WORD_OF[name]] = ("?", *here, f"{name} is written alone")
+            return
+        key = self._address(insn, op)
+        if key is None:
+            self.mem.clear()
+            return
+        seg, at = key
+        for overlap in ((seg, (at - 1) & 0xFFFF), (seg, (at + 1) & 0xFFFF), key):
+            self.mem.pop(overlap, None)
+        if op.size == 2:
+            self.mem[key] = value
+
+    def _write_name(self, name, value):
+        if name in SEGMENT_REGS:
+            self.generation[name] += 1
+        self.regs[name] = value
+
+    def _arith(self, mn, a, b, here):
+        if a[0] == "?":
+            return a
+        if b[0] == "?":
+            return b
+        if b[0] == "const":
+            n = b[1] - 0x10000 if b[1] >= 0x8000 else b[1]
+            n = -n if mn in ("sub", "dec") else n
+            return (a[0], (a[1] + n) & 0xFFFF if a[0] == "const" else a[1] + n)
+        if a[0] == "const" and mn == "add":
+            return ("cs", b[1] + a[1])
+        return ("?", *here, "combines two segments")
+
+    def step(self, insn, at):
+        """One instruction's effect on what is known."""
+        mn, ops = insn.mnemonic, insn.operands
+        here = (at, to_nasm(insn))
+        if mn == "mov" and len(ops) == 2:
+            self._write(insn, ops[0], self._read(insn, ops[1], here), here)
+        elif (mn in ("xor", "sub") and len(ops) == 2 and ops[0].type == ops[1].type == X86_OP_REG
+              and ops[0].reg == ops[1].reg and insn.reg_name(ops[0].reg) in WORDS):
+            self._write(insn, ops[0], ("const", 0), here)
+        elif (mn in ("add", "sub", "inc", "dec") and ops and ops[0].type == X86_OP_REG
+              and insn.reg_name(ops[0].reg) in WORDS):
+            b = self._read(insn, ops[1], here) if len(ops) == 2 else ("const", 1)
+            self._write(insn, ops[0], self._arith(mn, self._read(insn, ops[0], here), b, here),
+                        here)
+        elif mn in ("push", "pushf"):
+            self.stack.append(self._read(insn, ops[0], here) if ops
+                              else ("?", *here, "the flags"))
+            self.pushed += 1
+        elif mn in ("pop", "popf"):
+            value = (self.stack.pop() if self.stack else
+                     ("?", *here, "pops a word this run did not push"))
+            if ops:
+                self._write(insn, ops[0], value, here)
+        elif mn in ("int", "into", "call", "lcall"):
+            # Whatever the interrupt or the routine hands back. An interrupt
+            # leaves the words below SP alone; a routine may not.
+            what = "the interrupt" if mn.startswith("int") else "the routine it calls"
+            for name in WORDS + ("ds", "es"):
+                self._write_name(name, ("?", *here, f"{name} is whatever {what} left in it"))
+            self.mem.clear()
+            if not mn.startswith("int"):
+                self.stack, self.pushed = [], 0
+        else:
+            _, written = insn.regs_access()
+            for r in written:
+                name = WORD_OF.get(insn.reg_name(r), insn.reg_name(r))
+                if name == "sp":
+                    self.stack_lost = here
+                elif name in WORDS or name in SEGMENT_REGS:
+                    self._write_name(name, ("?", *here, f"{name} is changed by an "
+                                                        f"instruction this does not follow"))
+            for op in ops:
+                if op.type == X86_OP_MEM and op.access & CS_AC_WRITE:
+                    self._write(insn, op, ("?", *here, "written by an instruction this "
+                                                       "does not follow"), here)
+
+    def far_target(self, insn, at):
+        """What a far transfer at the end of the run loads into CS and IP:
+        {"form", "segment", "offset"}, each a value as above. None for a far
+        return with nothing pushed for it in this run, which is an ordinary
+        return from a far call and not a jump anywhere."""
+        here = (at, to_nasm(insn))
+        if insn.mnemonic == "retf":
+            if self.pushed < 2:
+                return None
+            if self.stack_lost:
+                lost = ("?", *self.stack_lost, "moves SP by hand")
+                return {"form": "retf", "segment": lost, "offset": lost}
+            short = ("?", *here, "pops a word this run did not push")
+            return {"form": "retf",
+                    "segment": self.stack[-2] if len(self.stack) >= 2 else short,
+                    "offset": self.stack[-1] if self.stack else short}
+        op = insn.operands[0]
+        if op.type == X86_OP_MEM:
+            key = self._address(insn, op)
+            if key is None:
+                lost = ("?", *here, "reads its pointer through a register")
+                return {"form": "jmp far [mem]", "segment": lost, "offset": lost}
+            seg, ptr = key
+            unwritten = ("?", *here, f"reads [{ptr:#x}], which this run does not write")
+            return {"form": "jmp far [mem]",
+                    "segment": self.mem.get((seg, (ptr + 2) & 0xFFFF), unwritten),
+                    "offset": self.mem.get((seg, ptr), unwritten)}
+        # jmp seg:off. In a .COM the segment is a number fixed when the file
+        # was written, and no program knows then where DOS will load it -- so
+        # unless this run wrote its own operand, it goes somewhere else.
+        own, ip = self._segment("cs"), insn.address
+        return {"form": "jmp seg:off",
+                "segment": self.mem.get((own, (ip + 3) & 0xFFFF),
+                                        ("const", insn.operands[0].imm & 0xFFFF)),
+                "offset": self.mem.get((own, (ip + 1) & 0xFFFF),
+                                       ("const", insn.operands[1].imm & 0xFFFF))}
+
+
 class Reconstructor:
     def __init__(self, path, segments, entries, image=None, cs_base=0, tail=b"",
                  tail_file_offset=0):
@@ -213,6 +444,9 @@ class Reconstructor:
         # reach the file offset the CPU actually reads. When `cs_base` is 0,
         # nothing added, and the original behaviour stands.
         self.cs_base = cs_base
+        # A .COM read from disk is addressed as the CPU addresses it; an MZ
+        # image handed in is addressed flat, from 0, whatever its CS.
+        self.com_layout = image is None
         self.md = Cs(CS_ARCH_X86, CS_MODE_16)
         self.md.detail = True
         self.decoded = {}          # file_off -> (size, text, target_file_off)
@@ -228,6 +462,18 @@ class Reconstructor:
         # found: a jump's targets are cases of the routine that jumps, a
         # call's are routines (comdiff.py needs to know which).
         self.table_dispatch = {}
+        # Far transfers. None reads none of them, which is what every caller
+        # but reconstruct() wants; "follow" splits the file where a far jump
+        # to a constant segment lands, "report" only says where they go.
+        self.far_mode = None
+        self.far = []              # one record per far transfer, see detect_far_transfers
+        self.splits = {}           # file offset a split begins at -> the far jump that made it
+        # What a comrun run executed, from --seeds-from: (image offset, CS,
+        # IP, changed since loaded), CS and IP None when the map has no
+        # segments. See _seeds.
+        self.executed = []
+        self.seed_report = {}
+        self.seed_reached = set()  # decoded only by walking from a seed
 
     def segment_of_file(self, off):
         for s in self.segments:
@@ -681,6 +927,193 @@ class Reconstructor:
                 found.append((var, sorted(set(targets))))
         return found
 
+    def detect_far_transfers(self):
+        """Read every far jump the walk reached, and give the file a new
+        origin where one lands at a constant segment.
+
+        A .COM is one segment only until it says otherwise. ParaTrooper (1983)
+        says so in its first six instructions,
+
+            mov ax, cs / add ax, 0x2C4 / push ax / xor ax, ax / push ax / retf
+
+        landing at (CS + 0x2C4):0, file offset 0x2B40, addressed from 0, and
+        Moon Patrol (1983) through a pointer it has just written,
+
+            mov ax, cs / add ax, 0x20 / mov [0x142], ax / xor ax, ax
+            mov [0x140], ax / jmp far [0x140]
+
+        landing at (CS + 0x20):0, file 0x100. Miss either and everything after
+        the split is read against the wrong base: every absolute address in
+        it is wrong, and the rebuild is byte-identical anyway. Moon Patrol
+        came back 0.5% decoded, and that 0.5% was its zero fill.
+
+        The stub need not be the first thing in the file -- Zaxxon (1984)
+        jumps over a twenty-line banner first, and a program may check the
+        DOS version and leave from the far side of the branch -- so the far
+        jumps read here are the ones the walk reached, wherever it reached
+        them. Each is evaluated over the straight run of code that ends in it
+        (FarTrace), back to the nearest instruction anything else can arrive
+        at. A value set before that is not known, and the jump is reported
+        rather than followed.
+
+        Each far jump is one record in self.far: followed when it lands at an
+        origin this layout already gives that offset, or at one it can now
+        give it by a split; reported, with why, when its target is computed,
+        is a fixed segment (a number written into the file, which cannot be
+        where DOS put the program), lies outside the file, or would re-address
+        code already read from another origin. A far return with nothing
+        pushed for it in its own run is an ordinary return, and not recorded.
+
+        Returns "split" when it split the file -- everything read under the
+        old addressing is then stale and the caller starts again --, "entry"
+        when it only added an entry point, None when nothing changed.
+        """
+        if self.far_mode is None:
+            return None
+        ends = {off + size: off for off, (size, _, _) in self.decoded.items()}
+        self.far, change = [], None
+        for off in sorted(self.decoded):
+            seg = self.segment_of_file(off)
+            insn = next(self.md.disasm(bytes(self.image[off:off + 16]), seg.addr(off)), None)
+            if insn is None or insn.mnemonic not in ("ljmp", "retf"):
+                continue
+            run = self._run_into(off, ends)
+            trace = FarTrace(run[0], entry=run[0] == 0 and self.com_layout)
+            for at in run[:-1]:
+                s = self.segment_of_file(at)
+                trace.step(next(self.md.disasm(bytes(self.image[at:at + 16]), s.addr(at))), at)
+            found = trace.far_target(insn, off)
+            if found is None:
+                continue
+            record = self._place_far(off, found)
+            self.far.append(record)
+            if record.pop("split", False):
+                self.splits[record["file_offset"]] = {
+                    "at": off, "entry_stub": self._from_entry(run[0], ends)}
+                return "split"
+            if record.pop("entry", False):
+                change = "entry"
+        return change
+
+    def _run_into(self, off, ends, limit=32):
+        """The straight run of decoded instructions that ends at `off`, oldest
+        first: back through every instruction that falls into the next, as far
+        as the nearest label -- where anything else can arrive -- or 32
+        instructions, as far as the old stub reader ever looked."""
+        run = [off]
+        while len(run) < limit and run[-1] not in self.labels:
+            prev = ends.get(run[-1])
+            if prev is None or self.decoded[prev][1].split()[0] in (
+                    "jmp", "ret", "retf", "iret", "hlt"):
+                break
+            run.append(prev)
+        return run[::-1]
+
+    def _from_entry(self, start, ends):
+        """Is the run beginning at `start` the program's entry stub: the
+        entry itself, or reached from it by nothing but plain jumps?"""
+        for _ in range(8):
+            if start == 0:
+                return True
+            sources = [o for o, (_, text, target) in self.decoded.items() if target == start]
+            prev = ends.get(start)
+            if (len(sources) != 1 or not self.decoded[sources[0]][1].startswith("jmp ")
+                    or (prev is not None and self.decoded[prev][1].split()[0] not in (
+                        "jmp", "ret", "retf", "iret", "hlt"))):
+                return False
+            start = self._run_into(sources[0], ends)[0]
+        return False
+
+    def _place_far(self, at, found):
+        """Where a far jump goes, and whether it is followed: the record
+        detect_far_transfers keeps. `why` completes "leaves through a far jump
+        ..." for one that is not followed."""
+        record = {"at": at, "form": found["form"], "followed": False}
+        seg, ip = found["segment"], found["offset"]
+        unknown = next((v for v in (seg, ip) if v[0] == "?"), None)
+        if unknown is not None:
+            _, where, text, why = unknown
+            record["why"] = (f"whose target is computed at file 0x{where:05X} ({text}): {why}"
+                             if text else f"whose target is computed before its own code: {why}")
+            return record
+        if seg[0] == "const":
+            record["why"] = (f"to {seg[1]:04X}:{ip[1]:04X}, a segment written into the file, "
+                             f"which is not where DOS put the program")
+            return record
+        if ip[0] != "const":
+            record["why"] = "whose offset is a segment"
+            return record
+        region = self.segment_of_file(at)
+        target = region.file_start - region.base + 16 * seg[1] + ip[1]
+        place = f"to CS{seg[1]:+#x}:{ip[1]:04X}, file 0x{target:05X} at origin 0x{ip[1]:04X}"
+        record.update(segment=seg[1], offset=ip[1], file_offset=target)
+        if not 0 <= target < len(self.image):
+            record["why"] = f"to CS{seg[1]:+#x}:{ip[1]:04X}, file offset {target:#x}, outside the file"
+            return record
+        dest = self.segment_of_file(target)
+        if dest.addr(target) == ip[1]:
+            # The layout already addresses it so: a far jump within one
+            # origin, or the one that made the split.
+            record["followed"] = True
+            if target not in self.entries:
+                self.entries.append(target)
+                record["entry"] = True
+            return record
+        if self.far_mode != "follow":
+            record["why"] = (f"{place}; the --segment layout addresses it as "
+                             f"0x{dest.addr(target):04X}")
+            return record
+        clash = self._read_from(target, dest)
+        if clash is not None:
+            record["why"] = (f"{place}, where the walk already reads code (file "
+                             f"0x{clash:05X}) addressing it as 0x{dest.addr(target):04X}")
+            return record
+        index = self.segments.index(dest)
+        self.segments[index:index + 1] = [Segment(dest.file_start, target, dest.base),
+                                          Segment(target, dest.file_end, ip[1])]
+        if target not in self.entries:
+            self.entries.append(target)
+        record.update(followed=True, split=True)
+        return record
+
+    def _read_from(self, target, dest):
+        """An instruction the walk (not a seed) has read at or past `target`
+        within its region, or across it; or the target itself when a region
+        already begins there. None when the split takes nothing back."""
+        for off, (size, _, _) in self.decoded.items():
+            if off in self.seed_reached:
+                continue
+            if target <= off < dest.file_end or off < target < off + size:
+                return off
+        return target if target == dest.file_start else None
+
+    def _forget_layout(self):
+        """Everything learned under the old addressing goes with it: what was
+        pinned and which spelling fitted, and what the sweep, the table
+        readers and the dispatch reader claimed. The entries, the seeds and
+        the splits stay."""
+        self.demoted.clear()
+        self.form.clear()
+        self.extra.clear()
+        self.swept.clear()
+        self.blocked.clear()
+        self.reclaimed = False
+        self.ds_bias = None
+        self.table_dispatch.clear()
+
+    def settle_layout(self):
+        """Follow far jumps until the layout stops changing, re-reading the
+        file after each change. True when anything changed."""
+        changed = False
+        while True:
+            change = self.detect_far_transfers()
+            if change is None:
+                return changed
+            changed = True
+            if change == "split":
+                self._forget_layout()
+            self.disassemble()
+
     def detect_provenance(self):
         """Look for signs the code was machine-translated from another CPU.
 
@@ -1124,13 +1557,86 @@ class Reconstructor:
         return found
 
     def disassemble(self):
-        """Recursive descent from every entry point."""
+        """Recursive descent from every entry point, then from every address
+        a run executed that the descent did not reach."""
         self.decoded.clear()
         starts = list(self.entries) + sorted(self.extra)
         self.labels = set(starts)
-        queue = list(starts)
         seen = set()
+        self._walk(list(starts), seen)
+        self.seed_reached = set()
+        if self.executed:
+            self._walk_seeds(seen)
 
+    def _walk_seeds(self, seen):
+        """Walk from each executed address nothing else reached.
+
+        An address the program executed is code, which is evidence enough to
+        disassemble there -- but not that this walk reads it at the same
+        alignment. A seed inside an instruction decoded here is that
+        disagreement; it is counted and left alone rather than allowed to
+        cut the instruction in two."""
+        accepted = self._seeds()
+        covered = bytearray(len(self.image))
+        for off, (size, _, _) in self.decoded.items():
+            covered[off:off + size] = b"\x01" * len(covered[off:off + size])
+        walked = inside = 0
+        for seed in accepted:
+            if seed in self.decoded:
+                continue
+            if covered[seed]:
+                inside += 1
+                continue
+            self.labels.add(seed)
+            fresh = self._walk([seed], seen)
+            for off in fresh:
+                size = self.decoded[off][0]
+                covered[off:off + size] = b"\x01" * len(covered[off:off + size])
+            self.seed_reached.update(fresh)
+            walked += 1
+        self.seed_report.update(walked_from=walked, inside_instruction=inside)
+
+    def _seeds(self):
+        """The executed addresses this layout can start a walk at, sorted;
+        the rest are counted in seed_report by why they were not.
+
+        A run that recorded CS:IP says at which origin each instruction ran,
+        and on the .COM route that must be the origin this layout gives it.
+        Where it is not, the layout is what is wrong -- Moon Patrol's game
+        ran at origin 0 from file 0x100 while a layout without its second
+        segment read the same bytes at 0x200 -- and a walk from there would
+        decode every absolute address in it wrongly and still rebuild byte
+        for byte. So such a seed is refused, and the origin the run used is
+        reported as the --segment that would agree with it."""
+        report = {"executed": len(self.executed), "outside": 0, "changed": 0,
+                  "other_origin": 0}
+        accepted, other = set(), {}
+        for off, cs, ip, changed in self.executed:
+            seg = self.segment_of_file(off) if 0 <= off < len(self.image) else None
+            if seg is None:
+                report["outside"] += 1
+            elif changed:
+                report["changed"] += 1
+            elif ip is not None and self.cs_base == 0 and self.com_layout \
+                    and seg.addr(off) & 0xFFFF != ip:
+                report["other_origin"] += 1
+                other.setdefault(off - ip, []).append((off, ip))
+            else:
+                accepted.add(off)
+        report["accepted"] = len(accepted)
+        report["origins"] = []
+        for runs in other.values():
+            off, ip = min(runs)
+            report["origins"].append({"file_offset": off, "ran_at": ip, "instructions": len(runs),
+                                      "layout_address": self.segment_of_file(off).addr(off)})
+        report["origins"].sort(key=lambda o: o["file_offset"])
+        self.seed_report = report
+        return sorted(accepted)
+
+    def _walk(self, queue, seen):
+        """The descent proper, from the offsets in `queue`; returns the
+        offsets of the instructions it decoded."""
+        fresh = []
         while queue:
             off = queue.pop()
             seg = self.segment_of_file(off)
@@ -1177,10 +1683,14 @@ class Reconstructor:
 
                 text = to_nasm(insn)
                 self.decoded[off] = (insn.size, text, target)
+                fresh.append(off)
                 off += insn.size
 
-                # Control does not fall through these.
-                if insn.mnemonic in ("jmp", "ret", "retf", "iret", "hlt"):
+                # Control does not fall through these. `ljmp` is capstone's
+                # name for a far jump; leaving it out sent Moon Patrol's walk
+                # on from its entry stub into the zero fill behind it, and
+                # 119 `add [bx + si], al` came back as its code.
+                if insn.mnemonic in ("jmp", "ljmp", "ret", "retf", "iret", "hlt"):
                     break
 
                 # Nor past a call to DOS that never returns. `mov ax, 0x4C00`
@@ -1197,6 +1707,7 @@ class Reconstructor:
                     break
                 elif text.startswith("mov ax") or text.startswith("xor ax"):
                     last_ax = None
+        return fresh
 
     def emit(self, with_map=False):
         """Produce NASM source covering every byte of the file.
@@ -1559,6 +2070,10 @@ class Reconstructor:
         while rounds < max_rounds:
             rounds += 1
             self.disassemble()
+            # A far jump to a constant segment puts the rest of the file at an
+            # origin of its own, and whatever was read past it was read from
+            # the wrong one. Settle that before anything builds on it.
+            self.settle_layout()
             self.detect_ds_bias()
             # Handlers are entry points nothing branches to, so they have to be
             # discovered before the walk can be considered complete.
@@ -1576,6 +2091,10 @@ class Reconstructor:
                 self.disassemble()
                 if len(self.decoded) == before and not self.reclaimed:
                     break
+            # A far jump in code those passes reached moves the layout too,
+            # and what they found under the old one has just been forgotten.
+            if self.settle_layout():
+                continue
             source, line_map = self.emit(with_map=True)
             built, err, listing = self.assemble(source, nasm, want_listing=True)
 
@@ -1764,102 +2283,33 @@ def compare_files(original, rebuilt):
     return None
 
 
-def detect_layout(image, md):
-    """Find a far transfer in the entry stub and the segment split it implies.
+def read_exec_map(path):
+    """What a comrun run executed, from the file --exec-map or --exec-map-json
+    wrote: (whether it says at which CS:IP each instruction ran, and
+    [(image offset, CS, IP, changed since loaded)]).
 
-    A .COM is nominally one segment, but a program larger than a few kilobytes
-    often opens with a stub that reloads CS and continues at a fresh base.
-    ParaTrooper does exactly this:
-
-        mov ax, cs / add ax, 0x2C4 / push ax / xor ax, ax / push ax / retf
-
-    which lands at (CS+0x2C4):0 -- file offset 0x2B40, addressed from base 0.
-    Miss that and everything after 0x2B40 disassembles against the wrong base,
-    so every branch target is wrong and the recursive descent walks off into
-    data. It is also the one fact a newcomer to the file is least likely to
-    guess, which is reason enough for the tool to work it out rather than ask.
-
-    The stub is not always the first thing in the file. Zaxxon (1984) opens
-    with `jmp 0x180` over a twenty-line text banner and puts the same far
-    return on the other side of it, which is enough to make this walk give up
-    at the first instruction: evaluating from offset 0 and refusing to follow a
-    jump found nine instructions in a 20,736-byte file. So a direct jump is
-    followed rather than treated as the end of the stub. Nothing in the
-    evaluation cares whether two instructions were adjacent in the file, only
-    that control reached the second from the first.
-
-    Returns (file_start, base) or None. Only the far-return idiom is handled;
-    anything stranger is left to an explicit --segment.
-    """
-    CSREL, CONST = "csrel", "const"
-    regs = {}
-    stack = []
-    off = 0
-    hops = set()
-
-    for _ in range(32):
-        insn = next(md.disasm(bytes(image[off:off + 16]), 0x100 + off), None)
-        if insn is None:
-            return None
-        mn, ops = insn.mnemonic, insn.op_str
-        off += insn.size
-
-        if mn == "retf":
-            if len(stack) < 2:
-                return None
-            ip, cs = stack[-1], stack[-2]
-            if cs[0] != CSREL or ip[0] != CONST:
-                return None
-            start = cs[1] * 16 + ip[1] - 0x100
-            if not (0 < start < len(image)):
-                return None
-            return start, ip[1]
-
-        m = re.match(r"^(\w+), (\w+)$", ops)
-        if mn == "mov" and m and m.group(2) == "cs":
-            regs[m.group(1)] = (CSREL, 0)
-        elif mn == "mov" and m and m.group(2) in regs:
-            regs[m.group(1)] = regs[m.group(2)]
-        elif mn == "xor" and m and m.group(1) == m.group(2):
-            regs[m.group(1)] = (CONST, 0)
-        elif mn == "add" and re.match(r"^(\w+), (0x[0-9a-f]+|\d+)$", ops):
-            dst, imm = ops.split(", ")
-            cur = regs.get(dst)
-            if cur is None:
-                return None
-            regs[dst] = (cur[0], cur[1] + int(imm, 0))
-        elif mn == "mov" and re.match(r"^(\w+), (0x[0-9a-f]+|\d+)$", ops):
-            dst, imm = ops.split(", ")
-            regs[dst] = (CONST, int(imm, 0))
-        elif mn == "push":
-            if ops in regs:
-                stack.append(regs[ops])
-            elif ops == "cs":
-                stack.append((CSREL, 0))
-            elif re.match(r"^(0x[0-9a-f]+|\d+)$", ops):
-                stack.append((CONST, int(ops, 0)))
-            else:
-                return None
-        elif mn == "jmp":
-            # A jump over a block of data -- a banner, a copyright line, a
-            # table -- is the commonest reason the stub is not at offset 0.
-            # Follow it, but only when the target is a plain address inside
-            # the file, and only to somewhere this walk has not already been:
-            # a computed jump is unresolvable and a jump backwards is a loop,
-            # and in both cases the honest answer is to stop.
-            if not re.fullmatch(r"0x[0-9a-f]+|\d+", ops):
-                return None
-            dest = int(ops, 0) - 0x100
-            if not (0 <= dest < len(image)) or dest in hops:
-                return None
-            hops.add(dest)
-            off = dest
-        elif mn in ("ret", "iret", "hlt"):
-            return None
-        # Anything else is assumed not to disturb the values being tracked;
-        # a wrong guess shows up immediately as a failed reconstruction.
-
-    return None
+    --exec-map writes one image offset per line, in hex; --exec-map-json
+    writes the CS:IP as well, and whether the instruction's bytes were still
+    the ones loaded when the run ended. An image offset is a .COM's file
+    offset, and for an MZ the offset past its header, which is how this tool
+    counts an MZ's bytes too."""
+    text = Path(path).read_text(encoding="utf-8")
+    try:
+        data = json.loads(text)
+    except ValueError:
+        data = None
+    if isinstance(data, dict) and "executed" in data:
+        col = {name: i for i, name in enumerate(data["columns"])}
+        return True, [(row[col["image_offset"]], row[col["cs"]], row[col["ip"]],
+                       bool(row[col["changed"]])) for row in data["executed"]]
+    rows = []
+    for word in text.split():
+        try:
+            rows.append((int(word, 16), None, None, False))
+        except ValueError:
+            raise SystemExit(f"{path} is not an exec map: {word!r} is not an offset in hex. "
+                             f"Give the file comrun --exec-map or --exec-map-json wrote")
+    return False, rows
 
 
 def parse_segments(specs, size):
@@ -1895,7 +2345,7 @@ def find_nasm(given=None):
 
 
 def reconstruct(com, out, segment=(), max_relocations=8, entry=(), entries_from=None,
-                nasm=None, mapfile=None):
+                nasm=None, mapfile=None, seeds_from=None):
     """Rebuild a .COM (or a single-segment MZ) as NASM source, prove it, and
     report on it. Returns (report, exit code).
 
@@ -1950,20 +2400,19 @@ def reconstruct(com, out, segment=(), max_relocations=8, entry=(), entries_from=
         report["entries_from"] = len(extra)
         say(f"entries     : {len(extra)} from {entries_from}")
 
-    detected = None
-    if not segment:
-        probe = Cs(CS_ARCH_X86, CS_MODE_16)
-        detected = detect_layout(image, probe)
-        if detected:
-            start, base = detected
-            segment = [f"0x{start:X}:0x{base:X}"]
-            entries.append(start)
     segments = parse_segments(segment, len(image))
-
     r = Reconstructor(str(com), segments, entries,
                       image=image if mz is not None else None,
                       cs_base=cs_base, tail=tail,
                       tail_file_offset=len(header) + len(image))
+    # Far jumps are read on the .COM route, where an address is what the CPU
+    # uses; an MZ image is addressed flat here. A layout given by --segment
+    # is the user's, so far jumps are then only reported against it.
+    if mz is None:
+        r.far_mode = "report" if segment else "follow"
+    with_segments = None
+    if seeds_from:
+        with_segments, r.executed = read_exec_map(seeds_from)
     source, last, rounds, err = r.run(nasm)
     whole_file_same = False
     if not err:
@@ -1992,11 +2441,46 @@ def reconstruct(com, out, segment=(), max_relocations=8, entry=(), entries_from=
     disasm_bytes = sum(sz for sz, _, _ in r.decoded.values())
 
     say(f"file        : {com}  ({total:,} bytes)")
+    detected = ""
+    if r.splits:
+        made = sorted(r.splits.values(), key=lambda s: s["at"])
+        detected = ("   (detected from the entry stub)" if all(s["entry_stub"] for s in made)
+                    else "   (detected from the far jump" + ("s" if len(made) > 1 else "")
+                    + " at file " + ", ".join(f"0x{s['at']:05X}" for s in made) + ")")
     say(f"segments    : " + ", ".join(
-        f"0x{s.file_start:04X}+ @ base 0x{s.base:04X}" for s in segments)
-        + ("   (detected from the entry stub)" if detected else ""))
-    report["segments"] = [{"file_start": s.file_start, "base": s.base} for s in segments]
-    report["segments_detected"] = bool(detected)
+        f"0x{s.file_start:04X}+ @ base 0x{s.base:04X}" for s in r.segments) + detected)
+    report["segments"] = [{"file_start": s.file_start, "base": s.base} for s in r.segments]
+    report["segments_detected"] = bool(r.splits)
+    report["far_transfers"] = [dict(f) for f in r.far]
+    for f in r.far:
+        if not f["followed"]:
+            say(f"far jump    : file 0x{f['at']:05X} ({f['form']}) leaves through a far "
+                f"jump {f['why']}; not followed")
+    if seeds_from:
+        report["seeds"] = dict(r.seed_report, file=str(seeds_from),
+                               with_segments=with_segments)
+        s = r.seed_report
+        say(f"seeds       : {s['executed']:,} executed addresses from {seeds_from}"
+            + (", each with the CS:IP it ran at" if with_segments else
+               ", as image offsets only"))
+        say(f"              {s['accepted']:,} agree with this layout: {s['walked_from']:,} "
+            f"walked from (nothing else reached them), {s['inside_instruction']:,} "
+            f"inside an instruction read another way")
+        refused = [f"{s[k]:,} {what}" for k, what in (
+            ("outside", "outside the image"), ("changed", "changed since they were loaded"),
+            ("other_origin", "ran at another origin")) if s[k]]
+        if refused:
+            say("              refused: " + ", ".join(refused))
+        for o in s["origins"]:
+            say(f"              file 0x{o['file_offset']:05X} and on ran at 0x{o['ran_at']:04X} "
+                f"({o['instructions']:,} instructions), where this layout reads "
+                f"0x{o['layout_address']:04X}: --segment 0x{o['file_offset']:X}:0x{o['ran_at']:X} "
+                f"would agree")
+        if not with_segments:
+            say("              the origin each ran at is not in this map, so none is checked "
+                "against\n              this layout; comrun --exec-map-json records it")
+        elif not r.com_layout:
+            say("              an MZ is addressed flat here, so the origins are not checked")
     handlers = r.detect_interrupt_handlers()
     report["interrupt_handlers"] = [{"vector": v, "file_offset": o}
                                     for v, o in sorted(set(handlers))]
@@ -2225,6 +2709,14 @@ def main():
                          "that lands nowhere. Byte-identity is still checked, "
                          "so a wrong seed shows up as a failed rebuild rather "
                          "than as quietly mis-decoded data")
+    ap.add_argument("--seeds-from", metavar="EXEC_MAP",
+                    help="walk from every address a comrun run executed that "
+                         "the walk here did not reach: the file comrun "
+                         "--exec-map-json writes, or the plain list --exec-map "
+                         "writes. From the JSON each address is checked against "
+                         "the origin it ran at, and one that ran at an origin "
+                         "this layout does not give it is refused and reported "
+                         "with the --segment that would agree")
     ap.add_argument("--nasm", default=None,
                     help="path to nasm; defaults to $NASM, then PATH")
     ap.add_argument("--map", dest="mapfile", default=None, metavar="PATH",
@@ -2233,7 +2725,8 @@ def main():
     args = ap.parse_args()
 
     report, code = reconstruct(args.com, args.out, args.segment, args.max_relocations,
-                               args.entry, args.entries_from, args.nasm, args.mapfile)
+                               args.entry, args.entries_from, args.nasm, args.mapfile,
+                               args.seeds_from)
     for line in report["lines"]:
         print(line)
     return code

@@ -85,6 +85,35 @@ EXPECTATIONS = {
          "ds:0x0002",
          "; ---- file 0x0200, addresses relative to 0x0000 ----"],
     ),
+    # Moon Patrol's stub: a far pointer written and jumped through. The
+    # routine behind `jmp word [state]` is found only from origin 0, so its
+    # instructions coming back prove the split; the zero fill behind the stub
+    # staying data (FORBIDDEN) proves the walk stopped at the far jump. The
+    # old reading recovered 2.4% of this file.
+    "farjmp": (
+        7.0,
+        ["detected from the entry stub",
+         "; ---- file 0x0200, addresses relative to 0x0000 ----",
+         "jmp far [0x",                        # spelled for NASM, not pinned
+         "mov dl, 0x46",                       # 'F', inside the routine
+         "mov dl, 0x4a"],
+    ),
+    # The far return on the far side of a conditional jump, whose other arm
+    # returns to DOS; and an offset of 8 into the new segment.
+    "farret": (
+        8.0,
+        ["detected from the far jump at file 0x",
+         "; ---- file 0x0208, addresses relative to 0x0008 ----",
+         "mov dl, 0x52",                       # 'R', reached through [hook]
+         "mov dl, 0x54"],
+    ),
+    # A far return to a segment read from memory: reported, not followed.
+    # The old reading followed it to the wrong place, file 0x0100.
+    "farcalc": (
+        2.0,
+        ["leaves through a far jump whose target is computed at file 0x00005",
+         "reads [0x10e], which this run does not write; not followed"],
+    ),
     "encodings": (
         30.0,
         ["strict word",                        # long immediate form recovered
@@ -203,6 +232,10 @@ FORBIDDEN = {
     # claim is a run the sweep would have taken but for its tail, not a table
     # found anywhere.
     "casetable": ["mov dl, 0x58"],
+    # Zero fill read as code: the walk went on past the far jump.
+    "farjmp": ["add byte [bx + si], al"],
+    # A split anywhere is a guess here: the segment is not a constant.
+    "farcalc": ["addresses relative to 0x0000", "detected from"],
 }
 
 
@@ -485,6 +518,129 @@ def claim_case(nasm, workdir):
     return True, report["error"]
 
 
+def far_trace_cases():
+    """FarTrace on straight runs written here as bytes, each ending in a far
+    transfer at 0x100 + its offset: what it loads into CS and IP, or the
+    reason it cannot say."""
+    sys.path.insert(0, str(ROOT / "tools"))
+    import comrec
+    from capstone import Cs, CS_ARCH_X86, CS_MODE_16
+    md = Cs(CS_ARCH_X86, CS_MODE_16)
+    md.detail = True
+
+    def trace(code, entry=True):
+        insns = list(md.disasm(code, 0x100))
+        t = comrec.FarTrace(0, entry=entry)
+        for i in insns[:-1]:
+            t.step(i, i.address - 0x100)
+        return t.far_target(insns[-1], insns[-1].address - 0x100)
+
+    def says(value):
+        return value[:2] if value[0] != "?" else ("?", value[3])
+
+    stub = bytes.fromhex("8cc8 053000 a32201 31c0 a32001 ff2e2001".replace(" ", ""))
+    cases = [
+        ("a pointer written and jumped through", stub,
+         ("cs", 0x30), ("const", 0)),
+        ("DS changed between the write and the jump",
+         stub[:-4] + bytes.fromhex("8edb") + stub[-4:],          # mov ds, bx
+         ("?", "reads [0x120], which this run does not write"),
+         ("?", "reads [0x120], which this run does not write")),
+        ("written through ES, read through DS: one segment at a .COM's entry",
+         bytes.fromhex("8cc8 053000 26a32201 31c0 26a32001 ff2e2001".replace(" ", "")),
+         ("cs", 0x30), ("const", 0)),
+        ("push cs, push an offset, retf",
+         bytes.fromhex("0e b81000 50 cb".replace(" ", "")), ("cs", 0), ("const", 0x10)),
+        ("two pushed and one popped before the retf",
+         bytes.fromhex("0e 50 5b cb".replace(" ", "")),
+         ("?", "pops a word this run did not push"), ("cs", 0)),
+        ("the segment kept across an interrupt",
+         bytes.fromhex("8cc8 052000 cd21 50 31c0 50 cb".replace(" ", "")),
+         ("?", "ax is whatever the interrupt left in it"), ("const", 0)),
+        ("half the register written",
+         bytes.fromhex("8cc8 b005 50 31c0 50 cb".replace(" ", "")),
+         ("?", "al is written alone"), ("const", 0)),
+        ("SP moved by hand",
+         bytes.fromhex("0e 0e 50 83c402 cb".replace(" ", "")),
+         ("?", "moves SP by hand"), ("?", "moves SP by hand")),
+        ("a fixed segment, as written in the file",
+         bytes.fromhex("90 eaf0ff00f0".replace(" ", "")), ("const", 0xF000), ("const", 0xFFF0)),
+        ("jmp seg:off whose operand the run wrote",
+         bytes.fromhex("8cc8 051000 2ea31301 2ec7061101 3412 ea00000000".replace(" ", "")),
+         ("cs", 0x10), ("const", 0x1234)),
+        ("a segment below CS",
+         bytes.fromhex("8cc8 2d1000 50 31c0 50 cb".replace(" ", "")), ("cs", -0x10), ("const", 0)),
+        ("a value set before the run",
+         bytes.fromhex("50 31c0 50 cb".replace(" ", "")),
+         ("?", "ax is set before file 0x00000, where this straight run begins"), ("const", 0)),
+    ]
+    wrong = []
+    for why, code, segment, offset in cases:
+        got = trace(code)
+        if (says(got["segment"]), says(got["offset"])) != (segment, offset):
+            wrong.append(f"{why}: {says(got['segment'])} : {says(got['offset'])}")
+    if trace(bytes.fromhex("50 cb".replace(" ", ""))) is not None:
+        wrong.append("a far return with one word pushed was read as a jump")
+    if wrong:
+        return False, "; ".join(wrong)
+    return True, f"{len(cases)} runs, and a plain far return left alone"
+
+
+def seeds_case(nasm, workdir):
+    """comrec --seeds-from on farcalc.com, whose far target is computed and
+    so not followed: what a run executed, written here as comrun's
+    --exec-map-json writes it. The program ran its stub at CS 0x1000 and its
+    routine at CS 0x1030, file 0x200 at origin 0. Those seeds disagree with a
+    layout that has no second segment, and must be refused with the --segment
+    that would agree; with that segment given they are taken, and the routine
+    comes back. A changed instruction and one outside the file are refused;
+    a plain list of offsets is taken, and said to be unchecked."""
+    import json
+    original = workdir / "seeds.com"
+    nasm_build(nasm, FIXTURES / "farcalc.asm", original)
+    stub = [(off, 0x1000, 0x100 + off, 0) for off in (0, 2, 5, 9, 10, 12, 13)]
+    routine = [(off, 0x1030, off - 0x200, 0) for off in (0x200, 0x201, 0x202, 0x204,
+                                                         0x206, 0x208, 0x20B)]
+    odd = [(0x203, 0x1030, 3, 1), (0x5000, 0x1500, 0, 0)]    # changed; outside
+    rows = [[o, cs, ip, 1, changed] for o, cs, ip, changed in stub + routine + odd]
+    exec_json = workdir / "seeds.json"
+    exec_json.write_text(json.dumps({"columns": ["image_offset", "cs", "ip", "size", "changed"],
+                                     "executed": rows}))
+    exec_text = workdir / "seeds.txt"
+    exec_text.write_text("\n".join(f"{o:x}" for o, _, _, _ in stub + routine))
+
+    def rec(*extra):
+        asm = workdir / "seeds.rec.asm"
+        r = subprocess.run([sys.executable, str(COMREC), str(original), "--out", str(asm),
+                            "--nasm", nasm] + list(extra), capture_output=True, text=True)
+        if r.returncode != 0 or "BYTE-IDENTICAL" not in r.stdout:
+            raise SystemExit(f"comrec {' '.join(extra)} did not rebuild it\n{r.stdout}{r.stderr}")
+        return r.stdout + asm.read_text(encoding="latin-1")
+
+    wrong = []
+    alone = rec("--seeds-from", str(exec_json))
+    for needle in ("16 executed addresses", "each with the CS:IP it ran at",
+                   "7 agree with this layout",
+                   "refused: 1 outside the image, 1 changed since they were loaded, "
+                   "7 ran at another origin",
+                   "file 0x00200 and on ran at 0x0000 (7 instructions), where this layout "
+                   "reads 0x0300: --segment 0x200:0x0 would agree"):
+        if needle not in alone:
+            wrong.append(f"without --segment, missing {needle!r}")
+    if "mov dl, 0x43" in alone:
+        wrong.append("a seed from another origin was walked from")
+    agreed = rec("--seeds-from", str(exec_json), "--segment", "0x200:0x0")
+    if "14 agree with this layout" not in agreed or "mov dl, 0x43" not in agreed:
+        wrong.append("with --segment 0x200:0x0 the routine did not come back")
+    plain = rec("--seeds-from", str(exec_text))
+    if "as image offsets only" not in plain or "none is checked" not in plain:
+        wrong.append("a plain list was not said to be unchecked")
+    if wrong:
+        return False, "; ".join(wrong)
+    return True, ("7 refused for their origin with the --segment that agrees; with it, "
+                  "the routine back; a changed one, an outside one, a plain list said so")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -522,7 +678,9 @@ def main():
                   ("whole file", compare_files_cases),
                   ("MZ header", mz_load_image_cases),
                   ("appended", lambda: appended_case(nasm, work)),
-                  ("short claim", lambda: claim_case(nasm, work))]
+                  ("short claim", lambda: claim_case(nasm, work)),
+                  ("far trace", far_trace_cases),
+                  ("seeds", lambda: seeds_case(nasm, work))]
         for name, fn in others:
             try:
                 ok, detail = fn()
