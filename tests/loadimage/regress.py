@@ -320,6 +320,48 @@ def verified(exe, folder):
     return env, env["result"].get("first_failure")
 
 
+@case("an overlay view's record goes into the envelope; another file's, or none, blocks")
+def _():
+    # What tools/overlays.py writes beside a view, cut to what verify reads:
+    # it says which overlay, and it is about this file only if its SHA-256 is.
+    exp = loadimage.Expected(EXE["plain"])
+    folder = synthetic_dump(exp, WORK / "synthetic-view")
+    record = {"result": {
+        "view": {"sha256": loadimage.sha256(exp.data)}, "overlay": 3,
+        "source": {"file": "GAME.EXE", "sha256": "a" * 64},
+        "root": {"file": "ROOT.EXE", "sha256": "b" * 64, "unpacked": True},
+        "module": {"file_offset": 0x2400, "image_bytes": 100}, "load_segment": "0482",
+        "load_segment_source": "--load-segment", "built": "the root with the module",
+        "checks": {"area_empty": True}}}
+    path = WORK / "view.view.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
+    env = loadimage.verify(EXE["plain"], folder, view=path)
+    ov = env["result"].get("overlay_view") or {}
+    item = [i for i in env["evidence"] if i["kind"] == "overlay-view"]
+    if env["status"] != "verified" or ov.get("overlay") != 3 or ov.get("record") != str(path) \
+            or ov.get("load_segment") != "0482" or ov.get("root", {}).get("unpacked") is not True:
+        raise AssertionError(f"{env['status']}: {ov}")
+    if len(item) != 1 or item[0]["value"] != {"overlay": 3, "source_sha256": "a" * 64,
+                                               "root_sha256": "b" * 64, "load_segment": "0482"} \
+            or "overlay 3 of GAME.EXE" not in item[0]["claim"]:
+        raise AssertionError(f"evidence: {item}")
+    plain = loadimage.verify(EXE["plain"], folder)
+    if "overlay_view" in plain["result"] or any(i["kind"] == "overlay-view"
+                                                for i in plain["evidence"]):
+        raise AssertionError("an ordinary verify carries a view")
+    record["result"]["view"]["sha256"] = "c" * 64
+    path.write_text(json.dumps(record), encoding="utf-8")
+    other = loadimage.verify(EXE["plain"], folder, view=path)
+    if other["status"] != "blocked" or "describes a view with SHA-256 cccccccc" not in \
+            other["result"]["reason"] or "checks" in other["result"]:
+        raise AssertionError(f"another file's record: {other['status']} {other['result']}")
+    path.write_text("{}", encoding="utf-8")
+    broken = loadimage.verify(EXE["plain"], folder, view=path)
+    if broken["status"] != "blocked" or "not a view record" not in broken["result"]["reason"]:
+        raise AssertionError(f"no record: {broken['status']} {broken['result']}")
+    return "carried, with its evidence item; another file's and an empty one blocked"
+
+
 @case("a correct load, laid out as Ghidra lays one out, verifies")
 def _():
     exp = loadimage.Expected(EXE["plain"])

@@ -24,7 +24,7 @@ name = "loadimage"
 module = "tools/loadimage.py"
 functions = ["first_difference", "Checks", "expected_script_hashes", "restored_ranges",
              "compare", "_segment_for", "_after_correction", "_relocation_checks",
-             "_memory_word", "_corrector_checks", "verify"]
+             "_memory_word", "_corrector_checks", "overlay_view", "verify"]
 test = ["tests/loadimage/regress.py"]
 
 # Function bodies as address ranges, and the classification of what no
@@ -80,7 +80,10 @@ test = ["tests/com/regress.py"]
 [[target]]
 name = "triage"
 module = "tools/triage.py"
-functions = ["analyse", "verdict_line", "envelope"]
+# Since prompt 15: --format (check_format), the hint that a headerless file
+# looks like a .COM image, and Microsoft LINK's overlays, which set confidence.
+functions = ["analyse", "verdict_line", "envelope", "check_format", "looks_like_com",
+             "_int3f", "_linked_value", "_linked_detail"]
 test = ["tests/evidence/regress.py", "--only", "triage", "--only", "packer",
         "--only", "open question", "--only", "not there"]
 

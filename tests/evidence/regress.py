@@ -209,6 +209,19 @@ class Fixtures:
             "fbov": place("fbov.exe", smallc + b"FBOV" + bytes(2044)),
             "notes.bin": place("notes.bin", b"not an executable either\r\n"),
         }
+        # Prompt 15: two Microsoft LINK overlays after a root (tests/overlays'
+        # fixture); the same with EXEPACK's "RB" before the root's entry, in the
+        # header's padding; and a .COM image named .PTL, as Jungle Hunt's game is.
+        overlaid = self._build(self.nasm, ROOT / "tests" / "overlays" / "fixtures" / "overlaid.asm",
+                               self.work / "shapes" / "overlaid" / "OVERLAID.EXE")
+        shapes["overlaid"] = overlaid
+        data = bytearray(overlaid.read_bytes())
+        entry = struct.unpack_from("<H", data, 8)[0] * 16 + \
+            (struct.unpack_from("<H", data, 0x16)[0] << 4) + struct.unpack_from("<H", data, 0x14)[0]
+        data[entry - 2:entry] = b"RB"
+        shapes["overlaid-packed"] = place("overlaid-packed.exe", bytes(data))
+        shapes["ptl"] = self._build(self.nasm, ROOT / "tests" / "com" / "fixtures" / "jmpstub.asm",
+                                    self.work / "shapes" / "ptl" / "GAME.PTL")
         for name, defines in NUMBERS.items():
             path = self.work / "shapes" / name / f"{name}.exe"
             shapes[name] = self._build(self.nasm, HERE / "fixtures" / "numbers.asm", path,
@@ -984,6 +997,18 @@ VERDICT_SHAPES = [
      IN_SCOPE, {"in_scope": True, "confidence": "high"},
      ("warn", "large opaque data files alongside"), None,
      NOTHING),
+    ("overlaid, Microsoft LINK's modules after the image", lambda: FIX.shapes["overlaid"],
+     WORKABLE, {"in_scope": True, "confidence": "low"},
+     ("warn", "2 Microsoft LINK overlays after the load image"), "bytes past the load image",
+     ([], ["2 Microsoft LINK overlays after the load image", "few stack frames"])),
+    ("overlaid, LINK's modules behind a packed root", lambda: FIX.shapes["overlaid-packed"],
+     OUT_OF_SCOPE, {"in_scope": False, "confidence": "low"},
+     ("blocker", "packed with Microsoft EXEPACK"), "bytes past the load image",
+     (["packed with Microsoft EXEPACK"],
+      ["2 Microsoft LINK overlays after the load image", "few stack frames"])),
+    ("not MZ, a .COM image under another name", lambda: FIX.shapes["ptl"], OUT_OF_SCOPE,
+     {"in_scope": False, "confidence": "high"}, ("blocker", "not an MZ executable"), None,
+     (["not an MZ executable"], ["not an MZ executable"])),
 ]
 
 
@@ -1046,6 +1071,144 @@ def _():
     if got is None or (got["cs"] << 4) + got["ip"] != 0x6B2:
         raise AssertionError(f"unpack.exepack_header read {got}")
     return f"entry at file 0x{entry:x}; EXEPACK's own header says 0x6B2"
+
+
+def link_modules(path):
+    """(overlay number, file offset, end) of each LINK module after an MZ, by
+    struct and the page walk, independently of overlays.py."""
+    data = Path(path).read_bytes()
+    out, at = [], struct.unpack_from("<H", data, 4)[0] * 512
+    while at + 0x1C <= len(data) and data[at:at + 2] == b"MZ":
+        last, pages = struct.unpack_from("<HH", data, at + 2)
+        out.append((struct.unpack_from("<H", data, at + 0x1A)[0], at,
+                    at + (pages - 1) * 512 + (last or 512)))
+        at += pages * 512
+    return out, len(data)
+
+
+@case("triage on Microsoft LINK overlays: each module, the int 3Fh calls, the way to views")
+def _():
+    mods, size = link_modules(FIX.shapes["overlaid"])
+    lines = []
+    for shape, packed in (("overlaid", False), ("overlaid-packed", True)):
+        _, out, _ = triage_envelope(FIX.shapes[shape])
+        env = json.loads(out)
+        item = [i for i in env["evidence"] if i["kind"] == "overlay-modules"]
+        if len(item) != 1:
+            raise AssertionError(f"{shape}: {len(item)} overlay findings")
+        item = item[0]
+        v, d = item["value"], item["detail"]
+        want = [{"overlay": n, "file_offset": f"0x{a:x}"} for n, a, _ in mods]
+        got = [{k: m[k] for k in ("overlay", "file_offset")} for m in v["modules"]]
+        if got != want or v["bytes_after_last"] != size - mods[-1][2]:
+            raise AssertionError(f"{shape}: modules {got}, after {v['bytes_after_last']}")
+        if item["location"] != {"file_offset": f"0x{mods[0][1]:x}"}:
+            raise AssertionError(f"{shape}: located at {item['location']}")
+        span = f"file 0x{mods[0][1]:X} to 0x{mods[-1][2] - 1:X}"
+        if "Overlay modules 1, 2," not in d or span not in d:
+            raise AssertionError(f"{shape}: {d!r}")
+        if packed:
+            if v["int3f_calls"] is not None or "The root is packed" not in d or \
+                    "overlays.py UNPACKED.EXE --views DIR" not in d:
+                raise AssertionError(f"{shape}: {v['int3f_calls']}, {d!r}")
+        elif v["int3f_calls"] != 3 or "holds 3 int 3Fh calls" not in d or \
+                "overlays.py OVERLAID.EXE --views DIR" not in d:
+            raise AssertionError(f"{shape}: {v['int3f_calls']}, {d!r}")
+        if f"{size - mods[-1][2]:,} bytes follow the last module" not in d:
+            raise AssertionError(f"{shape}: the bytes after the last module unsaid: {d!r}")
+        if not any("Borland's FBOV" in x for x in env["limitations"]) or \
+                not any("which int 3Fh call reaches" in u for u in env["unknowns"]):
+            raise AssertionError(f"{shape}: limitations {env['limitations']}, "
+                                 f"unknowns {env['unknowns']}")
+        lines.append(f"{shape}: {len(got)} modules, int 3Fh {v['int3f_calls']}")
+    return "; ".join(lines)
+
+
+@case("triage --format: com takes a .COM image whatever its name; mz and com refuse a mismatch")
+def _():
+    ptl, mz, com = FIX.shapes["ptl"], FIX.mz["smallc"], FIX.com["plain"]
+    big = FIX.work / "shapes" / "big" / "BIG.DAT"
+    big.parent.mkdir(exist_ok=True)
+    wrong = []
+
+    def tri(path, *args):
+        code, out, err = run(TOOLS / "triage.py", path, *args)
+        return code, out.decode("utf-8"), err
+
+    code, out, _ = tri(ptl, "--format", "com")
+    if code != 0 or out.strip().splitlines()[-1] != COM_ROUTE or \
+            "--format com --out src/game.asm" not in out or "its name (.ptl)" not in out:
+        wrong.append(f"PTL com: exit {code}, {out[-200:]!r}")
+    code, out, _ = run(TOOLS / "triage.py", ptl, "--format", "com", "--evidence", "-")
+    env = json.loads(out)
+    claims = {i["id"]: i["claim"] for i in env["evidence"]}
+    if code != 0 or env["result"]["verdict"].get("route") != "comrec" or \
+            [claims[i] for i in env["result"]["verdict_evidence"]["in_scope"]] != ["raw .COM image"]:
+        wrong.append(f"PTL com envelope: exit {code}, {env['result']}")
+    code, out, err = tri(ptl, "--format", "mz")
+    if code != 2 or "has no MZ header; it looks like a .COM image" not in err or out:
+        wrong.append(f"PTL mz: exit {code}, {err!r}")
+    code, out, _ = run(TOOLS / "triage.py", ptl, "--format", "mz", "--evidence", "-")
+    env = json.loads(out)
+    if code != 2 or env["status"] != "blocked" or "no MZ header" not in env["result"]["reason"]:
+        wrong.append(f"PTL mz envelope: exit {code}, {env['status']}")
+    code, out, err = tri(mz, "--format", "com")
+    if code != 2 or "starts with MZ" not in err:
+        wrong.append(f"MZ com: exit {code}, {err!r}")
+    code, out, _ = tri(mz, "--format", "mz")
+    if code != 0 or out.strip().splitlines()[-1] != IN_SCOPE:
+        wrong.append(f"MZ mz: exit {code}")
+    code, out, _ = tri(com, "--format", "com")
+    if code != 0 or "Taken for a .COM" in out or "--format com" in out:
+        wrong.append(f".COM com: exit {code}, {out[-200:]!r}")
+    for size, want in ((0xFF00, 0), (0xFF01, 2)):
+        big.write_bytes(bytes(size))
+        code, out, err = tri(big, "--format", "com")
+        if code != want or (want and "at most 65,280" not in err):
+            wrong.append(f"{size:#x} bytes, com: exit {code}, {err!r}")
+    if wrong:
+        raise AssertionError("; ".join(wrong))
+    return ("a .PTL routed with --format com, refused with mz; an MZ refused as com; "
+            "65,280 bytes taken, 65,281 refused")
+
+
+@case("triage's hint that a headerless file looks like a .COM image, at its edges")
+def _():
+    import triage
+    calls = b"\xCD\x21\xCD\x10"
+    shapes = {
+        "a jump to the next byte": (b"\xEB\x00" + calls, None),
+        "a jump past one byte": (b"\xEB\x01\x90" + calls, 3),
+        "a near jump to the last byte": (b"\xE9\x06\x00" + calls + b"\x90" * 3, 9),
+        "a near jump to just past the end": (b"\xE9\x07\x00" + calls + b"\x90" * 3, None),
+        "a near jump backwards, into itself": (b"\xE9\xFE\xFF" + calls, None),
+        "one service call": (b"\xEB\x01\x90\xCD\x21\x90", None),
+        "two, of two kinds": (b"\xEB\x01\x90\xCD\x16\xCD\x10", 3),
+        "no jump first": (b"\xB4\x09" + calls, None),
+        "nothing": (b"", None),
+        "a jump, but 65,281 bytes": (b"\xEB\x01\x90" + calls + bytes(0xFF01 - 7), None),
+        "a jump, and 65,280 bytes": (b"\xEB\x01\x90" + calls + bytes(0xFF00 - 7), 3),
+    }
+    for name, (data, jump) in shapes.items():
+        got = triage.looks_like_com(data)
+        if (got and got["jump_to"]) != jump and not (got is None and jump is None):
+            raise AssertionError(f"{name}: {got}, not a jump to {jump}")
+        if got and got["service_calls"] != data.count(b"\xCD\x21") + data.count(b"\xCD\x10") \
+                + data.count(b"\xCD\x16"):
+            raise AssertionError(f"{name}: {got['service_calls']} calls counted")
+    _, out, _ = triage_envelope(FIX.shapes["ptl"])
+    env = json.loads(out)
+    detail = env["evidence"][0].get("detail", "")
+    data = FIX.shapes["ptl"].read_bytes()
+    jump = 2 + struct.unpack_from("<b", data, 1)[0] if data[0] == 0xEB else \
+        3 + struct.unpack_from("<h", data, 1)[0]
+    if env["result"].get("looks_like_com", {}).get("jump_to") != jump or \
+            f"a jump to file offset 0x{jump:X}" not in detail or "--format com" not in detail:
+        raise AssertionError(f"GAME.PTL: {env['result'].get('looks_like_com')}, {detail!r}")
+    _, out, _ = triage_envelope(FIX.text)
+    if "looks_like_com" in json.loads(out)["result"] or b"looks like" in out:
+        raise AssertionError("a text file was said to look like a .COM image")
+    return f"{len(shapes)} edges; GAME.PTL hinted, a jump to 0x{jump:X}; a text file not"
 
 
 EXPECTED_TRIAGE = HERE / "expected-triage.json"

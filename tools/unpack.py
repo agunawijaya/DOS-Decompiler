@@ -821,6 +821,8 @@ def main():
 
     if info.get("layout"):
         print_exepack(info)
+    if info.get("exepack_problem"):
+        print(f"EXEPACK header        : not used: {info['exepack_problem']}")
     if out is None:
         if info.get("problem"):
             print(f"\n{info['problem']}. Nothing was written. --ignore-packer-header "
@@ -832,8 +834,6 @@ def main():
               "out. Nothing was written.", file=sys.stderr)
         return 1
 
-    if info.get("exepack_problem"):
-        print(f"EXEPACK header        : not used: {info['exepack_problem']}")
     print(f"format                : {info.get('format')}")
     print(f"original entry point  : offset 0x{info['oep_offset']:X}"
           + (f" ({info['entry']})" if info.get("entry") else "")

@@ -3608,6 +3608,348 @@
    "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
   ]
  },
+ "shapes/overlaid": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-7b78756c-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 1,360 bytes",
+     "id": "ev-7b78756c-a6db6318",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x580",
+      "file_offset": "0x30"
+     },
+     "value": 1360
+    },
+    {
+     "claim": "2 relocations",
+     "id": "ev-7b78756c-232c2ef5",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 2
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x30",
+     "id": "ev-7b78756c-65f832ea",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x30"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "2 Microsoft LINK overlays after the load image",
+     "detail": "Overlay modules 1, 2, each an MZ with its overlay number, on the 512-byte pages after the root, found as LINK's overlay manager finds them (file 0x600 to 0x87B). Each is loaded at the same place when called, so their code shares addresses, and one flat disassembly of the file is nonsense. The root's image holds 3 int 3Fh calls, found by bytes. `python tools/overlays.py OVERLAID.EXE --views DIR` writes one view per module -- the root with that module in place -- and the pipeline takes each. 388 bytes follow the last module.",
+     "id": "ev-7b78756c-921dfa81",
+     "kind": "overlay-modules",
+     "level": "warn",
+     "location": {
+      "file_offset": "0x600"
+     },
+     "value": {
+      "bytes_after_last": 388,
+      "int3f_calls": 3,
+      "modules": [
+       {
+        "file_offset": "0x600",
+        "image_bytes": 85,
+        "overlay": 1,
+        "relocations": 1
+       },
+       {
+        "file_offset": "0x800",
+        "image_bytes": 76,
+        "overlay": 2,
+        "relocations": 2
+       }
+      ]
+     }
+    },
+    {
+     "claim": "memory model looks small",
+     "detail": "2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+     "id": "ev-7b78756c-94390746",
+     "kind": "memory-model",
+     "level": "info",
+     "location": {
+      "relocation_targets": [
+       "0x31",
+       "0x8b"
+      ]
+     },
+     "value": {
+      "image_bytes": 1360,
+      "model": "small",
+      "relocations": 2
+     }
+    },
+    {
+     "claim": "few stack frames (0 prologues, 0.0/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-7b78756c-0bf9b58b",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x580",
+      "file_offset": "0x30"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.0,
+      "prologues": 0
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "Microsoft LINK's overlays are found by walking MZ headers from the start of the file, a page count at a time, as its overlay manager does. Borland's FBOV overlays and overlays kept in files of their own are other formats; int 3Fh calls are counted by bytes, and which module each reaches is not read."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 1360,
+    "memory_model_guess": "small",
+    "prologue_density": 0.0,
+    "prologues": 0,
+    "relocations": 2,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": true
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-7b78756c-921dfa81",
+      "ev-7b78756c-0bf9b58b"
+     ],
+     "in_scope": []
+    },
+    "verdict_text": "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "which int 3Fh call reaches which overlay module: the overlay manager's tables say, and triage does not read them",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 1,360 bytes, 2 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[WARN   ] 2 Microsoft LINK overlays after the load image",
+   "           Overlay modules 1, 2, each an MZ with its overlay number, on the 512-byte pages after the root, found as LINK's overlay manager finds them (file 0x600 to 0x87B). Each is loaded at the same place when called, so their code shares addresses, and one flat disassembly of the file is nonsense. The root's image holds 3 int 3Fh calls, found by bytes. `python tools/overlays.py OVERLAID.EXE --views DIR` writes one view per module -- the root with that module in place -- and the pipeline takes each. 388 bytes follow the last module.",
+   "",
+   "[WARN   ] few stack frames (0 prologues, 0.0/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "[INFO   ] memory model looks small",
+   "           2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+   "",
+   "VERDICT: probably workable, with caveats above. Expect the measured accuracy figures not to hold."
+  ]
+ },
+ "shapes/overlaid-packed": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "MZ executable",
+     "id": "ev-9bb11ac1-896e9737",
+     "kind": "format",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "MZ"
+    },
+    {
+     "claim": "load image of 1,360 bytes",
+     "id": "ev-9bb11ac1-a6db6318",
+     "kind": "load-image",
+     "location": {
+      "file_end": "0x580",
+      "file_offset": "0x30"
+     },
+     "value": 1360
+    },
+    {
+     "claim": "2 relocations",
+     "id": "ev-9bb11ac1-232c2ef5",
+     "kind": "relocation-count",
+     "location": {
+      "file_offset": "0x6"
+     },
+     "value": 2
+    },
+    {
+     "claim": "entry point 0000:0000, file offset 0x30",
+     "id": "ev-9bb11ac1-65f832ea",
+     "kind": "entry-point",
+     "location": {
+      "file_offset": "0x30"
+     },
+     "value": "0000:0000"
+    },
+    {
+     "claim": "packed with Microsoft EXEPACK",
+     "detail": "The signature 'RB' sits exactly two bytes before the entry point, which is where EXEPACK's packed header ends. The entry point is its decompressor. `tools/unpack.py` handles this format with the original entry point read from the packer's own header, and recovers the image to 99.7% of a known-good unpacked build.",
+     "id": "ev-9bb11ac1-d32a86f9",
+     "kind": "packer-marker",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x2e"
+     },
+     "value": "RB"
+    },
+    {
+     "claim": "2 Microsoft LINK overlays after the load image",
+     "detail": "Overlay modules 1, 2, each an MZ with its overlay number, on the 512-byte pages after the root, found as LINK's overlay manager finds them (file 0x600 to 0x87B). Each is loaded at the same place when called, so their code shares addresses, and one flat disassembly of the file is nonsense. The root is packed, so its int 3Fh calls into them cannot be read yet. Unpack it first -- unpack.py carries the overlays across -- and then `python tools/overlays.py UNPACKED.EXE --views DIR` writes one view per module -- the root with that module in place -- and the pipeline takes each. 388 bytes follow the last module.",
+     "id": "ev-9bb11ac1-934e91c7",
+     "kind": "overlay-modules",
+     "level": "warn",
+     "location": {
+      "file_offset": "0x600"
+     },
+     "value": {
+      "bytes_after_last": 388,
+      "int3f_calls": null,
+      "modules": [
+       {
+        "file_offset": "0x600",
+        "image_bytes": 85,
+        "overlay": 1,
+        "relocations": 1
+       },
+       {
+        "file_offset": "0x800",
+        "image_bytes": 76,
+        "overlay": 2,
+        "relocations": 2
+       }
+      ]
+     }
+    },
+    {
+     "claim": "memory model looks small",
+     "detail": "2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+     "id": "ev-9bb11ac1-94390746",
+     "kind": "memory-model",
+     "level": "info",
+     "location": {
+      "relocation_targets": [
+       "0x31",
+       "0x8b"
+      ]
+     },
+     "value": {
+      "image_bytes": 1360,
+      "model": "small",
+      "relocations": 2
+     }
+    },
+    {
+     "claim": "few stack frames (0 prologues, 0.0/KB)",
+     "detail": "Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+     "id": "ev-9bb11ac1-0bf9b58b",
+     "kind": "prologue-density",
+     "level": "warn",
+     "location": {
+      "file_end": "0x580",
+      "file_offset": "0x30"
+     },
+     "value": {
+      "pattern": "55 8b ec",
+      "per_kb": 0.0,
+      "prologues": 0
+     }
+    }
+   ],
+   "limitations": [
+    "The memory model is inferred from how many relocations there are and where they sit, not read from the file; a program that builds its segment values at run time looks smaller than it is.",
+    "Packers are recognised by signature, and EXEPACK by its 'RB' marker. A packer with no signature in triage.py's table is not detected; few relocations with few stack frames is the only other hint.",
+    "Stack frames are counted as the bytes 55 8B EC anywhere in the load image, without disassembling. The other encoding of mov bp,sp (89 E5) and ENTER are not counted, and the same bytes inside data are.",
+    "Interpreted engines are recognised by engine names in the binary and by the size of the files beside it. An engine that names nothing and keeps its data elsewhere passes as an ordinary program.",
+    "Microsoft LINK's overlays are found by walking MZ headers from the start of the file, a page count at a time, as its overlay manager does. Borland's FBOV overlays and overlays kept in files of their own are other formats; int 3Fh calls are counted by bytes, and which module each reaches is not read."
+   ],
+   "profile": null,
+   "result": {
+    "entry": "0000:0000",
+    "file": "<FILE>",
+    "format": "MZ",
+    "image_bytes": 1360,
+    "memory_model_guess": "small",
+    "prologue_density": 0.0,
+    "prologues": 0,
+    "relocations": 2,
+    "verdict": {
+     "confidence": "low",
+     "in_scope": false
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-9bb11ac1-934e91c7",
+      "ev-9bb11ac1-0bf9b58b"
+     ],
+     "in_scope": [
+      "ev-9bb11ac1-d32a86f9"
+     ]
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": [
+    "which int 3Fh call reaches which overlay module: the overlay manager's tables say, and triage does not read them",
+    "whether this is hand-written assembly or C compiled without frame pointers; libsig.py with each shipped database tells them apart"
+   ]
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : MZ",
+   "Image  : 1,360 bytes, 2 relocations",
+   "Entry  : 0000:0000",
+   "",
+   "[BLOCKER] packed with Microsoft EXEPACK",
+   "           The signature 'RB' sits exactly two bytes before the entry point, which is where EXEPACK's packed header ends. The entry point is its decompressor. `tools/unpack.py` handles this format with the original entry point read from the packer's own header, and recovers the image to 99.7% of a known-good unpacked build.",
+   "",
+   "[WARN   ] 2 Microsoft LINK overlays after the load image",
+   "           Overlay modules 1, 2, each an MZ with its overlay number, on the 512-byte pages after the root, found as LINK's overlay manager finds them (file 0x600 to 0x87B). Each is loaded at the same place when called, so their code shares addresses, and one flat disassembly of the file is nonsense. The root is packed, so its int 3Fh calls into them cannot be read yet. Unpack it first -- unpack.py carries the overlays across -- and then `python tools/overlays.py UNPACKED.EXE --views DIR` writes one view per module -- the root with that module in place -- and the pipeline takes each. 388 bytes follow the last module.",
+   "",
+   "[WARN   ] few stack frames (0 prologues, 0.0/KB)",
+   "           Two very different programs look like this: hand-written assembly, and C built by a compiler that omits frame pointers under optimisation (Open Watcom does, Microsoft C 5.x does not). Tell them apart by running libsig.py with each shipped database -- a compiled program will match a C runtime, assembly will not. Either way, expect function boundary recovery to miss more than the measured figures suggest.",
+   "",
+   "[INFO   ] memory model looks small",
+   "           2 relocations, all beside the entry point: the startup loading DGROUP and the stack, nothing else needing a fixup",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
  "shapes/pklite-0.1": {
   "envelope": {
    "evidence": [
@@ -4852,6 +5194,66 @@
    "",
    "[WARN   ] mixed or frame-pointer-free (1 prologues, 0.5/KB)",
    "           Either a lot of hand-written assembly, or a compiler omitting frame pointers under optimisation. Function boundary recovery will miss more than usual.",
+   "",
+   "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+  ]
+ },
+ "shapes/ptl": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "not an MZ executable",
+     "detail": "No MZ signature. Not a DOS executable, or a container of some other kind. It looks like a .COM image, though: it begins with a jump to file offset 0x62 inside it and holds 2 int 21h/10h/16h. A .COM has no header to recognise it by, so its name decides; if it is one, ask for it with --format com.",
+     "id": "ev-a29c6b74-d96b5994",
+     "kind": "format",
+     "level": "blocker",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "eb60"
+    }
+   ],
+   "limitations": [
+    "Only MZ executables and .COM files are recognised; NE, PE and LE executables, archives and data files are all reported as not MZ."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "not-MZ",
+    "looks_like_com": {
+     "jump_to": 98,
+     "service_calls": 2,
+     "why": "it begins with a jump to file offset 0x62 inside it and holds 2 int 21h/10h/16h"
+    },
+    "verdict": {
+     "confidence": "high",
+     "in_scope": false
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-a29c6b74-d96b5994"
+     ],
+     "in_scope": [
+      "ev-a29c6b74-d96b5994"
+     ]
+    },
+    "verdict_text": "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   1,
+   1
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : not-MZ",
+   "",
+   "[BLOCKER] not an MZ executable",
+   "           No MZ signature. Not a DOS executable, or a container of some other kind. It looks like a .COM image, though: it begins with a jump to file offset 0x62 inside it and holds 2 int 21h/10h/16h. A .COM has no header to recognise it by, so its name decides; if it is one, ask for it with --format com.",
    "",
    "VERDICT: out of scope. See the blockers above and knowledge/00-scope.md."
   ]
