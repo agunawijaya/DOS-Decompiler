@@ -349,12 +349,16 @@ def _():
     if "overlay_view" in plain["result"] or any(i["kind"] == "overlay-view"
                                                 for i in plain["evidence"]):
         raise AssertionError("an ordinary verify carries a view")
-    record["result"]["view"]["sha256"] = "c" * 64
-    path.write_text(json.dumps(record), encoding="utf-8")
-    other = loadimage.verify(EXE["plain"], folder, view=path)
-    if other["status"] != "blocked" or "describes a view with SHA-256 cccccccc" not in \
-            other["result"]["reason"] or "checks" in other["result"]:
-        raise AssertionError(f"another file's record: {other['status']} {other['result']}")
+    # Another file's: a hash that sorts below this one and one above, so only
+    # equality passes; the reason quotes its first sixteen characters.
+    for other_sha in ("0123456789abcdef" * 4, "fedcba9876543210" * 4):
+        record["result"]["view"]["sha256"] = other_sha
+        path.write_text(json.dumps(record), encoding="utf-8")
+        other = loadimage.verify(EXE["plain"], folder, view=path)
+        if other["status"] != "blocked" or \
+                f"describes a view with SHA-256 {other_sha[:16]}..., not this file" not in \
+                other["result"]["reason"] or "checks" in other["result"]:
+            raise AssertionError(f"another file's record: {other['status']} {other['result']}")
     path.write_text("{}", encoding="utf-8")
     broken = loadimage.verify(EXE["plain"], folder, view=path)
     if broken["status"] != "blocked" or "not a view record" not in broken["result"]["reason"]:

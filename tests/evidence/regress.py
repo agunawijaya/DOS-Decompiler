@@ -1166,10 +1166,62 @@ def _():
         code, out, err = tri(big, "--format", "com")
         if code != want or (want and "at most 65,280" not in err):
             wrong.append(f"{size:#x} bytes, com: exit {code}, {err!r}")
+    # The size limit is --format com's alone: without it the large file is
+    # refused as not an MZ, and a large MZ with --format mz is triaged.
+    code, out, err = tri(big)
+    if code != 1 or "not an MZ executable" not in out or err:
+        wrong.append(f"65,281 bytes, no --format: exit {code}, {err!r}")
+    large_mz = big.parent / "LARGE.EXE"
+    large_mz.write_bytes(mz.read_bytes() + bytes(0x10000))
+    code, out, err = tri(large_mz, "--format", "mz")
+    if code != 0 or out.strip().splitlines()[-1] != IN_SCOPE:
+        wrong.append(f"a large MZ, mz: exit {code}, {err!r}")
+    # A name that sorts before .com, and none: each said not to name a .COM.
+    for name, said in (("notes.bin", "its name (.bin)"), ("NOEXT", "its name (no extension)")):
+        path = big.parent / name
+        path.write_bytes(b"not an executable\r\n")
+        code, out, _ = tri(path, "--format", "com")
+        if code != 0 or said not in out or "--format com --out" not in out:
+            wrong.append(f"{name}, com: exit {code}, {out[-200:]!r}")
     if wrong:
         raise AssertionError("; ".join(wrong))
     return ("a .PTL routed with --format com, refused with mz; an MZ refused as com; "
-            "65,280 bytes taken, 65,281 refused")
+            "65,280 bytes taken, 65,281 refused, and not refused without --format")
+
+
+@case("triage on LINK overlays: three modules, and bytes before the entry that are not RB")
+def _():
+    import triage
+    data = bytearray(FIX.shapes["overlaid"].read_bytes())
+    entry = struct.unpack_from("<H", data, 8)[0] * 16 + \
+        (struct.unpack_from("<H", data, 0x16)[0] << 4) + struct.unpack_from("<H", data, 0x14)[0]
+    folder = FIX.work / "shapes" / "linked-more"
+    folder.mkdir(exist_ok=True)
+    # "ZZ" sorts after "RB": the root is not packed, and its calls are counted.
+    zz = bytearray(data)
+    zz[entry - 2:entry] = b"ZZ"
+    (folder / "ZZ.EXE").write_bytes(zz)
+    obs = []
+    triage.analyse(str(folder / "ZZ.EXE"), obs)
+    value = next(o["value"] for o in obs if o["kind"] == "overlay-modules")
+    if value["int3f_calls"] != 3:
+        raise AssertionError(f"ZZ before the entry: int 3Fh {value['int3f_calls']}")
+    # A third module: the second again, numbered 3, on the next page.
+    mods, size = link_modules(FIX.shapes["overlaid"])
+    _, second, second_end = mods[1]
+    pages = struct.unpack_from("<H", data, second + 4)[0]
+    third = bytearray(data[second:second + pages * 512])
+    struct.pack_into("<H", third, 0x1A, 3)
+    three = bytes(data) + bytes(-len(data) % 512) + bytes(third)
+    third_at = len(data) + (-len(data) % 512)
+    (folder / "THREE.EXE").write_bytes(three)
+    obs = []
+    triage.analyse(str(folder / "THREE.EXE"), obs)
+    item = next(o for o in obs if o["kind"] == "overlay-modules")
+    span = f"file 0x{mods[0][1]:X} to 0x{third_at + (second_end - second) - 1:X}"
+    if "Overlay modules 1, 2, 3," not in item["detail"] or span not in item["detail"]:
+        raise AssertionError(f"three modules: {item['detail']!r}")
+    return f"ZZ: 3 calls counted; three modules, {span}"
 
 
 @case("triage's hint that a headerless file looks like a .COM image, at its edges")
@@ -1188,6 +1240,20 @@ def _():
         "nothing": (b"", None),
         "a jump, but 65,281 bytes": (b"\xEB\x01\x90" + calls + bytes(0xFF01 - 7), None),
         "a jump, and 65,280 bytes": (b"\xEB\x01\x90" + calls + bytes(0xFF00 - 7), 3),
+        # Too short to hold the jump's operand: read anyway, these would fail.
+        "a near jump in two bytes": (b"\xE9\x00", None),
+        "a near jump in one byte": (b"\xE9", None),
+        "a short jump in one byte": (b"\xEB", None),
+        # Past itself by none, and by one; a short jump of two, where adding
+        # and or-ing the 2 differ.
+        "a near jump to the next instruction": (b"\xE9\x00\x00" + calls, None),
+        "a near jump past one byte": (b"\xE9\x01\x00\x90" + calls, 4),
+        "a short jump past two bytes": (b"\xEB\x02\x90\x90" + calls, 4),
+        "a near jump well past the end": (b"\xE9\x40\x00" + calls, None),
+        # Not a jump, though read as one these would land inside.
+        "a first byte below 0xE9": (b"\x90\x03\x00" + calls, None),
+        "a first byte above 0xEB": (b"\xFA\x01\x90" + calls, None),
+        "three service calls": (b"\xEB\x01\x90" + calls + b"\xCD\x16", 3),
     }
     for name, (data, jump) in shapes.items():
         got = triage.looks_like_com(data)

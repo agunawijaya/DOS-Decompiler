@@ -1643,3 +1643,68 @@ signature = "d431c7e09e89d3b6"
 kind = "equivalent"
 mutant = "if event[0] is \"left\":"
 why = "Event kinds are string constants written in comdiff.py, which CPython interns, so is and == agree for every event run_routine records."
+
+# triage.py since prompt 15: --format, the .COM hint, LINK's overlays.
+
+[[survivor]]
+target = "triage"
+signature = "7a8b3da2d06521ef"
+kind = "equivalent"
+mutant = "if data[0] == 0xE9 and len(data) > 3:"
+why = "A three-byte near jump can never land past itself and inside the file, so the branch it now skips returned None for it anyway."
+
+[[survivor]]
+target = "triage"
+signature = "72de65270c59047b"
+kind = "equivalent"
+mutant = "if data[0] == 0xE9 and len(data) >= 4:"
+why = "A three-byte near jump can never land past itself and inside the file, so the branch it now skips returned None for it anyway."
+
+[[survivor]]
+target = "triage"
+signature = "340acdca6e2412c5"
+kind = "equivalent"
+mutant = "length, target = 3, 3 + struct.unpack_from(\"<h\", data, 1)[ -1]"
+why = "struct.unpack_from with one field returns a one-item tuple, whose last item is its first."
+
+[[survivor]]
+target = "triage"
+signature = "d5d835f30fdaa978"
+kind = "equivalent"
+mutant = "elif data[0] == 0xEB and len(data) > 2:"
+why = "A two-byte short jump can never land past itself and inside the file, so the branch it now skips returned None for it anyway."
+
+[[survivor]]
+target = "triage"
+signature = "d9d5943243dc8878"
+kind = "equivalent"
+mutant = "elif data[0] == 0xEB and len(data) >= 3:"
+why = "A two-byte short jump can never land past itself and inside the file, so the branch it now skips returned None for it anyway."
+
+[[survivor]]
+target = "triage"
+signature = "4a37f01e37fa9d1b"
+kind = "equivalent"
+mutant = "length, target = 2, 2 + struct.unpack_from(\"<b\", data, 1)[ -1]"
+why = "struct.unpack_from with one field returns a one-item tuple, whose last item is its first."
+
+[[survivor]]
+target = "triage"
+signature = "33ac46400301c47a"
+kind = "equivalent"
+mutant = "if fmt >= \"mz\" and data[:2] not in (b\"MZ\", b\"ZM\"):"
+why = "fmt has already been checked to be auto, com or mz, and of those only mz sorts at or after mz."
+
+[[survivor]]
+target = "triage"
+signature = "c65bc47f9927c1ad"
+kind = "equivalent"
+mutant = "if suffix == \".com\" or fmt >= \"com\":"
+why = "This branch is reached only for a file without an MZ header, where check_format has already refused mz, so fmt is auto or com, and auto sorts before com."
+
+[[survivor]]
+target = "triage"
+signature = "8e316cd0e124ffb3"
+kind = "equivalent"
+mutant = "if o[\"kind\"] is \"overlay-modules\":"
+why = "Every kind is a string constant written in triage.py, which CPython interns, so is and == agree for every observation analyse records."
