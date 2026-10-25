@@ -48,6 +48,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import evidence  # noqa: E402  -- same directory, deliberate
+import overlays  # noqa: E402
 import triage  # noqa: E402
 
 OVERLAY_SUFFIXES = {".ovl", ".ovr", ".ov1", ".ov2", ".dat"}
@@ -89,6 +90,12 @@ def classify(path, root):
         ov = overlay_number(path)
         entry["kind"] = "overlay-module" if ov else "executable"
         entry["overlay_number"] = ov
+        if not ov:
+            # Microsoft LINK's overlays live inside the executable, after it.
+            # Recorded only when there are some, so nothing else changes.
+            linked = overlays.find(path.read_bytes())
+            if linked and linked["modules"]:
+                entry["linked_overlays"] = len(linked["modules"])
     elif suffix == ".com":
         entry["kind"] = "com"
     elif suffix in BATCH_SUFFIXES:
@@ -396,6 +403,9 @@ def report(s):
                 A(f"      blocker: {b}")
         elif e.get("model"):
             A(f"      {e['model']} model, {e.get('prologue_density', 0)} prologues/KB")
+        if e.get("linked_overlays"):
+            A(f"      {e['linked_overlays']} Microsoft LINK overlays appended: "
+              f"tools/overlays.py writes one view per module")
     if s["main"]:
         A("")
         A(f"  Chosen: {s['main']['path']} — {s['main_reason']}")
@@ -518,6 +528,11 @@ def envelope(folder):
         for b in e.get("blockers") or []:
             items.append({"kind": "blocker", "level": "blocker", "claim": b,
                           "location": at(e["path"])})
+        if e.get("linked_overlays"):
+            items.append({"kind": "linked-overlays",
+                          "claim": f"{Path(e['path']).as_posix()} carries "
+                                   f"{e['linked_overlays']} Microsoft LINK overlays",
+                          "location": at(e["path"]), "value": e["linked_overlays"]})
     if s["main"]:
         items.append({"kind": "main-executable",
                       "claim": f"{Path(s['main']['path']).as_posix()} is likely "

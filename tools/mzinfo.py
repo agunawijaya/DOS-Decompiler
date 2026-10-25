@@ -33,6 +33,7 @@ from collections import Counter
 from pathlib import Path
 
 import evidence
+import overlays
 
 MZ_HEADER = "<2sHHHHHHHHHHHHH"  # 28 bytes through the overlay number
 MZ_HEADER_SIZE = struct.calcsize(MZ_HEADER)
@@ -153,6 +154,18 @@ def parse(path):
         "findings": [],
     }
 
+    # Microsoft LINK's overlays, when the bytes past the image are those: only
+    # then is the key there, so the JSON of every other file is unchanged.
+    linked = overlays.find(data)
+    if linked and linked["modules"]:
+        result["overlays"] = {
+            "modules": [{"overlay": m["overlay"], "file_offset": m["file_offset"],
+                         "file_end": m["end"], "header_bytes": m["header_bytes"],
+                         "image_bytes": m["image_bytes"], "relocations": m["relocations"],
+                         "segments": m["segments"]} for m in linked["modules"]],
+            "bytes_after_last": linked["after"],
+        }
+
     _analyze(data, result)
     return data, result
 
@@ -164,7 +177,23 @@ def _analyze(data, result):
     lay = result["layout"]
     ep = lay["entry_point_file_offset"]
 
-    if lay["trailing_bytes"] > 0:
+    if result.get("overlays"):
+        mods = result["overlays"]["modules"]
+        f.append({
+            "level": "warn", "code": "overlay-modules",
+            "message": (
+                f"{len(mods)} Microsoft LINK overlay modules follow the load image, "
+                f"each an MZ with its overlay number on the 512-byte page after the "
+                f"one before (file 0x{mods[0]['file_offset']:X} to "
+                f"0x{mods[-1]['file_end'] - 1:X}), as LINK's overlay manager reads "
+                f"them. They load at one place when called, so their code shares "
+                f"addresses: tools/overlays.py lists them and writes one view per "
+                f"module for the pipeline."
+                + (f" {result['overlays']['bytes_after_last']} bytes follow the last."
+                   if result["overlays"]["bytes_after_last"] else "")
+            ),
+        })
+    elif lay["trailing_bytes"] > 0:
         f.append({
             "level": "warn" if lay["trailing_bytes"] > 64 else "info",
             "code": "trailing-data",
@@ -320,6 +349,13 @@ def report(result):
     A(f"  load image           0x{lay['image_start']:X} .. 0x{lay['image_end']:X}  ({lay['image_size']} bytes)")
     A(f"  trailing data        {lay['trailing_bytes']} bytes")
     A("")
+    if result.get("overlays"):
+        A("-- Overlay modules (Microsoft LINK) --------------------------------")
+        for m in result["overlays"]["modules"]:
+            A(f"  #{m['overlay']:<3} file 0x{m['file_offset']:05X}..0x{m['file_end'] - 1:05X}"
+              f"  image {m['image_bytes']:>7,}  {m['relocations']:>5} relocations  "
+              f"segments {' '.join(f'{s:04X}' for s in m['segments'])}")
+        A("")
     if result["referenced_segments"]:
         A("-- Segments referenced by relocations ------------------------------")
         for s in result["referenced_segments"]:
@@ -375,6 +411,9 @@ def _unknown_for(f, result):
     if f["code"] == "trailing-data" and f["level"] == "warn":
         return (f"what the {result['layout']['trailing_bytes']} bytes past the "
                 f"load image are: overlays, appended data, or a packer's payload")
+    if f["code"] == "overlay-modules":
+        return ("which int 3Fh call reaches which overlay module: the overlay "
+                "manager's tables say, and mzinfo does not read them")
     if f["code"] == "few-relocations":
         return ("whether the program is packed, or builds its segment values "
                 "at run time instead of letting the loader fix them up")

@@ -61,8 +61,20 @@
     compare with the corrected one. A file Ghidra loads wrong then stops at
     the load-image check, as it did before the corrector existed.
 
+.PARAMETER View
+    The record tools/overlays.py writes beside an overlay view, VIEW.view.json:
+    which overlay the view holds, of which file, built how. Found without
+    being given when it sits beside -Exe under that name. It is checked
+    against -Exe before anything runs -- a record of another file stops the
+    run -- copied into the results as overlay-view.json, and carried in
+    loadimage.json, so the verified load says which overlay it is.
+
 .EXAMPLE
     .\pipeline.ps1 -Exe C:\games\GAME.EXE
+
+.EXAMPLE
+    python tools\overlays.py UNPACKED.EXE --views views
+    .\pipeline.ps1 -Exe views\UNPACKED-overlay1.exe -OutDir out-overlay1
 #>
 [CmdletBinding()]
 param(
@@ -72,7 +84,8 @@ param(
     [string]$JavaHome = $env:JAVA_HOME,
     [switch]$SkipRecovery,
     [switch]$AllowLoadMismatch,
-    [switch]$NoLoadCorrection
+    [switch]$NoLoadCorrection,
+    [string]$View
 )
 
 $ErrorActionPreference = 'Stop'
@@ -141,6 +154,28 @@ if (Select-String -Path $report -Pattern '\[ERROR\] packer' -Quiet) {
     return
 }
 
+# An overlay view: the record overlays.py wrote beside it says which overlay
+# this is. A record of another file is worse than none -- every result would
+# be filed under the wrong overlay -- so it stops the run.
+if (-not $View) {
+    $beside = [IO.Path]::ChangeExtension($exeItem.FullName, '.view.json')
+    if (Test-Path -LiteralPath $beside) { $View = $beside }
+}
+if ($View) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $viewCheck = & $python (Join-Path $toolDir 'overlays.py') --check-view $View $exeItem.FullName 2>&1 |
+            ForEach-Object { "$_" }
+        $viewCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+    if ($viewCode -ne 0) { throw "the view record does not describe $($exeItem.Name): $viewCheck" }
+    Write-Host "  $viewCheck" -ForegroundColor DarkCyan
+    Copy-Item -LiteralPath $View -Destination (Join-Path $OutDir 'overlay-view.json') -Force
+}
+
 Write-Host "`n[2/6] Import" -ForegroundColor Cyan
 # The settings this run expects Ghidra to use, written down before import so
 # the export can be held to them afterwards. Ghidra still chooses; the
@@ -202,6 +237,7 @@ $loadJson = Join-Path $OutDir 'loadimage.json'
 $verifyArgs = @('verify', $exeItem.FullName, (Join-Path $OutDir 'loadimage-observed'),
                 '--profile', $profileJson, '--evidence', $loadJson)
 if (-not $NoLoadCorrection) { $verifyArgs += @('--corrections', $correctionsJson) }
+if ($View) { $verifyArgs += @('--view', $View) }
 $previous = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 try {

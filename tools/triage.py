@@ -33,6 +33,7 @@ from collections import Counter
 from pathlib import Path
 
 import evidence
+import overlays
 
 # Engines whose executable is an interpreter and whose game lives in the data
 # files. Decompiling these gets you a virtual machine, not a game.
@@ -147,6 +148,53 @@ def looks_like_engine(path, data):
 
 def _at(offset):
     return {"file_offset": f"0x{offset:x}"}
+
+
+def _int3f(data, mz):
+    """The root's `int 3Fh` calls, or None when it is packed and they cannot
+    be seen: EXEPACK's "RB" before the entry."""
+    if data[max(0, mz["entry"] - 2):mz["entry"]] == b"RB":
+        return None
+    return overlays.int3f_calls(data[mz["image_start"]:mz["image_end"]])
+
+
+def _linked_value(data, mz, linked):
+    calls = _int3f(data, mz)
+    return {"modules": [{"overlay": m["overlay"], "file_offset": f"0x{m['file_offset']:x}",
+                         "image_bytes": m["image_bytes"], "relocations": m["relocations"]}
+                        for m in linked["modules"]],
+            "bytes_after_last": linked["after"],
+            "int3f_calls": None if calls is None else len(calls)}
+
+
+def _linked_detail(path, data, mz, linked):
+    mods = linked["modules"]
+    calls = _int3f(data, mz)
+    text = (f"Overlay modules {', '.join(str(m['overlay']) for m in mods)}, each an MZ with "
+            f"its overlay number, on the 512-byte pages after the root, found as LINK's "
+            f"overlay manager finds them (file 0x{mods[0]['file_offset']:X} to "
+            f"0x{mods[-1]['end'] - 1:X}). Each is loaded at the same place when called, so "
+            f"their code shares addresses, and one flat disassembly of the file is "
+            f"nonsense. ")
+    if calls is None:
+        text += ("The root is packed, so its int 3Fh calls into them cannot be read yet. "
+                 "Unpack it first -- unpack.py carries the overlays across -- and then "
+                 "`python tools/overlays.py UNPACKED.EXE --views DIR` ")
+    else:
+        text += (f"The root's image holds {len(calls)} int 3Fh calls, found by bytes. "
+                 f"`python tools/overlays.py {Path(path).name} --views DIR` ")
+    text += ("writes one view per module -- the root with that module in place -- and the "
+             "pipeline takes each.")
+    if linked["after"]:
+        text += f" {linked['after']:,} bytes follow the last module."
+    return text
+
+
+LINKED_LIMITATION = (
+    "Microsoft LINK's overlays are found by walking MZ headers from the start of the "
+    "file, a page count at a time, as its overlay manager does. Borland's FBOV "
+    "overlays and overlays kept in files of their own are other formats; int 3Fh "
+    "calls are counted by bytes, and which module each reaches is not read.")
 
 
 def analyse(path, observations=None, decisions=None):
@@ -276,6 +324,7 @@ def analyse(path, observations=None, decisions=None):
 
     # Overlays.
     fbov = data.find(b"FBOV")
+    linked = overlays.find(data)
     if fbov != -1 or mz["overlay_number"] != 0:
         overlaid = found("blocker", "overlaid program",
               "Overlaid code is swapped into a shared region, so "
@@ -286,6 +335,16 @@ def analyse(path, observations=None, decisions=None):
               {"overlay_number": mz["overlay_number"],
                "fbov_marker": fbov != -1})
         decide("in_scope", False, overlaid)
+    elif linked and linked["modules"]:
+        # Microsoft LINK's own overlays, appended as MZ modules: handled, one
+        # view per module, but the measured figures are for a program whose
+        # code is all in one address space, so they do not transfer.
+        overlaid = found("warn", f"{len(linked['modules'])} Microsoft LINK overlays "
+                                 f"after the load image",
+              _linked_detail(path, data, mz, linked),
+              "overlay-modules", _at(linked["modules"][0]["file_offset"]),
+              _linked_value(data, mz, linked))
+        decide("confidence", "low", overlaid)
     elif mz["trailing"] > 1024:
         found("warn", f"{mz['trailing']} bytes past the load image",
               "Could be appended data, could be overlays. The "
@@ -461,6 +520,9 @@ def _unknown_for(o):
     if kind == "trailing-data":
         return (f"what the {value} bytes past the load image are: appended "
                 f"data, overlays, or a packer's payload")
+    if kind == "overlay-modules":
+        return ("which int 3Fh call reaches which overlay module: the overlay "
+                "manager's tables say, and triage does not read them")
     if kind == "memory-model" and value["model"] != "small":
         return {
             "tiny or packed": "whether the program is a single segment or "
@@ -529,6 +591,8 @@ def envelope(path):
             # triggered by what this file looks like.
             limitations.append(f"{o['claim']}: {o['detail']}")
             continue
+        if o["kind"] == "overlay-modules":
+            limitations.append(LINKED_LIMITATION)
         item = {k: v for k, v in o.items() if v is not None}
         items.append(item)
         item_of[index] = item

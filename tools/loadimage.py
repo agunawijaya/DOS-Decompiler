@@ -775,7 +775,25 @@ def _corrector_checks(c, exp, corrections_path, profile):
     return record
 
 
-def verify(exe, observed_folder, profile=None, corrections=None):
+def overlay_view(record_path, target):
+    """What a view record (tools/overlays.py) says about the file being
+    verified, for the result; blocked envelope fields when it describes
+    another file."""
+    try:
+        env = json.loads(Path(record_path).read_text(encoding="utf-8"))
+        result = env["result"]
+        same = result["view"]["sha256"] == target["sha256"]
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return None, f"{record_path} is not a view record overlays.py wrote: {e}"
+    if not same:
+        return None, (f"{record_path} describes a view with SHA-256 "
+                      f"{result['view']['sha256'][:16]}..., not this file")
+    keep = ("overlay", "source", "root", "module", "load_segment", "load_segment_source",
+            "built", "checks")
+    return dict({k: result[k] for k in keep}, record=str(record_path)), None
+
+
+def verify(exe, observed_folder, profile=None, corrections=None, view=None):
     """The envelope for one file and one dump. Status verified, mismatch,
     unsupported, or blocked when there is no dump to compare against.
 
@@ -783,9 +801,22 @@ def verify(exe, observed_folder, profile=None, corrections=None):
     Its corrections are recorded in the result -- so a reader can tell a
     clean load from a corrected one -- and its provenance is checked, but
     nothing in it is believed: the corrected program is compared with the
-    file exactly as an uncorrected one would be."""
+    file exactly as an uncorrected one would be.
+
+    `view` is the record overlays.py wrote beside an overlay view. It is
+    carried into the result as `overlay_view`, so the verified load says
+    which overlay of which file it is and how it was built; it decides
+    nothing, and one that describes another file blocks the run."""
     load_segment = int((profile or {}).get("load_segment", "0x1000"), 16)
     target = evidence.target_identity(exe)
+    view_record = None
+    if view:
+        view_record, why = overlay_view(view, target)
+        if why:
+            return evidence.envelope(
+                "loadimage", target, status="blocked", profile=profile,
+                result={"file": str(exe), "reason": why},
+                limitations=LIMITATIONS)
     try:
         exp = Expected(exe, load_segment)
     except Unsupported as e:
@@ -842,6 +873,16 @@ def verify(exe, observed_folder, profile=None, corrections=None):
     limitations = list(LIMITATIONS)
     if any(i["name"] == "relocations.status_after_correction" for i in checks.items):
         limitations.append(AFTER_CORRECTION_LIMITATION)
+    if view_record is not None:
+        result["overlay_view"] = view_record
+        items.append({"kind": "overlay-view",
+                      "claim": f"overlay {view_record['overlay']} of "
+                               f"{view_record['source']['file']}, its image at segment "
+                               f"{view_record['load_segment']}",
+                      "value": {"overlay": view_record["overlay"],
+                                "source_sha256": view_record["source"]["sha256"],
+                                "root_sha256": view_record["root"]["sha256"],
+                                "load_segment": view_record["load_segment"]}})
     return evidence.envelope("loadimage", target, status=status, result=result,
                              evidence=items, profile=profile,
                              limitations=limitations, unknowns=unknowns)
@@ -1029,6 +1070,8 @@ def main():
     v.add_argument("--corrections",
                    help="CorrectMzLoad.java's load-corrections.json, when it ran: "
                         "recorded, and its provenance checked, but not trusted")
+    v.add_argument("--view", help="the record overlays.py wrote beside an overlay view: "
+                                  "carried into the envelope as overlay_view")
 
     m = sub.add_parser("map", help="convert a file offset or an address")
     m.add_argument("record", help="loadimage.json from a verified run")
@@ -1049,11 +1092,15 @@ def main():
 
     if args.cmd == "verify":
         env = verify(args.exe, args.observed, _read_profile(args.profile),
-                     args.corrections)
+                     args.corrections, args.view)
         if args.evidence:
             evidence.write(env, args.evidence)
         for line in summary(env):
             print(line)
+        view = env["result"].get("overlay_view")
+        if view:
+            print(f"overlay view: overlay {view['overlay']} of {view['source']['file']}, "
+                  f"at segment {view['load_segment']}")
         return {"verified": 0, "mismatch": 1, "unsupported": 2}.get(env["status"], 3)
 
     env = json.loads(Path(args.record).read_text(encoding="utf-8"))

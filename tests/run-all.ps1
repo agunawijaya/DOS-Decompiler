@@ -114,6 +114,8 @@ $Prerequisites = @{
     # The MCP server, through the SDK's own client. Its Ghidra half skips by
     # itself, saying so.
     'mcp'        = @('nasm', 'capstone', 'unicorn', 'mcp')
+    # Its Ghidra half skips by itself, saying so.
+    'overlays'   = @('nasm')
     'pcxlib'     = @()
     'placements' = @('nasm', 'capstone', 'unicorn')
     'sopwith'    = @('sopwith', 'capstone', 'unicorn')

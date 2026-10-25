@@ -212,7 +212,8 @@ def remove_stale():
 # mzinfo.json, profile.json, loadimage.json, handshake.json -- so an analysis
 # cached under an older copy of them is an older answer, and the key has to
 # say so. tests/mcp checks this list against pipeline.ps1.
-PIPELINE_PYTHON = ("mzinfo.py", "analysis_profile.py", "loadimage.py", "evidence.py")
+PIPELINE_PYTHON = ("mzinfo.py", "analysis_profile.py", "loadimage.py", "evidence.py",
+                   "overlays.py")
 
 
 def pipeline_python_sha256(tools=TOOLS):
