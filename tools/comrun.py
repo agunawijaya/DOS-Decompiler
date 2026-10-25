@@ -107,6 +107,9 @@ Pascal's `MsDos` and `Intr` read the vector out of the table and far-call it
 instead. Against a zeroed table that is a call to 0000:0000, and the program
 wanders off without ever raising an interrupt anyone could see. Every vector
 points at an `int n` / `iret` stub, so both routes arrive at the same place.
+Once the program puts a handler of its own in a vector, its `int n` goes to
+that handler, as on the machine -- Tapper's file shim on INT 80h, an overlay
+manager on INT 3Fh -- and the run says which vectors it replaced.
 
 Usage:
     python comrun.py GAME.COM --png screen.png
