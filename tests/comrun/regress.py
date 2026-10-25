@@ -830,6 +830,67 @@ def _():
     return "1000:0100 as offset 0, and the patched instruction marked changed"
 
 
+# ---------------------------------------------------------------- the program's own vectors
+
+@nasm_case("an `int` reaches the handler the program put in its vector")
+def _():
+    # Tapper's INT 80h, in three forms: installed through DOS, written into
+    # the table, and an INT 21h of the program's own that passes calls on.
+    m = comrun.Machine(build("swint"))
+    why = m.run(budget=100_000)
+    printed = [line for line in "".join(m.output).splitlines() if line]
+    if len(printed) != 3 or "int 0x21 exit" not in why:
+        raise AssertionError(f"printed {printed}, stopped: {why}")
+    counts = {n: c for n, (c, _) in m.dispatched.items()}
+    if counts != {0x21: 4, 0x60: 1, 0x80: 1}:
+        raise AssertionError(f"dispatched {counts}")
+    line = m.vector_summary()
+    if "replaced INT 21h, INT 60h, INT 80h" not in line or "INT 80h 1 time to" not in line:
+        raise AssertionError(line)
+    return "3 lines; INT 21h 4 times through the program's, passed on each time"
+
+
+@case("an `int` through a vector the program never touched is answered here")
+def _():
+    # mov ah, 30h / int 21h / mov [0200], ax / jmp $: DOS's version, as always.
+    prog = bytes((0xB4, 0x30, 0xCD, 0x21, 0xA3, 0x00, 0x02, 0xEB, 0xFE))
+    m = comrun.Machine(prog)
+    m.run(budget=100)
+    got = int.from_bytes(m.uc.mem_read(comrun.BASE + WHERE, 2), "little")
+    if got != 0x1E03 or m.dispatched:
+        raise AssertionError(f"AX {got:#06x}, dispatched {m.dispatched}")
+    return "3.30 from the harness, nothing dispatched"
+
+
+@case("code read from a file over code already run is the code that runs")
+def _():
+    # call target; store AL; read PATCH.BIN over target; call it again; store.
+    import tempfile
+    prog = bytes((0xE8, 0x1F, 0x00,            # 0100  call 0122
+                  0xA2, 0x00, 0x03,            # 0103  mov [0300], al
+                  0xBA, 0x25, 0x01,            # 0106  mov dx, name
+                  0xB8, 0x00, 0x3D,            # 0109  mov ax, 3D00h
+                  0xCD, 0x21,                  # 010C  int 21h
+                  0x89, 0xC3,                  # 010E  mov bx, ax
+                  0xBA, 0x22, 0x01,            # 0110  mov dx, target
+                  0xB9, 0x03, 0x00,            # 0113  mov cx, 3
+                  0xB4, 0x3F,                  # 0116  mov ah, 3Fh
+                  0xCD, 0x21,                  # 0118  int 21h
+                  0xE8, 0x05, 0x00,            # 011A  call 0122
+                  0xA2, 0x01, 0x03,            # 011D  mov [0301], al
+                  0xEB, 0xFE,                  # 0120  jmp $
+                  0xB0, 0x01, 0xC3)            # 0122  target: mov al, 1 / ret
+                 ) + b"PATCH.BIN\0"
+    with tempfile.TemporaryDirectory() as td:
+        (Path(td) / "PATCH.BIN").write_bytes(bytes((0xB0, 0x02, 0xC3)))
+        m = comrun.Machine(prog, files=td)
+        m.run(budget=200)
+    first, second = bytes(m.uc.mem_read(comrun.BASE + 0x300, 2))
+    if (first, second) != (1, 2):
+        raise AssertionError(f"AL was {first}, then {second}: the old code ran again")
+    return "AL 1, then 2 -- an overlay loaded over another runs"
+
+
 def main():
     failures = 0
     cases = list(CASES)

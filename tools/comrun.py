@@ -523,6 +523,9 @@ class Machine:
         self.stop_after = 1
         self.stop_hits = 0
         self.ints = []          # (int number, AH) as they were requested
+        # vector -> (how many `int`s went to the program's own handler, and
+        # which handlers): see _to_program.
+        self.dispatched = {}
         self.ports = []         # (direction, port, value)
         self.blits = []         # whatever --watch asked for
         self.watch = {}
@@ -813,9 +816,82 @@ class Machine:
                 self.stopped = f"reached 0x{off:X} for the {self.stop_hits}. time"
                 uc.emu_stop()
 
+    # -- interrupts the program serves itself -------------------------------
+    #
+    # Unicorn hands every `int n` to the hook below instead of going through
+    # the vector table, so a vector the program has replaced was never used:
+    # Tapper (1983) installs an INT 80h that reads its data file sector by
+    # sector through DOS, and its `int 80h` reached nothing here, the read
+    # never happened, and the game printed "Disk Error". So an `int n` goes
+    # where the CPU would send it -- the handler in vector n, with FLAGS, CS
+    # and the return IP pushed and IF and TF cleared -- whenever vector n is
+    # no longer the stub this harness put there. Every other `int` is
+    # answered here exactly as before, and so is an `int` from a stub itself:
+    # that is a program's handler passing a call on to the vector it
+    # replaced, which the stub turns back into this harness's own service.
+
+    def _program_vector(self, num):
+        """seg:off of the handler the program put in vector `num`, or None
+        while the vector still holds this harness's stub (or nothing)."""
+        off, seg = struct.unpack("<HH", self.uc.mem_read(num * 4, 4))
+        if (seg, off) in ((STUBS >> 4, num * 4), (0, 0)):
+            return None
+        return seg, off
+
+    def _to_program(self, uc, num):
+        """Send an `int n` the program executed to its own handler, when it
+        has one. True when it went there."""
+        cs = uc.reg_read(UC_X86_REG_CS)
+        ip = uc.reg_read(UC_X86_REG_IP)         # past the `int n`
+        at = (cs << 4) + ip - 2
+        if STUBS <= at < STUBS + 0x400:
+            return False                        # passed on to the vector it replaced
+        try:
+            if bytes(uc.mem_read(at, 2)) != bytes((0xCD, num)):
+                return False                    # a CPU exception, not an `int n`
+        except UcError:
+            return False
+        handler = self._program_vector(num)
+        if handler is None:
+            return False
+        seg, off = handler
+        flags = uc.reg_read(UC_X86_REG_EFLAGS) & 0xFFFF
+        sp = (uc.reg_read(UC_X86_REG_SP) - 6) & 0xFFFF
+        ss = uc.reg_read(UC_X86_REG_SS)
+        uc.mem_write((ss << 4) + sp, struct.pack("<HHH", ip, cs, flags))
+        uc.reg_write(UC_X86_REG_SP, sp)
+        uc.reg_write(UC_X86_REG_EFLAGS, flags & ~(IF | TF))
+        uc.reg_write(UC_X86_REG_CS, seg)
+        uc.reg_write(UC_X86_REG_IP, off)
+        count, handlers = self.dispatched.get(num, (0, []))
+        if handler not in handlers:
+            handlers.append(handler)
+        self.dispatched[num] = (count + 1, handlers)
+        return True
+
+    def replaced_vectors(self):
+        """The vectors that hold the program's own handlers now."""
+        return [n for n in range(256) if self._program_vector(n) is not None]
+
+    def vector_summary(self):
+        """One line on the vectors the program replaced and the `int`s that
+        went to its handlers, for the end of a run."""
+        now = self.replaced_vectors()
+        named = [f"INT {n:02X}h" for n in now]
+        named += [f"INT {n:02X}h (put back by the end)" for n in sorted(self.dispatched)
+                  if n not in now]
+        sent = ", ".join(
+            f"INT {n:02X}h {count:,} time{'' if count == 1 else 's'} to "
+            + ", ".join(f"{s:04X}:{o:04X}" for s, o in handlers)
+            for n, (count, handlers) in sorted(self.dispatched.items()))
+        return (f"vectors   : the program replaced {', '.join(named)}; its own `int` "
+                f"went to its handlers: {sent}")
+
     def _on_int(self, uc, num, _):
         ah = (uc.reg_read(UC_X86_REG_AX) >> 8) & 0xFF
         self.ints.append((num, ah))
+        if self._to_program(uc, num):
+            return
         if num == 0x20:
             self.stopped = "int 0x20"
             uc.emu_stop()
@@ -843,6 +919,15 @@ class Machine:
             # model holds IRQ 0 in service for ever and the keyboard's own
             # acknowledgement is taken as IRQ 0's.
             self.in_service.discard(0)
+        elif num == 0x13 and ah == 0x00:
+            # Reset the disk system: there is no disk here to reset, so it
+            # succeeds, AH 0 and carry clear, as the BIOS's does. Not a
+            # nicety: Tapper's file shim returns through `iret`, so its
+            # caller's carry is whatever it was before `int 80h`, set on the
+            # first read of a span; four retries and this reset are what
+            # clear it, on the machine and here.
+            uc.reg_write(UC_X86_REG_AX, uc.reg_read(UC_X86_REG_AX) & 0x00FF)
+            uc.reg_write(UC_X86_REG_EFLAGS, uc.reg_read(UC_X86_REG_EFLAGS) & ~CF)
         elif num == 0x1A and ah == 0x00:
             # The BIOS tick count. Answering with a constant is not "no
             # effect": `int 0x1a / cmp dl, [last] / je` is how a game waits for
@@ -1124,6 +1209,12 @@ class Machine:
                     f"read {fname} handle {bx} at {pos} want {n} got "
                     f"{len(chunk)}{short}")
             uc.mem_write((ds << 4) + dx, chunk)
+            if chunk:
+                # Unicorn keeps its translation of code it has run, and a
+                # write from here, outside the guest, does not throw it away:
+                # an overlay read over the one before it ran the old one's
+                # code from the cache.
+                uc.ctl_remove_cache((ds << 4) + dx, (ds << 4) + dx + len(chunk))
             self._ok(uc, len(chunk))
             return
         # The five below are what a Turbo Pascal program's `Dos` unit calls,
@@ -2297,6 +2388,8 @@ def main():
     if args.keys and (args.keyboard == "bios" or m.keys_read):
         print(f"  keyboard: {m.keys_read} reads, {len(m.keys)} of "
               f"{len(keys)} keys unused")
+    if m.dispatched:
+        print("  " + m.vector_summary())
 
     # These three were collected and then thrown away, which was the wrong
     # trade: when a program stops early it usually says why, and what it went

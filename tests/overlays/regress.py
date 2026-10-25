@@ -306,6 +306,23 @@ def _():
     return "2 overlays, in the report and the JSON"
 
 
+@case("run under comrun, its int 3Fh reaches its own overlay manager, three times")
+def _():
+    try:
+        import comrun
+    except ImportError as e:
+        raise Skip(f"unicorn not importable ({e})")
+    m = comrun.Machine(EXE.read_bytes(), files=EXE.parent)
+    why = m.run(budget=200_000)
+    printed = [line for line in "".join(m.output).splitlines() if line]
+    if len(printed) != 5 or printed[-1] != "root: three overlay calls returned":
+        raise AssertionError(f"printed {printed}, stopped: {why}")
+    counts = {n: c for n, (c, _) in m.dispatched.items()}
+    assert counts == {0x3F: 3}, counts
+    assert m.file_reads == ["OVERLAID.EXE", "OVERLAID.EXE", "OVERLAID.EXE"], m.file_reads
+    return "5 lines: modules 1, 2 and 1 again, each read from the file"
+
+
 # ---------------------------------------------------------------- Ghidra
 
 def ghidra_ready():
@@ -403,6 +420,9 @@ def main():
     finally:
         shutil.rmtree(WORK, ignore_errors=True)
     print()
+    if only:
+        print(f"--only {only!r}: {failures} failed")
+        return 1 if failures else 0
     if failures:
         print(f"{failures} of {len(CASES)} overlay checks failed.")
         return 1
