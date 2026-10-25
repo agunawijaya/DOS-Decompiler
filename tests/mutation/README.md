@@ -81,6 +81,14 @@ code (`known.toml`):
 | `annotate` | 225 / 368 (61.1%), with `load_symbols` whole (prompt 13) | | 307 / 307 after prompt 13's tests, on `named` instead |
 | `comdiff` | 350 / 745 (47.0%) (prompt 13) | | 717 / 717 after prompt 13's tests |
 
+Prompt 15 changed triage's verdict (LINK overlays, `--format`, the `.COM`
+hint) and gave `loadimage.verify` the view record, and mutated both again,
+the new functions added to `scope.toml`, 16 workers: `loadimage` 1,069
+mutants in 1,091 s, 3 not explained; `triage` 637 in 3,431 s (sharing the
+machine with other runs), 31 not explained. After that prompt's tests, a
+`-Retest`: `loadimage` 1,053 / 1,053, `triage` 615 / 615, every survivor left
+an equivalent in `known.toml`.
+
 The scripts, and the suites that need Ghidra, are out of its reach; each of
 those tests was shown able to fail once by hand, with an injected fault
 (prompt 07's report).
