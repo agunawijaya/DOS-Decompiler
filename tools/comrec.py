@@ -50,10 +50,19 @@ the program executed that the walk here did not reach. From `--exec-map-json`
 each comes with the CS:IP it ran at, and one that ran at an origin this layout
 does not give it is refused, with the --segment that would agree.
 
+What a file is
+--------------
+A file that starts with MZ is an MZ, as DOS decides; anything else is taken
+as a .COM image, whatever it is called. `--format com` says so explicitly and
+refuses a file that starts with MZ; `--format mz` refuses anything but an MZ
+this route can take. Jungle Hunt's game is `hunt.ptl`, a .COM image under
+another name.
+
 Usage:
     python comrec.py GAME.COM --out src/game.asm
     python comrec.py GAME.COM --out src/game.asm --segment 0x2B40:0 --entry 0x2B40
     python comrec.py GAME.COM --out src/game.asm --seeds-from exec-map.json
+    python comrec.py HUNT.PTL --format com --out src/hunt.asm
 """
 
 import argparse
@@ -2344,8 +2353,41 @@ def find_nasm(given=None):
     return nasm
 
 
+MAX_COM = 0xFF00             # what fits in a segment after the PSP
+
+
+def format_refusal(path, data, fmt, max_relocations):
+    """Why --format `fmt` does not fit this file, or None when it does.
+
+    "com" takes the file as a raw image whatever it is called -- but not one
+    that starts with MZ, which DOS loads as an MZ whatever its name, nor one
+    too large for a segment. "mz" insists on an MZ this route can take: a
+    header, and few enough relocations. "auto" is what this tool always did:
+    an MZ that takes the .COM route by its header, anything else as a .COM."""
+    name = Path(path).name
+    if fmt == "com":
+        if data[:2] in (b"MZ", b"ZM"):
+            return (f"{name} starts with MZ, and DOS loads such a file as an MZ executable "
+                    f"whatever its name says. Leave --format out, or give --format mz")
+        if len(data) > MAX_COM:
+            return (f"{name} is {len(data):,} bytes, and a .COM is at most {MAX_COM:,}: DOS "
+                    f"would not load it as one")
+    elif fmt == "mz":
+        if data[:2] not in (b"MZ", b"ZM"):
+            return f"{name} has no MZ header. A .COM has none: give --format com"
+        if mz_load_image(data, max_relocations) is None:
+            return (f"{name} is an MZ this route cannot take: a header it cannot read, or "
+                    f"more than --max-relocations ({max_relocations}) relocations, which "
+                    f"means more than one segment. The MZ pipeline is the route for that "
+                    f"(tools/pipeline.ps1); raise --max-relocations only for a program you "
+                    f"have read and know uses one segment")
+    elif fmt != "auto":
+        return f"--format {fmt!r} is not auto, com or mz"
+    return None
+
+
 def reconstruct(com, out, segment=(), max_relocations=8, entry=(), entries_from=None,
-                nasm=None, mapfile=None, seeds_from=None):
+                nasm=None, mapfile=None, seeds_from=None, fmt="auto"):
     """Rebuild a .COM (or a single-segment MZ) as NASM source, prove it, and
     report on it. Returns (report, exit code).
 
@@ -2364,6 +2406,11 @@ def reconstruct(com, out, segment=(), max_relocations=8, entry=(), entries_from=
               "written": []}
 
     original = image = Path(com).read_bytes()
+    refusal = format_refusal(com, original, fmt, max_relocations)
+    if refusal:
+        raise SystemExit(f"comrec: {refusal}")
+    if fmt != "auto":
+        report["format_asked"] = fmt
     mz = mz_load_image(image, max_relocations)
     cs_base, header, tail = 0, b"", b""
     if mz is not None:
@@ -2722,11 +2769,16 @@ def main():
     ap.add_argument("--map", dest="mapfile", default=None, metavar="PATH",
                     help="write a code/data region map, for deciding what to "
                          "render with gfxdump.py")
+    ap.add_argument("--format", choices=("auto", "com", "mz"), default="auto",
+                    help="auto (the default): an MZ that can take this route by its "
+                         "header, anything else as a .COM. com: a raw .COM image "
+                         "whatever the file is called, refused if it starts with MZ. "
+                         "mz: an MZ this route can take, refused otherwise")
     args = ap.parse_args()
 
     report, code = reconstruct(args.com, args.out, args.segment, args.max_relocations,
                                args.entry, args.entries_from, args.nasm, args.mapfile,
-                               args.seeds_from)
+                               args.seeds_from, args.format)
     for line in report["lines"]:
         print(line)
     return code

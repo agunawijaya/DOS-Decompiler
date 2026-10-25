@@ -641,6 +641,74 @@ def seeds_case(nasm, workdir):
                   "the routine back; a changed one, an outside one, a plain list said so")
 
 
+def format_case(nasm, workdir):
+    """--format in triage, comrec and survey: jmpstub.com under another name, as
+    Jungle Hunt's game is hunt.ptl. Without it triage refuses the file as not
+    an MZ and says it looks like a .COM image (jmpstub.asm opens with a jump
+    over its data and calls DOS); with --format com triage routes it to comrec
+    and comrec rebuilds it byte-identically. --format com refuses a file that
+    starts with MZ and --format mz one without, each saying why; a text file
+    is not said to look like a program. Survey lists the file by its content,
+    and with --format com triages it as a .COM."""
+    import json
+    folder = workdir / "fmt"
+    folder.mkdir()
+    ptl = folder / "GAME.PTL"
+    nasm_build(nasm, FIXTURES / "jmpstub.asm", ptl)
+    mzfile = workdir / "fmt-mz.exe"
+    nasm_build(nasm, FIXTURES / "mzsingle.asm", mzfile)
+    text = folder / "README.TXT"
+    text.write_bytes(b"Run GAME.PTL from the loader.\r\n")
+    triage, survey = ROOT / "tools" / "triage.py", ROOT / "tools" / "survey.py"
+
+    def run(*args):
+        r = subprocess.run([sys.executable] + [str(a) for a in args], capture_output=True,
+                           text=True, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        return r.returncode, r.stdout, r.stderr
+
+    wrong = []
+    code, out, _ = run(triage, ptl, "--evidence", "-")
+    env = json.loads(out)
+    detail = " ".join(i.get("detail", "") for i in env["evidence"])
+    if code != 1 or env["result"]["format"] != "not-MZ" or \
+            "looks like a .COM image" not in detail or "--format com" not in detail:
+        wrong.append(f"by default: exit {code}, {env['result']['format']}, {detail[:120]!r}")
+    code, out, _ = run(triage, ptl, "--format", "com")
+    if code != 0 or "VERDICT: in scope, by the .COM route" not in out or \
+            "--format com --out src/game.asm" not in out or "its name (.ptl)" not in out:
+        wrong.append(f"--format com: exit {code}: {out[-300:]!r}")
+    asm = workdir / "fmt.asm"
+    code, out, err = run(COMREC, ptl, "--format", "com", "--out", asm, "--nasm", nasm)
+    rebuilt = workdir / "fmt.bin"
+    nasm_build(nasm, asm, rebuilt)
+    if code != 0 or "BYTE-IDENTICAL" not in out or sha(rebuilt) != sha(ptl):
+        wrong.append(f"comrec --format com: exit {code}, {err.strip()[:120]!r}")
+    for tool, target, fmt, needle in ((COMREC, mzfile, "com", "starts with MZ"),
+                                      (triage, mzfile, "com", "starts with MZ"),
+                                      (COMREC, ptl, "mz", "has no MZ header"),
+                                      (triage, ptl, "mz", "looks like a .COM image")):
+        extra = ["--out", workdir / "no.asm", "--nasm", nasm] if tool == COMREC else []
+        code, out, err = run(tool, target, "--format", fmt, *extra)
+        if code == 0 or needle not in err:
+            wrong.append(f"{tool.name} --format {fmt} on {target.name}: exit {code}, {err[-200:]!r}")
+    code, out, _ = run(triage, text, "--evidence", "-")
+    if "looks like" in out:
+        wrong.append("a text file was said to look like a program")
+    code, out, _ = run(survey, folder, "--evidence", "-")
+    s = json.loads(out)["result"]
+    if [f["path"] for f in s.get("by_content", [])] != ["GAME.PTL"] or s["com_files"]:
+        wrong.append(f"survey: by content {s.get('by_content')}, com files {s['com_files']}")
+    code, out, _ = run(survey, folder, "--format", "com", "--evidence", "-")
+    s = json.loads(out)["result"]
+    coms = [(f["path"], f.get("verdict")) for f in s["com_files"]]
+    if coms != [("GAME.PTL", "in scope")]:
+        wrong.append(f"survey --format com: {coms}")
+    if wrong:
+        return False, "; ".join(wrong)
+    return True, ("named .PTL: refused with the hint, routed with --format com, rebuilt "
+                  "byte-identically; four refusals named; survey lists it, then triages it")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -680,7 +748,8 @@ def main():
                   ("appended", lambda: appended_case(nasm, work)),
                   ("short claim", lambda: claim_case(nasm, work)),
                   ("far trace", far_trace_cases),
-                  ("seeds", lambda: seeds_case(nasm, work))]
+                  ("seeds", lambda: seeds_case(nasm, work)),
+                  ("format", lambda: format_case(nasm, work))]
         for name, fn in others:
             try:
                 ok, detail = fn()

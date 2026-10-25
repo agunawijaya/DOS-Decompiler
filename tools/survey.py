@@ -15,6 +15,9 @@ one looks like the game and why.
 What it looks for
 -----------------
   * every MZ executable and .COM file, each with its own triage verdict
+  * files whose content looks like a .COM image under another name (a loader
+    can run a program called anything); --format com triages them as one
+  * Microsoft LINK overlays appended to an executable
   * overlay files -- .OVL, .OVR, and MZ files whose header says they are
     overlay modules rather than programs
   * batch files, which frequently name the real entry point
@@ -36,6 +39,7 @@ Usage:
     python survey.py path/to/game/folder
     python survey.py path/to/game/folder --json survey.json
     python survey.py path/to/game/folder --evidence -     # the envelope alone
+    python survey.py path/to/game/folder --format com     # .COM images by content too
 """
 
 import argparse
@@ -80,11 +84,29 @@ def overlay_number(path):
         return None
 
 
+def com_by_content(path, size):
+    """Why a file with another name looks like a .COM image, or None
+    (triage.looks_like_com, which says what was measured)."""
+    if size > triage.MAX_COM:
+        return None
+    try:
+        return triage.looks_like_com(path.read_bytes())
+    except OSError:
+        return None
+
+
 def classify(path, root):
     suffix = path.suffix.lower()
     rel = str(path.relative_to(root))
     size = path.stat().st_size
     entry = {"path": rel, "size": size, "suffix": suffix}
+    if suffix != ".com" and not is_mz(path):
+        # A .COM has no header, so only its name says what it is -- and a
+        # loader can EXEC a program called anything: Jungle Hunt's is
+        # hunt.ptl. Recorded only for a file that looks like one.
+        looks = com_by_content(path, size)
+        if looks:
+            entry["looks_like_com"] = looks["why"]
 
     if is_mz(path):
         ov = overlay_number(path)
@@ -251,13 +273,18 @@ def index_pairs(files, root):
     return out
 
 
-def survey(root):
+def survey(root, fmt="auto"):
+    """The survey of one folder. `fmt` is --format: "com" triages a file whose
+    content looks like a .COM image as one, whatever its name; "auto" only
+    says that it looks like one."""
     given = str(root)
     root = Path(root)
     if root.is_file():
         root = root.parent
     if not root.is_dir():
         raise SystemExit(f"{root}: not a directory")
+    if fmt not in ("auto", "com"):
+        raise SystemExit(f"--format {fmt!r} is not auto or com")
 
     files, dirs = [], set()
     for p in sorted(root.rglob("*")):
@@ -268,6 +295,11 @@ def survey(root):
             files.append(classify(p, root))
         except OSError:
             continue
+
+    by_content = [f for f in files if f.get("looks_like_com")]
+    if fmt == "com":
+        for f in by_content:
+            f["kind"] = "com"
 
     by_kind = defaultdict(list)
     for f in files:
@@ -280,7 +312,8 @@ def survey(root):
     # Triage every executable, not just the one you were pointed at.
     for e in by_kind["executable"] + by_kind["com"]:
         try:
-            r = triage.analyse(str(root / e["path"]))
+            r = triage.analyse(str(root / e["path"]),
+                               fmt="com" if e.get("looks_like_com") else "auto")
             e["verdict"] = ("in scope" if r["verdict"]["in_scope"]
                             else "out of scope")
             e["confidence"] = r["verdict"]["confidence"]
@@ -335,7 +368,7 @@ def survey(root):
 
     pairs = index_pairs(by_kind["data"] + by_kind["overlay-or-data"], root)
 
-    return {
+    out = {
         "root": str(root),
         "given": given,
         "data_groups": groups,
@@ -354,6 +387,12 @@ def survey(root):
         "engine_hint": engine_hint,
         "total_files": len(files),
     }
+    # Only when there are some, so every other folder's survey is unchanged.
+    if by_content:
+        out["by_content"] = [{"path": f["path"], "size": f["size"],
+                              "why": f["looks_like_com"], "triaged_as_com": fmt == "com"}
+                             for f in by_content]
+    return out
 
 
 # The fixed paragraphs of the report, kept here so the prose and the envelope
@@ -374,6 +413,10 @@ ENGINE_NOTE = ("That ratio is what an engine looks like -- "
                "executable will succeed and tell you nothing you wanted.")
 SEVERAL_NOTE = ("More than one executable is present. Setup and install programs "
                 "decompile just as willingly as the game and are not the game.")
+BY_CONTENT_NOTE = ("A .COM has no header, so only a name says a file is one, and a "
+                   "loader can run a program called anything. Survey again with "
+                   "--format com to triage these as .COM images, or triage one with "
+                   "triage.py --format com.")
 
 
 def report(s):
@@ -410,6 +453,17 @@ def report(s):
         A("")
         A(f"  Chosen: {s['main']['path']} — {s['main_reason']}")
     A("")
+
+    if s.get("by_content"):
+        A("-- Programs by content, whatever their names ----------------------")
+        for f in s["by_content"]:
+            A(f"  {f['path']:<28} {f['size']:>9,}  looks like a .COM image")
+            for line in triage._wrap(f["why"] + ".", 62):
+                A(f"      {line}")
+        if not s["by_content"][0]["triaged_as_com"]:
+            for line in triage._wrap(BY_CONTENT_NOTE, 66):
+                A("  " + line)
+        A("")
 
     if s["overlay_modules"]:
         A("-- Overlay modules ------------------------------------------------")
@@ -489,11 +543,11 @@ LIMITATIONS = [
 ]
 
 
-def envelope(folder):
+def envelope(folder, fmt="auto"):
     """The evidence envelope for a survey: every line of the report, as
     structured items, tied to a hash over every file in the folder."""
     try:
-        s = survey(folder)
+        s = survey(folder, fmt)
     except (SystemExit, OSError) as e:
         return evidence.envelope(
             "survey", {"path": str(Path(folder).resolve()), "kind": "directory",
@@ -539,6 +593,12 @@ def envelope(folder):
                                f"the game: {s['main_reason']}",
                       "location": at(s["main"]["path"]),
                       "value": {"reason": s["main_reason"]}})
+    for f in s.get("by_content", []):
+        items.append({"kind": "looks-like-com",
+                      "claim": f"{Path(f['path']).as_posix()} looks like a .COM image",
+                      "location": at(f["path"]),
+                      "value": {"size": f["size"], "why": f["why"],
+                                "triaged_as_com": f["triaged_as_com"]}})
     for e in s["overlay_modules"]:
         items.append({"kind": "overlay-module",
                       "claim": f"{Path(e['path']).as_posix()} is overlay "
@@ -581,6 +641,8 @@ def envelope(folder):
         limitations.append(OVERLAY_NOTE)
     if s["index_pairs"]:
         limitations.append(INDEX_NOTE)
+    if s.get("by_content") and not s["by_content"][0]["triaged_as_com"]:
+        limitations.append(BY_CONTENT_NOTE)
     if s["engine_hint"]:
         items.append({"kind": "data-ratio", "claim": s["engine_hint"],
                       "value": s["engine_hint"]})
@@ -609,24 +671,30 @@ def main():
     ap.add_argument("--evidence", metavar="FILE",
                     help="write the evidence envelope here (knowledge/"
                          "17-evidence.md); '-' prints it instead of the report")
+    ap.add_argument("--format", choices=("auto", "com"), default="auto",
+                    help="auto (the default): a file whose content looks like a "
+                         ".COM image under another name is listed as one, and "
+                         "not triaged. com: it is triaged as a .COM image. (An "
+                         "MZ is an executable here whatever its name, so there "
+                         "is no mz.)")
     args = ap.parse_args()
 
     # With '-' the envelope is the whole of stdout; --json is still written.
     if args.evidence == "-":
-        env = envelope(args.folder)
+        env = envelope(args.folder, args.format)
         if args.json and env["status"] != "error":
-            Path(args.json).write_text(json.dumps(survey(args.folder), indent=2),
+            Path(args.json).write_text(json.dumps(survey(args.folder, args.format), indent=2),
                                        encoding="utf-8")
         evidence.write(env, "-")
         return 2 if env["status"] == "error" else 0
 
-    s = survey(args.folder)
+    s = survey(args.folder, args.format)
     print(report(s))
     if args.json:
         Path(args.json).write_text(json.dumps(s, indent=2), encoding="utf-8")
         print(f"\nwrote {args.json}")
     if args.evidence:
-        evidence.write(envelope(args.folder), args.evidence)
+        evidence.write(envelope(args.folder, args.format), args.evidence)
         print(f"\nwrote {args.evidence}")
     return 0
 

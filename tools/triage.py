@@ -18,10 +18,18 @@ the verdict and the ids of the findings that set it (`verdict_evidence`),
 what the checks cannot see and what they raised but could not settle. The
 prose report and --json are unchanged by it.
 
+A .COM has no header, so a file is taken for one by its name -- unless asked
+otherwise. `--format com` takes any file without an MZ header as a .COM image,
+whatever it is called (Jungle Hunt's game is `hunt.ptl`, which its loader
+EXECs); `--format mz` insists on an MZ header. Without either, a file with no
+header and another name is refused as before, and the refusal says when its
+content looks like a .COM image and how to ask for it.
+
 Usage:
     python triage.py GAME.EXE
     python triage.py GAME.EXE --json triage.json
     python triage.py GAME.EXE --evidence -          # the envelope alone, on stdout
+    python triage.py HUNT.PTL --format com
 """
 
 import argparse
@@ -150,6 +158,48 @@ def _at(offset):
     return {"file_offset": f"0x{offset:x}"}
 
 
+# What fits in a segment after the PSP: the most DOS will load as a .COM.
+MAX_COM = 0xFF00
+# DOS and BIOS services a program calls, as the bytes of `int n`.
+SERVICE_CALLS = (b"\xCD\x21", b"\xCD\x10", b"\xCD\x16")
+FORMATS = ("auto", "com", "mz")
+
+
+class FormatMismatch(Exception):
+    """--format asked for something the file is not, and why."""
+
+
+def looks_like_com(data):
+    """Why a file with no MZ header looks like a .COM image, or None.
+
+    Two signals, both needed: it begins with a jump forward to a place inside
+    the file -- a near or short jump past what follows it, as a .COM jumps over
+    its data -- and it holds `int 21h`, `int 10h` or `int 16h` at least twice.
+    It must also fit in a segment, as a .COM must. Measured on the 252 files
+    without an MZ header in the retro-ports originals (2026-10-25): this picks
+    out the five programs that begin with a jump, hunt.ptl among them, and
+    none of the data files; a data file beginning EB 00, a jump to the next
+    byte, is what the "past itself" condition is for. Programs that begin with
+    something else (Moon Patrol's `mov ax, cs`) are not picked out: this is a
+    hint for a refusal, not a route."""
+    if not data or len(data) > MAX_COM:
+        return None
+    if data[0] == 0xE9 and len(data) >= 3:
+        length, target = 3, 3 + struct.unpack_from("<h", data, 1)[0]
+    elif data[0] == 0xEB and len(data) >= 2:
+        length, target = 2, 2 + struct.unpack_from("<b", data, 1)[0]
+    else:
+        return None
+    if not length < target < len(data):
+        return None
+    calls = sum(data.count(c) for c in SERVICE_CALLS)
+    if calls < 2:
+        return None
+    return {"jump_to": target, "service_calls": calls,
+            "why": f"it begins with a jump to file offset 0x{target:X} inside it and holds "
+                   f"{calls} int 21h/10h/16h"}
+
+
 def _int3f(data, mz):
     """The root's `int 3Fh` calls, or None when it is packed and they cannot
     be seen: EXEPACK's "RB" before the entry."""
@@ -197,8 +247,32 @@ LINKED_LIMITATION = (
     "calls are counted by bytes, and which module each reaches is not read.")
 
 
-def analyse(path, observations=None, decisions=None):
+def check_format(path, data, fmt):
+    """Refuse a --format the file contradicts: FormatMismatch, with what to do."""
+    name = Path(path).name
+    if fmt not in FORMATS:
+        raise FormatMismatch(f"--format {fmt!r} is not auto, com or mz")
+    if fmt == "com" and data[:2] in (b"MZ", b"ZM"):
+        raise FormatMismatch(f"{name} starts with MZ, and DOS loads such a file as an MZ "
+                             f"executable whatever its name says; triage it without --format, "
+                             f"or with --format mz")
+    if fmt == "com" and len(data) > MAX_COM:
+        raise FormatMismatch(f"{name} is {len(data):,} bytes, and a .COM is at most "
+                             f"{MAX_COM:,}: DOS would not load it as one")
+    if fmt == "mz" and data[:2] not in (b"MZ", b"ZM"):
+        looks = looks_like_com(data)
+        raise FormatMismatch(f"{name} has no MZ header"
+                             + (f"; it looks like a .COM image ({looks['why']}): triage it "
+                                f"with --format com" if looks else ""))
+
+
+def analyse(path, observations=None, decisions=None, fmt="auto"):
     """Triage one file. Returns the dict that --json writes.
+
+    `fmt` is --format: "auto" decides by the MZ signature and, for a file
+    without one, by the name; "com" takes a file without an MZ header for a
+    .COM image whatever it is called; "mz" insists on an MZ header. A format
+    the file contradicts raises FormatMismatch.
 
     Pass a list as `observations` and it receives, for every finding and in
     the same order, what the finding rests on: a kind, where in the file it
@@ -213,6 +287,7 @@ def analyse(path, observations=None, decisions=None):
     field no finding set kept its default: in scope, high confidence.
     """
     mz, data = read_mz(path)
+    check_format(path, data, fmt)
     findings = []
     verdict = {"in_scope": True, "confidence": "high"}
 
@@ -231,19 +306,23 @@ def analyse(path, observations=None, decisions=None):
 
     if mz is None:
         suffix = Path(path).suffix.lower()
-        if suffix == ".com":
+        if suffix == ".com" or fmt == "com":
             # A .COM has no header to disagree with: the whole file is the
             # image, loaded at 0x100. That makes it the easiest thing here to
             # reconstruct exactly, so it gets its own route rather than a
             # refusal -- comrec.py rebuilds it to a byte-identical .asm.
-            com = found("route", "raw .COM image",
-                  "No MZ header, and none needed. The file loads at "
-                  "offset 0x100 as a single segment. Use comrec.py, "
-                  "which reassembles to a byte-for-byte copy and "
-                  "proves it, rather than the MZ pipeline.",
-                  "format", _at(0), "COM")
+            detail = ("No MZ header, and none needed. The file loads at "
+                      "offset 0x100 as a single segment. Use comrec.py, "
+                      "which reassembles to a byte-for-byte copy and "
+                      "proves it, rather than the MZ pipeline.")
+            asked = ""
+            if suffix != ".com":
+                detail += (f" Taken for a .COM because --format com was given; its name "
+                           f"({suffix or 'no extension'}) does not say so.")
+                asked = "--format com "
+            com = found("route", "raw .COM image", detail, "format", _at(0), "COM")
             found("note", "next step",
-                  f"python tools/comrec.py \"{path}\" "
+                  f"python tools/comrec.py \"{path}\" {asked}"
                   f"--out src/{Path(path).stem.lower()}.asm",
                   "next-step")
             # Both settled by the missing header alone, and certainly.
@@ -252,14 +331,24 @@ def analyse(path, observations=None, decisions=None):
             verdict["route"] = "comrec"
             return {"file": str(path), "format": "COM",
                     "verdict": verdict, "findings": findings}
-        not_mz = found("blocker", "not an MZ executable",
-                       "No MZ signature. Not a DOS executable, or a container "
-                       "of some other kind.",
+        detail = ("No MZ signature. Not a DOS executable, or a container "
+                  "of some other kind.")
+        looks = looks_like_com(data)
+        if looks:
+            # Jungle Hunt's game is hunt.ptl, a .COM image its loader EXECs:
+            # refused by its name, and nothing said what it might be.
+            detail += (f" It looks like a .COM image, though: {looks['why']}. A .COM has "
+                       f"no header to recognise it by, so its name decides; if it is one, "
+                       f"ask for it with --format com.")
+        not_mz = found("blocker", "not an MZ executable", detail,
                        "format", _at(0), data[:2].hex())
         decide("in_scope", False, not_mz)
         decide("confidence", "high", not_mz)
-        return {"file": str(path), "format": "not-MZ",
-                "verdict": verdict, "findings": findings}
+        out = {"file": str(path), "format": "not-MZ",
+               "verdict": verdict, "findings": findings}
+        if looks:
+            out["looks_like_com"] = looks
+        return out
 
     image_len = mz["image_end"] - mz["image_start"]
 
@@ -541,13 +630,20 @@ def _unknown_for(o):
     return None
 
 
-def envelope(path):
+def envelope(path, fmt="auto"):
     """The evidence envelope for one file: everything the report says,
     structured, with where each observation was made."""
     observations, decisions = [], []
     try:
-        r = analyse(path, observations, decisions)
+        r = analyse(path, observations, decisions, fmt)
         target = evidence.target_identity(path)
+    except FormatMismatch as e:
+        return evidence.envelope(
+            "triage", evidence.target_identity(path), status="blocked",
+            result={"file": str(path), "format_asked": fmt, "reason": str(e),
+                    "next_step": "triage it with the format the reason names, or "
+                                 "without --format"},
+            limitations=["--format was refused before anything was triaged."])
     except OSError as e:
         return evidence.envelope(
             "triage", {"path": str(Path(path).resolve()), "size": None,
@@ -638,27 +734,35 @@ def main():
     ap.add_argument("--evidence", metavar="FILE",
                     help="write the evidence envelope here (knowledge/"
                          "17-evidence.md); '-' prints it instead of the report")
+    ap.add_argument("--format", choices=FORMATS, default="auto",
+                    help="auto (the default): an MZ by its header, a .COM by its "
+                         "name. com: a file with no MZ header is a .COM image "
+                         "whatever its name. mz: refuse a file with no MZ header")
     args = ap.parse_args()
 
     # With '-' the envelope is the whole of stdout, so a program reading it
     # gets JSON and nothing else; --json is still written, silently.
     if args.evidence == "-":
-        env = envelope(args.exe)
-        if args.json and env["status"] != "error":
-            Path(args.json).write_text(json.dumps(analyse(args.exe), indent=2),
-                                       encoding="utf-8")
+        env = envelope(args.exe, args.format)
+        if args.json and env["status"] not in ("error", "blocked"):
+            Path(args.json).write_text(json.dumps(analyse(args.exe, fmt=args.format),
+                                                  indent=2), encoding="utf-8")
         evidence.write(env, "-")
-        if env["status"] == "error":
+        if env["status"] in ("error", "blocked"):
             return 2
         return 0 if env["result"]["verdict"]["in_scope"] else 1
 
-    r = analyse(args.exe)
+    try:
+        r = analyse(args.exe, fmt=args.format)
+    except FormatMismatch as e:
+        print(f"triage: {e}", file=sys.stderr)
+        return 2
     print(report(r))
     if args.json:
         Path(args.json).write_text(json.dumps(r, indent=2), encoding="utf-8")
         print(f"\nwrote {args.json}")
     if args.evidence:
-        evidence.write(envelope(args.exe), args.evidence)
+        evidence.write(envelope(args.exe, args.format), args.evidence)
         print(f"\nwrote {args.evidence}")
     return 0 if r["verdict"]["in_scope"] else 1
 
