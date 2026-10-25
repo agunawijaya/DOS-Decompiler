@@ -241,7 +241,7 @@ def exepack_layout(data, h):
             found("real_ss" if regs[0] == "ss" else "real_sp", loaded[regs[1]][0],
                   loaded[regs[1]][1])
         if mn == "mov" and regs[0] == "si" and len(ops) == 2 and ops[1].type == X86_OP_IMM:
-            if h.ip < ops[1].imm < STUB_READ_LIMIT * 4:
+            if ops[1].imm > h.ip:       # past the header; inside the block, checked below
                 out["relocation_table"] = ops[1].imm
                 why["relocation_table"] = f"{mn} {insn.op_str} at CS:{insn.address:04X}"
         if mn == "mov" and regs[0] and len(ops) == 2 and ops[1].type == X86_OP_IMM:
@@ -299,7 +299,10 @@ def exepack_layout(data, h):
     out["values"].setdefault("skip_len", 1)
     size = out["values"]["exepack_size"]
     out["block_ends_at_image_end"] = block + size == h.image_end
-    if not out["block_ends_at_image_end"]:
+    if out["relocation_table"] >= size:
+        out["problem"] = (f"the stub reads its relocation table at CS:0x{out['relocation_table']:X}, "
+                          f"past the 0x{size:X}-byte block exepack_size gives")
+    elif not out["block_ends_at_image_end"]:
         out["problem"] = (f"exepack_size 0x{size:X} from CS:0 (file 0x{block:X}) ends at file "
                           f"0x{block + size:X}, not at the end of the load image "
                           f"(0x{h.image_end:X})")
