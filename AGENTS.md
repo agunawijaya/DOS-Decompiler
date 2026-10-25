@@ -113,16 +113,21 @@ line. Before reporting:
 - An MZ's bytes past its load image are rebuilt as data, and `BYTE-IDENTICAL`
   is printed only after the whole file, header and all, was compared.
 - **Look for a stub that reloads CS**, putting half the file on another base.
-  It fails silently and is not always at offset 0
-  (`knowledge/08-com-reconstruction.md`).
+  comrec follows a far jump to CS + constant and reports a computed one
+  ("leaves through a far jump ..."); read that line, and the stub's first
+  bytes (`knowledge/08-com-reconstruction.md`).
+- Under 10% decoded: run comrun with `--exec-map-json` and give the map to
+  `comrec --seeds-from`; a seed that ran at another origin is refused, with
+  the `--segment` that would agree.
 
 `tools/comrun.py` runs the program and dumps the framebuffer, to check a
 static reading against (its flags: `knowledge/12-hooking-the-right-thing.md`;
 give `--timer-isr` an interrupt number, not an address). **The static render
 is the deliverable and the emulator the referee.** If a screen resists being
 photographed, check whether it can be computed from the file first. A game
-with its own INT 09h handler needs `--keyboard hw`; one that probes port
-0x201 needs `--no-joystick`, or its "button" is noise.
+with its own INT 09h handler needs `--keyboard hw`; its own INT 08h,
+`--timer auto`; one that probes port 0x201 needs `--no-joystick`, or its
+"button" is noise. A black screen after INT 10h AH=0Eh needs `--bios-text`.
 
 `tools/comdiff.py KNOWN.COM known.asm GAME.COM game.asm` compares two .COM
 programs routine by routine. Instruction-identical pairs are run under

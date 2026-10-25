@@ -535,9 +535,99 @@ draws from them once the program has touched any; a program that never does
 is drawn as before, and one that sets mode 4 through the BIOS gets a
 byte-identical picture. It also moved Rollo: its own `INT 10h` calls select
 palette 0 at low intensity -- green, red, brown -- where the old capture
-showed cyan, magenta and white. Text needs a font for anything but blank and
-the block characters, and the CGA's is in its ROM: `--font` takes 2,048 bytes
-of one, and without it other characters are boxes, counted.
+showed cyan, magenta and white.
+
+**Text needs a font, and one ships now.** The CGA's is in IBM's ROM, so until
+prompt 14 text came out as boxes -- Moon Patrol's first screen, forty-column
+text, was 512 of them. `tools/fonts/cp437-8x8.txt` is code page 437 from
+unscii-8 by viznut, which is in the public domain (the README beside it has the
+source, the licence text and the date). It is not a copy of IBM's ROM: 54 of the
+250 characters both fonts have are identical, 17 of those box drawing, and the
+median character differs from IBM's in 11 of its 64 pixels. It has 252 of the
+256 characters, every block, shade and box-drawing one among them; 0x0F, 0x7F,
+0xA9 and 0xF9 are not in unscii-8, are drawn as hollow boxes, and the cells
+holding them are counted. With it Moon Patrol's first screen reads "Game
+Options", its keys ("F 1 Start a game with 1 player") and its settings ("Level:
+Beginner", "Input: Keyboard"); 7 of its cells hold one of the four. `--font`
+still takes 2,048 bytes of any other, a dump of the user's own adapter for
+instance. Two fixtures, `text40.asm` and `text80.asm`, put every character on
+the screen in both widths and the suite compares each pixel with the font's
+own bitmaps, read by a parser of its own.
+
+### The timer is hardware too
+
+`--timer-isr INT[,N]` sends one interrupt straight to the handler that holds
+its vector, every N instructions, and that is all it does. It ignores the
+PIC's mask, never waits for an end-of-interrupt, and a handler that passes the
+tick on to the vector it replaced -- as nearly every one does, so the BIOS can
+keep the time of day -- reaches a stub that does nothing: the BIOS never
+counts the tick and never raises INT 1Ch. Moon Patrol (1983) replaces vector 8
+with exactly such a handler, `inc word ss:[0x5a] / jmp far ss:[0xc]`.
+
+`--timer hw` makes IRQ 0 what it is on the machine: a frame pushed and a jump
+through whatever vector 8 holds, every `--timer-every` instructions (20,000 by
+default, the same as the tick written to 0040:006C without it), masked by bit
+0 of port 0x21, held while IF is clear or an IRQ 0 is still in service, and
+ranked above IRQ 1. When it reaches the BIOS -- vector 8 never replaced, or a
+handler that jumps on to the one it replaced -- the BIOS's own INT 08h runs:
+the tick at 0040:006C, INT 1Ch to whatever holds that vector, the
+acknowledgement. The tick at 0040:006C is then counted only there, so a
+program that takes vector 8 and never passes it on stops the time of day, as
+it does on the machine. `--timer auto` starts as the default does and switches
+at the write that replaces vector 8 or 1Ch. The fixture `irq0.asm` masks IRQ 0
+for 65,536 instructions, then counts six ticks of its own and passes every
+other one on, with INT 1Ch hooked as well. It prints `06030300` under `--timer
+hw` and `auto`; under `--timer-isr 8` it prints `0D00000D` (13 ticks taken while
+masked, none reaching INT 1Ch or the BIOS), and with no timer it waits for ever.
+
+On Moon Patrol, `--timer auto` decides at instruction 46; over 40,000,000
+instructions IRQ 0 is raised 1,999 times, every one taken by its handler and
+passed on to the BIOS's. It is not what Moon Patrol needed to reach play,
+though: F1 and a space bring a frame of play -- buggy, crater, tank, score
+002200 -- at 40,000,000 instructions with the timer and without it, the terrain
+a few pixels apart. The timer was what the run lacked as a measurement of the
+program, not as a way past it.
+
+**Writing a vector could run the instruction twice.** Both `auto` modes used
+to stop the emulator inside the memory write that decides them, and Unicorn
+then runs the writing instruction a second time. An install by `mov` survives
+that; Moon Patrol installs by `xchg es:[bx+2], dx`, saving the old segment as it
+writes the new, and the second swap left its own segment where the BIOS's
+should have been saved -- so its handler passed every tick on to 1020:0020, in
+its own data. The decision is now noticed between slices of at most 1,000
+instructions instead; a test installs by `xchg` under both `auto` modes and
+reads back 0F00, the BIOS's segment.
+
+**And what Alley Cat waited for was a key.** Kimi's six captures of Alley Cat
+(1984) were one black frame, the run spinning on `cmp ax, [0693h] / jz`, then
+`test byte [06C1h], 80h`. Every instruction naming `[0x693]` in its code: two
+`inc word es:[0x693]`, in its INT 09h handler and in its second entry, on every
+make code -- it is a count of key presses, not of ticks. `[0x6C1]` and
+`[0x6C2]` are the up-flags of the eleventh and twelfth scancodes in its table at
+`[0x6A1]`, 0x15 and 0x31: Y and N. The loop waits for a key and then for one of
+those two; Kimi sent a space. And the screen was black because the question --
+"Do you want to use a joystick (Y/N)?", 36 characters, 36 calls -- is written
+through `INT 10h AH=0Eh`, which comrun did not draw. Alley Cat never touches
+vector 8 or 1Ch (`--timer auto` says so); it keeps time by calling INT 1Ah,
+357,394 times in 40 million instructions (keys N, K and a space, 400,000
+instructions apart). With `N`, `K` for Kitten and a space
+the run passes the question, the skill menu and the page of instructions, and
+reaches its alley under the "IBM PRESENTS Alley Cat" title, the cat on the
+fence.
+
+### Text through the BIOS
+
+`--bios-text` draws what a program writes through `INT 10h` -- AH=09h and 0Ah at
+the cursor, AH=0Eh as a teletype with carriage return, line feed, backspace and
+the scroll at the bottom, AH=02h and 03h for the cursor (kept where the BIOS
+keeps it, at 0040:0050), AH=0Fh answered with the mode, and a mode set clearing
+the screen as the BIOS does. In a text mode the character goes into the
+framebuffer; in graphics it is drawn from the font over the whole 8x8 cell in
+the colour BL gives, bit 7 exclusive-or. It is off by default, and without it a
+program that set up the adapter and then wrote text through the BIOS gets one
+line saying how many characters went undrawn: Alley Cat's 36. Fixtures:
+`biostext.asm` on a 320-wide screen, every pixel compared, and `biostty.asm` in
+eighty columns, with a scroll.
 
 ## The referee is not the deliverable
 
@@ -562,7 +652,8 @@ queue (`--keys`) and a clock that advances, both there because without them a
 title screen waits forever; `--stop-at ADDR --stop-after N` stops on the Nth
 arrival, to look at a frame other than the first. Its flags for programs
 that supply their own hardware, `--poll-patience` (`04-pitfalls.md`),
-`--timer-isr`, `--keyboard hw` and `--no-joystick` (above), are off by default.
+`--timer-isr`, `--timer`, `--keyboard`, `--no-joystick` and `--bios-text`
+(above), are off by default.
 Reversing them cost most of a session. When a screen resists being
 photographed, check whether it can be *computed* first — and if the answer
 involves a table and a `Random`, it can.

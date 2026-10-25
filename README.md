@@ -358,12 +358,25 @@ names without changing a byte, and counts the evidence behind each: given as
 a list, a name without `__maybe` on fewer than two observations is refused.
 `comrun.py` runs the program to check a static reading against: keys through
 `INT 16h` or, with `--keyboard hw`, through port 0x60 and IRQ 1 for a game
-with its own keyboard handler; the screen drawn from what the program told the
-CGA, so a game that sets its mode through the ports is drawn as it looks.
+with its own keyboard handler; IRQ 0 through a timer handler the game
+installed, with `--timer hw` or `auto`; the screen drawn from what the program
+told the CGA, so a game that sets its mode through the ports is drawn as it
+looks, text with a font in the public domain that ships in `tools/fonts/`, and
+text written through the BIOS with `--bios-text`. What it executed, with the
+CS:IP of each instruction (`--exec-map-json`), goes back into `comrec.py
+--seeds-from`, which walks from the code the run reached and the walk did not.
+
+`comrec.py` follows a far jump out of an entry stub by itself -- Moon Patrol's
+`jmp far [0x140]` through a pointer it has just written, ParaTrooper's far
+return -- when everything it loads is a constant or CS, and reports the ones
+whose target is computed. Moon Patrol came back 0.5% decoded before, nearly
+all of it padding read as code, and 87.3% of its code region after.
 
 ```powershell
 python tools\comdiff.py ROLLO.COM rollo.asm MOONBUGS.COM moonbugs.asm --json diff.json
 python tools\comrun.py GAME.COM --keyboard hw --no-joystick --keys " ,0x4D00" --png screen.png
+python tools\comrun.py GAME.COM --timer auto --keyboard auto --exec-map-json run.json
+python tools\comrec.py GAME.COM --out src\game.asm --seeds-from run.json
 ```
 
 ---
@@ -648,8 +661,10 @@ nasm -f bin -o rebuilt.com src\game.asm      # then compare SHA-256 yourself
 #     instruction-identical pairs are run under emulation to confirm them.
 python tools\comdiff.py KNOWN.COM known.asm GAME.COM src\game.asm --json diff.json
 #     Run it: keys through port 0x60 for a game with its own INT 09h handler,
-#     the screen drawn from the CGA's registers.
-python tools\comrun.py path\to\GAME.COM --keyboard hw --no-joystick --keys " " --png screen.png
+#     IRQ 0 through its own INT 08h, the screen drawn from the CGA's registers.
+#     What it executed, with CS:IP, seeds the next rebuild.
+python tools\comrun.py path\to\GAME.COM --keyboard auto --timer auto --no-joystick --keys " " --png screen.png --exec-map-json run.json
+python tools\comrec.py path\to\GAME.COM --out src\game.asm --seeds-from run.json
 
 # 1. Structure, decompilation, function recovery. Writes profile.json first,
 #    corrects the two loads Ghidra is known to get wrong (load-corrections.json),
@@ -1011,8 +1026,11 @@ tools/
     comdiff.py               compare two .COM programs routine by routine, and
                              run the instruction-identical pairs to confirm them
     comrun.py                run a program and capture its screen: keys through
-                             INT 16h or the keyboard hardware, the picture from
-                             the CGA's registers
+                             INT 16h or the keyboard hardware, the timer as
+                             IRQ 0, the picture from the CGA's registers, text
+                             with the shipped font
+    fonts/                   cp437-8x8.txt, code page 437 from unscii-8 (public
+                             domain), its builder, and its source and licence
     docaudit.py              find every count in the documents, so a stale one
                              is a line number rather than a surprise
     probelib.py              name C library routines by calling them
@@ -1100,11 +1118,14 @@ signatures/                  C runtime fingerprints: MS C 5.0, MS C 5.1, Watcom
 tests/run-all.ps1            every suite this machine can run; skips say why
 tests/sopwith/               the validation fixture and full case study
 tests/com/                   .COM fixtures, rebuilt byte-identically on every run;
-                             two it cannot rebuild, refused at the right byte
+                             two it cannot rebuild, refused at the right byte;
+                             far jumps followed, and one computed, refused
 tests/comdiff/               two sibling .COM programs, one routine of each kind
                              comdiff.py tells apart, and its refusals
 tests/comrun/                comrun's keyboard (INT 16h, port 0x60, IRQ 1, the
-                             PIC), its timer, and the CGA drawn from its registers
+                             PIC), its timer (IRQ 0, the BIOS's INT 08h and 1Ch),
+                             the CGA drawn from its registers, every character
+                             of the font, text through the BIOS, the exec map
 tests/annotate/              a name's evidence counted: refused, warned, accepted
 tests/libscan/               entry-point recovery, checked against the MZ header
 tests/evidence/              envelopes, the handshake's logic, stale-result refusal;

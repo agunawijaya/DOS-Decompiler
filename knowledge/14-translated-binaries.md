@@ -24,6 +24,12 @@ four except one.
 This is not a style that shades into other styles. It is a different machine
 showing through.
 
+Moon Patrol (1983, `PATROL.COM`) is a second, found once comrec could follow
+its entry stub (prompt 14): of 8,459 instructions decoded, `comrec`'s check
+counted 281 `cmc`, 99% of them straight after a `cmp` or `sub`, covering 75%
+of every compare. Only that marker was measured on it; the columns above were
+not.
+
 ## What each marker is
 
 **`cmc` after 93% of every `cmp`.** The 6502's `CMP` sets carry when A ≥ M —

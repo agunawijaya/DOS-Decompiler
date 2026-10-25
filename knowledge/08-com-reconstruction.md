@@ -421,8 +421,9 @@ Miss it and everything after `0x2B40` disassembles against the wrong base.
 Every branch target is wrong, the recursive descent walks off into data, and
 the reconstruction fails in a way that gives no hint of the cause. It is also
 the single fact a newcomer to the file is least likely to guess, which is why
-`comrec.py` works it out from the entry stub instead of asking. Pass
-`--segment OFF:BASE` if a program does something stranger.
+`comrec.py` works it out from the far jump instead of asking. Pass
+`--segment OFF:BASE` if a program does something stranger; far jumps are then
+only reported against the layout given.
 
 Note the `mov ax, ds` before the `retf`. It is easy to skim past, and it
 decides what `AX` holds when the real code starts — which in turn decides
@@ -440,7 +441,8 @@ byte 0 walks straight into it. Zaxxon (1984) does not oblige:
 
 The banner is a crack group's signature, written so that `TYPE ZAXXON.COM`
 prints it and stops at the DOS end-of-file byte. Between it and offset 0 is one
-`jmp`, and `detect_layout()` treated a jump as the end of the stub and gave up.
+`jmp`, and the stub reader of the time treated a jump as the end of the stub
+and gave up.
 
 The result is the clearest illustration in this repository of why byte-identity
 is not understanding:
@@ -453,6 +455,92 @@ Nine instructions. The rebuild was exact because 20,736 bytes were copied.
 Following a direct jump before evaluating — bounded, and refusing to revisit an
 address — costs four lines and takes Zaxxon from 9 instructions to 2,089 with
 no flags at all. `tests/com/fixtures/jmpstub.asm` reproduces the shape.
+
+### A far jump through a pointer, and one that is not a constant
+
+Moon Patrol (1983) leaves its stub another way:
+
+    mov ax, cs / add ax, 0x20 / mov [0x142], ax / xor ax, ax
+    mov [0x140], ax / jmp far [0x140]
+
+It writes a far pointer, CS + 0x20 : 0, and jumps through it: the program
+proper starts at file offset 0x100, at origin 0, in a segment of its own. It
+is not packing. Two things were wrong with how this was read, and the second
+is the worse:
+
+- Capstone spells a far jump `ljmp`, and the walk stopped only at `jmp`. It
+  went on from the stub into the zero fill behind it, and 119
+  `add [bx + si], al` came back as code: of the 279 bytes counted as code in
+  Moon Patrol's 58,306, nearly all were padding.
+- The stub reader followed only a far return, from offset 0 along plain
+  jumps, and assumed that any instruction it did not recognise left the
+  registers alone. `add ax, [extra]` therefore left AX at CS + 0x20, and a
+  program that computes its segment had the file split at the wrong place —
+  and still rebuilt byte for byte (`tests/com/fixtures/farcalc.asm`).
+
+Now every far jump the walk reaches is read: a far return after two words
+pushed in its own run, `jmp far [mem]`, and `jmp seg:off`. Each is evaluated
+over the straight run of code that ends in it, back to the nearest label,
+where anything else could arrive with other values. A value is CS plus a
+number of paragraphs, a constant, or unknown together with the instruction
+that made it so; an interrupt or a call makes every register it could return
+in unknown, a write through a register forgets memory, and anything not
+modelled makes whatever it writes unknown. Memory is followed at constant
+addresses, keyed by the segment register's value where it is known — at a
+.COM's entry DS, ES and SS are CS, so a pointer written through DS and read
+through ES is one pointer.
+
+| the far jump | what comrec does |
+|---|---|
+| target CS + n : constant | splits the file where it lands, at that origin, if nothing has been read from there on yet |
+| lands at the origin the layout already gives it | an entry point, nothing more |
+| segment or offset computed | reported: `leaves through a far jump whose target is computed at file 0x… (…): why`, not followed |
+| `jmp seg:off` with the segment as written in the file | reported: a fixed segment is not where DOS put a .COM |
+| would re-address code already read from another origin | reported, not followed |
+| a far return with nothing pushed for it in its run | an ordinary return from a far call; not a far jump |
+
+A split made after other passes have run forgets what they found under the old
+addressing — pins, sweeps, tables — and reads again. Moon Patrol, with no
+flags: 18,963 bytes as code (32.5% of the file, 87.3% of its 21,705-byte code
+region), against 279 before, both byte-identical (`tests/com/fixtures/farjmp.asm`
+is the shape; `farret.asm` puts the far return behind a DOS-version check whose
+other arm returns, which the old reader could not get past). `comrec` also
+says Moon Patrol was mechanically translated from 6502: 281 `cmc`, 99% of them
+straight after a compare (see 14-translated-binaries).
+
+One far jump in it stays unfollowed, and correctly: `jmp far [0x8812]` at file
+0x521 reads a pointer saved long before. The same goes for every interrupt
+handler that passes control on to the vector it replaced.
+
+### What a run executed: `--seeds-from`
+
+A walk reaches what something branches to; a run reaches what executed. `comrec
+--seeds-from MAP` takes the exec map comrun wrote and walks from every address
+the run executed that the walk did not reach. Evidence that code ran is enough
+to disassemble there — but not that this layout reads it at the right origin,
+so from `comrun --exec-map-json`, which records the CS:IP of each instruction,
+a seed is taken only where this layout gives its file offset the origin it ran
+at. Elsewhere it is refused, and the origin it ran at is printed as the
+`--segment` that would agree: the run itself says where a second segment
+starts. A seed whose bytes the run changed before the end is refused too, and
+one that falls inside an instruction the walk read at another alignment is
+counted and left alone. The plain list `--exec-map` writes is taken, and said
+to be unchecked.
+
+On Moon Patrol, a 2,000,000-instruction run executed 384 addresses, all at the
+origins the new layout gives them; 2 had been reached by nothing else -- the
+keyboard handler at 1020:0304, installed by a loop over a table of vectors
+that the install reader does not follow, and a routine at 1020:07C0 -- and
+coverage went from 18,963 to 19,146 bytes. A 40,000,000-instruction run with
+the timer delivered (`--timer auto`, see 12-hooking-the-right-thing) executed
+4,436: 4 walked from, the timer handler at 1020:0221 and 1020:4E21 besides
+those two, 19,156 bytes; 4 refused because the program rewrites them as it
+runs (three-byte instructions at file 0x4E03, 0x4E17, 0x4E37, 0x4E4B); and 6
+executed inside instructions the walk reads at another alignment. At file 0x4163
+the program ran a one-byte `ret` that the walk reads as the third byte of
+`and byte [bx + si - 0x3d], al` from 0x4161. Those six are where the static
+reading is wrong, most likely data read as code, and the run is the better
+evidence; comrec counts them and does not yet act on them.
 
 ## Making the data readable
 

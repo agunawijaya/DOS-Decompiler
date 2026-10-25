@@ -316,8 +316,8 @@ mode Kimi copies a shell tool's output to stderr.
 
 When the agents were first run, `AGENTS.md` was 40,684 bytes, and Codex cut
 it inside Step 5 and Antigravity inside Step 3. Since prompt 09a it is kept
-under the smallest limit: 22,322 bytes as checked out on Windows, 21,887 with
-Unix line endings. The rules stay in it; the measurements and cases behind
+under the smallest limit: after prompt 14, 23,341 bytes as checked out on
+Windows, 22,890 with Unix line endings. The rules stay in it; the measurements and cases behind
 them moved to the `knowledge/` file each step names. `tests/agents` fails if
 it grows past 24,000 bytes in either form.
 
@@ -355,6 +355,28 @@ optional argument, which changes nothing, since leaving an argument out means
 the same. Measured: Claude Code and Antigravity called
 `triage`, and Gemini CLI registered the server without a schema warning. No
 run exercised `apply_names` or `sweep`.
+
+## What two runs of the universal task could not see
+
+Two agents ran `prompts/DECOMPILE.md` on 2026-10-25, and both stopped where the
+toolkit said too little.
+
+- **Codex on Moon Patrol (`PATROL.COM`)** got a byte-identical rebuild with
+  0.5% of the file decoded and listed the possible causes comrec prints. The
+  cause was the entry stub's `jmp far [0x140]`, which comrec now follows
+  (`08-com-reconstruction`); where one cannot be followed it now says why in a
+  line beginning `far jump`, and an exec map from comrun can seed the walk
+  (`--exec-map-json`, `--seeds-from`).
+- **Kimi on Alley Cat (`CAT.EXE`)** captured six identical black frames and
+  read the wait as a timer. It was a Y/N question printed through
+  `INT 10h AH=0Eh`, and the key sent was a space (`12-hooking-the-right-thing`).
+  comrun now says, under its screen, how many characters a program wrote
+  through the BIOS that are not drawn, and `--bios-text` draws them;
+  `--timer auto` says whether the program took the timer at all.
+
+The lesson for an agent is the one `AGENTS.md` already states for comrec's
+coverage: a figure that looks like a property of the program -- 0.5% decoded,
+a black screen -- is first a question about what the tool did not do.
 
 ## What the repository cannot do for you
 
