@@ -118,12 +118,13 @@ for the one case where location matters.
 | MZ, C-compiled, medium model | mostly |
 | MZ, C-compiled, compact/large/huge | partly; emulation assumes small model |
 | MZ, hand-written assembly | partly; no C runtime to strip, no C source to match |
-| Packed with Microsoft EXEPACK | **yes** — `unpack.py`, validated end to end |
+| Packed with Microsoft EXEPACK | **yes** — `unpack.py`, both header layouts read from the stub, the image decoded twice and compared, the relocation table rebuilt |
 | Packed with PKLITE | image recovered and verified; entry point not |
 | Packed with LZEXE / DIET | untested; same mechanism should apply |
 | Turbo / Borland Pascal | poorly; different convention, no signature database |
-| Overlaid programs | no |
-| `.COM` files | **yes, by a separate route** — `comrec.py` rebuilds them byte-for-byte, but gives assembly rather than C |
+| Overlaid with Microsoft LINK (`int 3Fh`) | **yes, one view per module** — `overlays.py`, each view through the pipeline |
+| Overlaid otherwise (Borland FBOV) | no |
+| `.COM` files | **yes, by a separate route** — `comrec.py` rebuilds them byte-for-byte, but gives assembly rather than C; one under another name with `--format com` |
 | DOS extenders, protected mode | no |
 | Interpreted engines — SCI, SCUMM, AGI, DAAD | **wrong tool entirely** |
 
@@ -362,9 +363,12 @@ with its own keyboard handler; IRQ 0 through a timer handler the game
 installed, with `--timer hw` or `auto`; the screen drawn from what the program
 told the CGA, so a game that sets its mode through the ports is drawn as it
 looks, text with a font in the public domain that ships in `tools/fonts/`, and
-text written through the BIOS with `--bios-text`. What it executed, with the
-CS:IP of each instruction (`--exec-map-json`), goes back into `comrec.py
---seeds-from`, which walks from the code the run reached and the walk did not.
+text written through the BIOS with `--bios-text`. An `int` the program makes
+through a vector it installed reaches its own handler, as on the machine:
+Tapper's file shim on INT 80h, an overlay manager on INT 3Fh. What it executed,
+with the CS:IP of each instruction (`--exec-map-json`), goes back into
+`comrec.py --seeds-from`, which walks from the code the run reached and the
+walk did not.
 
 `comrec.py` follows a far jump out of an entry stub by itself -- Moon Patrol's
 `jmp far [0x140]` through a pointer it has just written, ParaTrooper's far
@@ -397,7 +401,7 @@ Copy-Item env.example.ps1 env.ps1     # then edit the paths
 |---|---|---|---|
 | [Ghidra](https://ghidra-sre.org/) 12.x | the decompiler; the only free one handling `x86:LE:16:Real Mode` | `GHIDRA_HOME` | yes |
 | JDK 21+ | Ghidra needs it | `JAVA_HOME` | yes |
-| Python 3 + `capstone`, `unicorn` | everything in `tools/` | `PYTHON`, else `python` on `PATH` | yes |
+| Python 3 + `capstone`, `unicorn` 2.x | everything in `tools/`; `comrun.py` uses Unicorn 2's cache control, measured with 2.1.4 and capstone 5.0.7 | `PYTHON`, else `python` on `PATH` | yes |
 | [Open Watcom V2](https://github.com/open-watcom/open-watcom-v2) | rebuilding source; `wasm` for assembly | `WATCOM` | for ground truth |
 | Microsoft C 5.0 | period-correct ground truth | `MSC_HOME` | optional |
 | [DOSBox-X](https://dosbox-x.com/) | running period toolchains and the games | `DOSBOX` | optional |
@@ -652,9 +656,15 @@ python tools\triage.py path\to\GAME.EXE --evidence -
 # 0b. If it says packed:
 python tools\unpack.py path\to\GAME.EXE -o unpacked.exe
 python tools\triage.py unpacked.exe
+#     If it says Microsoft LINK overlays: one view per module, each a program
+#     the pipeline takes, with a record of which overlay it is.
+python tools\overlays.py unpacked.exe --views views
+.\tools\pipeline.ps1 -Exe views\unpacked-overlay1.exe -OutDir .\out-overlay1
 
 # 0c. If it is a .COM, stop here — a different and stronger route.
-#     Rebuilds the file byte-for-byte and says so, or says why not.
+#     Rebuilds the file byte-for-byte and says so, or says why not. A .COM
+#     image under another name (triage says when one looks like it) takes
+#     --format com, in triage.py, survey.py and comrec.py alike.
 python tools\comrec.py path\to\GAME.COM --out src\game.asm
 nasm -f bin -o rebuilt.com src\game.asm      # then compare SHA-256 yourself
 #     What it shares with a .COM you have already read, routine by routine;
@@ -874,9 +884,11 @@ interface and `AGENTS.md` stays the method.
 
 | Tool | Wraps |
 |---|---|
-| `survey`, `triage` | `survey.py`, `triage.py` |
+| `survey`, `triage` | `survey.py`, `triage.py`; both take `format` (`com` for a .COM image under another name) |
 | `open_binary`, `close_binary`, `list_sessions` | sessions: the target copied into a session folder; the original is never written |
-| `unpack`, `comrec` | `unpack.py`, `comrec.py`, writing inside the session |
+| `unpack`, `comrec` | `unpack.py`, `comrec.py`, writing inside the session; `comrec` takes `seeds_from`, an exec map or `"session"` for the one the session's `comrun` wrote |
+| `comrun` | `comrun.py` on the session's program: keys, `keyboard` and `timer` (`bios`, `hw`, `auto`), `no_joystick`, `bios_text`; the screen and exec map written inside the session, the run returned as data |
+| `overlays` | `overlays.py`: the Microsoft LINK overlays of an MZ session, and with `views` one view per module inside the session; `open_binary` on a view brings its record |
 | `comdiff` | `comdiff.py` on two `.COM` sessions, each through the listing `comrec` wrote in it |
 | `analyze` | `pipeline.ps1`, with progress by stage; cached by target SHA-256, profile id and a hash of the pipeline's Python |
 | `verify_load_image`, `address_map`, `read_bytes` | `loadimage.py verify` and `map`; bytes as loaded, stopping at uninitialised memory |
@@ -1017,7 +1029,11 @@ These are the failure modes that cost the most time, all observed:
 tools/
   survey.py                  what is in this game folder? run this first
   triage.py                  is this one executable in scope?
-  unpack.py                  run a packer's decompressor and dump the result
+  unpack.py                  run a packer's decompressor and dump the result;
+                             EXEPACK's layout read from its stub, decoded twice,
+                             its relocation table rebuilt
+  overlays.py                Microsoft LINK's overlays: list them, write one view
+                             per module for the pipeline
   comrec.py                  rebuild a .COM as NASM source, byte-for-byte, and prove it
     annotate.py              apply a symbol file without changing a single byte,
                              and report what it does not cover: call targets,
@@ -1126,6 +1142,11 @@ tests/comrun/                comrun's keyboard (INT 16h, port 0x60, IRQ 1, the
                              PIC), its timer (IRQ 0, the BIOS's INT 08h and 1Ch),
                              the CGA drawn from its registers, every character
                              of the font, text through the BIOS, the exec map
+tests/unpack/                the packer-header readers, and EXEPACK packed here in
+                             both layouts around a stub written for the tests
+tests/overlays/              a root with its own INT 3Fh manager and two LINK
+                             overlays: found, viewed, refused, run, and verified
+                             through the pipeline
 tests/annotate/              a name's evidence counted: refused, warned, accepted
 tests/libscan/               entry-point recovery, checked against the MZ header
 tests/evidence/              envelopes, the handshake's logic, stale-result refusal;

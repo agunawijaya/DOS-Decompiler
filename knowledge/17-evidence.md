@@ -53,7 +53,7 @@ did, and nothing in it is a finding.
 | field | what it holds |
 |---|---|
 | `schema` | `dos-decompiler/evidence/1`. A consumer refuses a schema it does not know. |
-| `tool` | which tool wrote it: `triage`, `survey`, `mzinfo`, `analysis_profile` (profile.json), `analysis_profile check` (handshake.json), `loadimage` (loadimage.json), `bodies` (bodies.json), `applynames` (applynames-result.json), `emuverify sweep` (`--evidence`) |
+| `tool` | which tool wrote it: `triage`, `survey`, `mzinfo`, `analysis_profile` (profile.json), `analysis_profile check` (handshake.json), `loadimage` (loadimage.json), `bodies` (bodies.json), `applynames` (applynames-result.json), `emuverify sweep` (`--evidence`), `overlays` (an overlay view's record, VIEW.view.json) |
 | `tool_version` | the toolkit's git short hash, with `-dirty` if `tools/` has uncommitted or untracked changes, or `unknown` outside a checkout |
 | `target` | `path` (absolute), `size`, `sha256` of the file examined. For a folder: `kind: "directory"`, `files`, total `size`, and one `sha256` over a manifest of every file's relative path, size and hash. `size` and `sha256` are `null` only in an `error` envelope for a file that could not be read |
 | `profile` | the analysis profile the result was produced under, with its `profile_id`; `null` for a tool that runs no analysis |
@@ -610,6 +610,15 @@ copied into `loadimage.json` (`corrections`, `corrections_made`,
 ```json
 "load_image": {"status": "verified", "corrections": 2, "mismatch_allowed": false, "record": "loadimage.json"}
 ```
+
+An overlay view (`tools/overlays.py`, [01-dos-binaries.md](01-dos-binaries.md),
+Overlays) carries its record into `loadimage.json` the same way: `overlay_view`
+says which overlay of which file the verified program is, the root it was
+built on, the segment it sits at and the checks the view passed, and an
+`overlay-view` evidence item repeats it. It decides nothing -- the view is
+compared with its own file like any other -- and a record whose SHA-256 is not
+the file's stops the pipeline before import (`loadimage.py verify --view`
+returns `blocked`).
 
 `corrections` is `null` when the corrector did not run, `0` for a clean load,
 and the count otherwise, so a reader can always tell a clean load from a

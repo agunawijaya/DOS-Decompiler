@@ -147,10 +147,40 @@ load into a byte code, so the routine that reads them is a compiler and not,
 as this repository had it for a while, an interpreter. **A program that ships
 text still need not interpret text.**
 
+## A program under another name, and code inside the executable
+
+Two shapes the folder view missed until 2026-10-25, both found by reading
+reports on real games.
+
+**A program does not have to be called `.COM`.** Jungle Hunt's folder holds
+`hunt.com`, which turned out to be a crack's loader, and `hunt.ptl`, which the
+loader `EXEC`s: the game. A `.COM` has no header, so only its name says what it
+is, and triage refused `hunt.ptl` by its extension. Now `survey.py` lists any
+file whose content looks like a `.COM` image whatever its name -- it begins
+with a jump forward into itself and holds at least two `int 21h`, `10h` or
+`16h` -- and `--format com` triages them as `.COM` images; `triage.py` and
+`comrec.py` take `--format com` for one file. Measured on the 252 files
+without an MZ header in the retro-ports originals, the test picks out the five
+programs that begin with a jump and none of the data; it misses programs that
+begin with anything else (Moon Patrol's `mov ax, cs`), so it is a hint, not a
+route. `hunt.ptl` with `--format com` rebuilds byte-identically, 70.9% of its
+code region as instructions. An MZ was already found by its header, whatever
+its name.
+
+**Not all of a program's code is in its load image.** The Ancient Art of War's
+`WARET.EXE` is 110,382 bytes, and its load image 23,315 of them, packed; the
+other 86,555 were reported as "bytes past the load image". They are six
+overlay modules in Microsoft LINK's format, each an MZ of its own, read back
+out of the executable when the root calls into them
+([01-dos-binaries.md](01-dos-binaries.md), Overlays). Triage, `mzinfo` and
+survey now name them, and `overlays.py` turns each into a view the pipeline
+can analyse.
+
 ## What to do when you are handed a folder
 
 1. `survey.py` — which file is the game, and **what is the shape of the data
-   beside it**.
+   beside it**. A file it lists by content is a program under another name:
+   survey again with `--format com`.
 2. If a container magic is recognised, find the format's documentation before
    writing a decoder.
 3. If index/heap pairs are reported, the container is settled and the *record*

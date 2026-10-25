@@ -83,6 +83,19 @@ only reason it was caught is that the rebuilt file came out 512 bytes too long.
 The fixture's needle is therefore an address, `L_00002`, which can only appear
 if the header came off before the walk started.
 
+### `--format`, and a .COM by any other name
+
+comrec takes an MZ by its header and anything else as a `.COM`, whatever the
+file is called; `--format com` says so explicitly and refuses a file that
+starts with MZ (DOS loads that as an MZ whatever its name), and `--format mz`
+refuses anything but an MZ this route can take. Triage, which decides by name
+when there is no header, takes the same flag. The case was Jungle Hunt:
+`hunt.com` is a crack's loader that `EXEC`s `hunt.ptl`, the game, and triage
+refused `hunt.ptl` by its extension. With `--format com` it is in scope, and
+comrec rebuilds it byte-identically: 36,864 bytes, 16,218 of its 22,884-byte
+code region as instructions (70.9%), the SHA-256 checked again with NASM
+outside the tool.
+
 ## Why .COM is the easy case
 
 A `.COM` file has no header. The whole file is the image, DOS loads it at

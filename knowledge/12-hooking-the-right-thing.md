@@ -629,6 +629,54 @@ line saying how many characters went undrawn: Alley Cat's 36. Fixtures:
 `biostext.asm` on a 320-wide screen, every pixel compared, and `biostty.asm` in
 eighty columns, with a scroll.
 
+### A software interrupt is hardware's too, once the program owns the vector
+
+Unicorn hands every `int n` to comrun's hook instead of going through the
+vector table, so a vector the program had replaced was never used. IRQ 0 and
+IRQ 1 were made to go through the table (above); a program's own `int n` was
+not, and Tapper (1983) is built on one. Its crack installs an INT 80h that turns
+a disk read -- AH=02h, cylinder, sector, head, as the original's `int 13h` took
+them -- into a seek and a read of `Tapper.Dat`, and the game calls `int 80h`
+for every sector. comrun answered it by doing nothing, the read never
+happened, and the run ended on the game's disk-error message with `Tapper.Dat` opened and never
+read.
+
+Now an `int n` goes where the CPU sends it whenever vector n no longer holds
+comrun's stub: FLAGS, CS and the return IP pushed, IF and TF cleared, the
+program's handler. An `int` from the stub itself -- a handler passing the call
+on to the vector it replaced, which is the stub -- is answered by comrun as
+before, so a program that hooks INT 21h and chains to DOS is answered by DOS,
+once. Vectors the program never touched are answered exactly as they were, and
+a CPU exception is not taken for an `int`. The run's report gains a line,
+printed only when one went to the program, naming the vectors it replaced and
+how many `int`s each handler took. The fixture `swint.asm` installs INT 80h
+through DOS, writes INT 60h into the table and hooks INT 21h with a handler
+that counts and chains: it prints three lines; under the old comrun it prints
+nothing.
+
+Two more were found by doing it. **A read over code already run ran the old
+code.** Unicorn keeps its translation of code it has executed, and a file read
+written from the hook, outside the guest, did not throw it away: the overlay
+fixture's second call ran module 1's code from the cache over module 2's bytes.
+The range a read writes is now dropped from the cache. **And the disk reset
+did nothing.** Tapper's shim returns through `iret`, so its caller's carry is
+whatever it was before `int 80h` -- set, on the first read of a span, by a
+`cmp` before it. The caller retries four times and then calls `INT 13h AH=00h`,
+the disk reset, whose return with carry clear is what lets the next read pass,
+on the machine. comrun's answer left the carry set, so all twelve attempts
+failed. A reset with no disk to reset now succeeds, as the BIOS's does.
+
+With all three, Tapper reads `Tapper.Dat` through its own INT 80h (65 times in
+2,000,000 instructions, 76 by 12,000,000) and gets past its disk-error screen
+to a frame showing its select screen -- joystick or keyboard, one or two
+players, three levels, sound on or off, and a prompt to press the button or the
+space bar -- over its logo, and, with K and a space, to a frame showing four
+bars in perspective, beer taps, two customers in hats and "50" at the top left. The overlaid fixture
+calls its modules 1, 2 and 1 again through its own INT 3Fh manager. And The
+Ancient Art of War, unpacked, gets through its first `int 3Fh` into overlay 1,
+which stops at its own check for an EGA, VGA or Tandy -- an adapter comrun does
+not draw.
+
 ## The referee is not the deliverable
 
 The hunting screen was chased for hours as a photograph — drive the game to it,

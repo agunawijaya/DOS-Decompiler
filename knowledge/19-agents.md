@@ -336,7 +336,10 @@ limit than any measured here.
 
 Checked against the 19 tools the server listed then. Prompt 13 added a
 twentieth, `comdiff` -- 7 characters, a 349-character description, `int`,
-`float` and `bool` arguments -- and nothing in the table changes:
+`float` and `bool` arguments -- and nothing in the table changed. Prompt 15
+added `comrun` and `overlays`, 22 in all, measured through the server's own
+listing; only the longest description moved, to `comrun`'s 730 characters
+(`sweep`'s is still 376), with no limit documented to compare it with:
 
 | | Value | Limit found |
 |---|---|---|
@@ -344,7 +347,7 @@ twentieth, `comdiff` -- 7 characters, a 349-character description, `int`,
 | Longest qualified name | `mcp__dos-decompiler__verify_load_image`, 38 | Gemini 63; the others document none on the pages read |
 | Characters | `[a-z_]` in tool names, `dos-decompiler` for the server | Gemini `[A-Za-z0-9_.:-]`; Claude Code replaces anything outside `[A-Za-z0-9_-]` |
 | Schema keywords | `type`, `properties`, `required`, `title`, `default`, `anyOf` (optional values), `items`, `additionalProperties` (the dict arguments of `apply_names` and `sweep`) | Gemini removes `$schema`, `additionalProperties` and an `anyOf`'s `default`, and keeps the rest |
-| Longest description | `sweep`, 376 characters | none documented |
+| Longest description | `comrun`, 730 characters (`sweep` 376 before prompt 15) | none documented |
 | Largest result | one page, at most 64,000 bytes | Claude Code 25,000 tokens by default |
 
 Nothing is over a documented limit, so nothing was renamed. `apply_names`

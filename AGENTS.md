@@ -86,9 +86,11 @@ Out of scope, or on another route (`knowledge/00-scope.md` has the matrix,
 and which failures are loud and which silent):
 
 - **Packed** (LZEXE, PKLITE, EXEPACK, DIET): run `tools/unpack.py` first.
-- **Overlaid**: functions share addresses at different times; nothing here
-  handles that. **Protected-mode extender binaries**: another format.
-- **`.COM` files**: a separate, stronger route (below).
+- **Overlaid**: functions share addresses at different times. Microsoft LINK
+  overlays: `tools/overlays.py --views`, one view per module for the pipeline;
+  Borland's FBOV: nothing. **Protected-mode extenders**: another format.
+- **`.COM` files**: a separate, stronger route (below); one with another name
+  (`hunt.ptl`): `--format com` in triage, survey and comrec.
 - **Interpreted engines** (Sierra SCI and AGI, SCUMM, DAAD): the executable is
   a virtual machine and the game is in the data files. Decompiling succeeds
   and tells you nothing you wanted. Triage checks for it.
@@ -145,7 +147,8 @@ It runs the packer's own decompressor under emulation and dumps the result.
 low density of stack frames in the dump is not failure; it usually means
 assembly. Only EXEPACK states its entry point; for the others the dump's entry
 is 0 on purpose, because a wrong one misleads everything after it
-(`knowledge/00-scope.md`, Unpacking).
+(`knowledge/00-scope.md`, Unpacking). EXEPACK's is an MZ that loads: quote
+the layout it read from the stub and the agreement it prints.
 
 If the program is C and you have the compiler's library, do this early:
 `python tools/libscan.py unpacked.exe --lib <compiler>\LIB`. It finds the

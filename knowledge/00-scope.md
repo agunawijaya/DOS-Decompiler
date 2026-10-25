@@ -25,12 +25,13 @@ CGA). Where a tool assumes something, it assumes what Sopwith does.
 | MZ, hand-written assembly | **Partly** | `mzinfo` and `anchors` fine; no C runtime to strip, no C source to match |
 | Turbo/Borland Pascal | **Poorly** | different calling convention and runtime; needs its own signature database |
 | Borland C / Turbo C | **Mostly** | cdecl is fine, but no signature database ships for it |
-| Packed, Microsoft EXEPACK | **Yes, via `unpack.py`** | validated: entry point exact, image 99.7% of a known-good unpacked build |
+| Packed, Microsoft EXEPACK | **Yes, via `unpack.py`** | both header layouts, read from the stub; on The Ancient Art of War (18 bytes) the stub's own output and a static decode agree on 56,032 of 56,032 bytes, and its 283 relocations are rebuilt; a self-made 16-byte known answer: entry exact, image 99.7% |
 | Packed, PKLITE | **Image yes, entry point no** | decompression verified on a 1988 game; the format does not state its entry point and no heuristic found it |
 | Packed, LZEXE 0.90/0.91 | **Yes, via `unpack.py`** | validated: the packer states its entry point and `unpack.py` now reads it |
 | Packed, other (DIET, TINYPROG) | **Probably the image, not the entry** | untested; decompression is format-independent, entry-point recovery is not |
-| Overlaid (FBOV, Borland/Microsoft overlays) | **No** | detected and warned about; nothing here handles them |
-| `.COM` files | **Yes, by a separate route** | no MZ header to interpret, so `comrec.py` reconstructs the file directly and proves it byte-for-byte — but the result is assembly, not C. See [08-com-reconstruction.md](08-com-reconstruction.md) |
+| Overlaid, Microsoft LINK (`int 3Fh`, MZ modules appended) | **Yes, one view per module** | `overlays.py` writes each module into the root, both relocation tables applied; all six of The Ancient Art of War's verify through the pipeline |
+| Overlaid, Borland (FBOV) | **No** | detected and warned about; nothing here handles them |
+| `.COM` files | **Yes, by a separate route** | no MZ header to interpret, so `comrec.py` reconstructs the file directly and proves it byte-for-byte — but the result is assembly, not C. One under another name (Jungle Hunt's `hunt.ptl`): `--format com`. See [08-com-reconstruction.md](08-com-reconstruction.md) |
 | Self-modifying or copy-protected | **No** | static analysis and emulation both mislead |
 | DOS extender / protected mode (DOS4GW, PMODE/W) | **No** | LE/LX executables, a different format and era |
 | Interpreted engines (SCI, SCUMM, AGI, DAAD, Z-machine) | **Wrong tool** | see below — this is the trap |
@@ -134,10 +135,48 @@ of the image rewritten, require the target inside the load area) moved the
 answer but did not make it right.
 
 So the tool prefers what the packer *states* over what its behaviour implies.
-EXEPACK keeps a 16-byte header ending in `RB` immediately before its
-decompressor, carrying the real `CS:IP` and `SS:SP`; all four fields matched
-the plain build exactly. Formats without such a header fall back to the
-heuristic, and the tool says which it used and warns when it guessed.
+EXEPACK keeps a header ending in `RB` immediately before its decompressor,
+carrying the real `CS:IP` and `SS:SP`; on the known-answer build all four
+fields matched the plain build exactly. Formats without such a header fall
+back to the heuristic, and the tool says which it used and warns when it
+guessed.
+
+**EXEPACK's header has two layouts, and the stub is the only place that says
+which.** The known-answer build had the 16-byte one. The Ancient Art of War
+(Broderbund, 1987; `WARET.EXE`) has the 18-byte one: a `skip_len` word before
+`RB`, the header starting at `CS:0`, the entry at `CS:0x12`. Read as the
+16-byte one, every field came out one word late -- `skip_len` (1) taken for
+the destination's length -- and the dump was 272 bytes. `unpack.py` now finds
+each field by what the stub's own instructions do with it: the word added to
+the load segment for the destination's end (`add ax,[0x0C]`), the count of the
+copy that moves the stub out of the way (`mov cx,[0x06]`), the word subtracted
+from both ends of the decompression (`mov dx,[0x0E]`, absent in the 16-byte
+layout), the words loaded into SS and SP, the far jump into the program
+(Microsoft's ends `mov bx,0 / jmp far cs:[bx]`), and the immediate the
+relocation table is read through (`mov si,0x12D`). It prints each, with the
+instruction, and refuses a header whose fields the stub does not read inside
+it.
+
+With the layout known, the image is decoded twice. The emulation stops where
+the stub hands over to the program, so the dump is the decompressor's output
+and nothing the program then did; a static decode follows the stub's commands
+in Python. On `WARET.EXE` they agree on **56,032 of 56,032 bytes**, relocations
+unapplied, after 53 commands meeting at image offset 0x37CE, below which the
+image is stored as it is. Before the emulation stopped at the handoff, the
+same comparison found 42 bytes different (99.925%): the program writing its
+own data after the decompressor jumped to it. The output is an MZ that loads:
+EXEPACK's own relocation table (283 entries, read as the stub reads it, and
+ending exactly at the end of the load image), its entry `037C:0366` and stack
+`1593:07D0`, and the six overlays the packed file carried after its image,
+moved to the same page alignment after the new one. The image and table are
+byte-for-byte those of the static unpack the session that found the bug wrote
+by hand.
+
+The fixtures (`tests/unpack/`) pack a four-segment program, with relocations
+past the first 64 KB, around a stub written for the tests in both layouts;
+both unpack to the program, and the unpacked file runs under `comrun` and
+prints what the program prints. They cannot show that Microsoft's own
+16-byte stub is read right: no such file was on this machine.
 
 **LZEXE states it too**, and this was written down as untested for longer than
 it should have been. Versions 0.90 and 0.91 put a sixteen-byte block at the
@@ -201,8 +240,8 @@ The same game shows 15 prologues across 100 KB, which says it is largely
 hand-written assembly — a fact about the game, not a fault in the unpacker.
 Check strings before concluding anything.
 
-Relocations are not reconstructed either way. The dump is for analysis, not
-for running.
+For every format but EXEPACK, relocations are not reconstructed. The dump is
+for analysis, not for running.
 
 The Bantam case also exposed a weakness worth recording. PKLITE puts its
 marker in the header area, far from the entry point, so a proximity test alone

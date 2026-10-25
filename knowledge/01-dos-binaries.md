@@ -108,6 +108,42 @@ flat disassembly of such a file is nonsense. Signs: an `FBOV` signature, a
 non-zero overlay number in the header, or a large block of trailing data.
 Each overlay must be disassembled as its own address space.
 
+**Microsoft LINK's overlays are in the executable, after the root.** The
+Ancient Art of War (1987, Microsoft C 5.1) is the case read whole; its manager
+is LINK's. Each module is an MZ of its own -- header, relocation table, image
+-- with its overlay number at 0x1A, starting on the 512-byte page after the
+one before. The manager finds module N by reading headers from the start of
+the file and stepping each one's *page count* times 512 (the root's first:
+47 pages, so the first module at 0x5E00), reads the image to the overlay area,
+and adds the load segment to each word the module's relocation table names.
+That table counts segments from the program's start, as the root's does: all
+six modules' tables name segment 0482, where the area starts, and their other
+segments lie above it.
+
+A call into an overlay is `int 3Fh` followed by a byte and a word, the overlay
+segment's index in the manager's tables and the offset in that segment; the
+call returns past the three bytes. Ghidra decodes those three bytes as
+instructions: the session that read The Ancient Art of War found `main` and
+four other root functions decompiled wrongly from their first overlay call on.
+The manager installs vector 3Fh through `INT 21h AH=25h` with the number read
+from a variable, so the install is not a constant pattern in the bytes; the
+calls are.
+
+`tools/overlays.py` lists the modules the same way and writes one *view* per
+module: the root's image with the module's at the area, and both relocation
+tables -- what memory holds while that module is resident. A view is refused
+when the area is not empty in the root (LINK leaves it zero), the module would
+not fit, or a relocation crosses into the other's bytes; the area's segment is
+the lowest link segment any module's relocations name, or `--load-segment`.
+Each view's record (`VIEW.view.json`) goes through the pipeline into
+`loadimage.json` as `overlay_view`. All six of The Ancient Art of War's views
+verify, 58 checks each, and the function counts match the hand-built views
+of the session that found the format: 417, 346, 292, 307, 352 and 312.
+
+What a view cannot show: the rest of the area after a smaller module, zero in
+the view, holds at run time whatever a larger one left there; and which
+`int 3Fh` reaches which module is in the manager's tables, not read here.
+
 ## Hardware constants worth memorising
 
 These identify what a function does faster than any structural analysis.
