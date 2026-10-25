@@ -700,6 +700,28 @@ async def _():
             f"{second:.1f} s")
 
 
+@case("analyze an overlay view: verified, and analyze and verify_load_image say which overlay",
+      needs=("ghidra",))
+async def _():
+    env, err = await call("open_binary", path=str(Fix.extra["overlaid"]))
+    sid = env["result"]["session_id"]
+    env, err = await call("overlays", session_id=sid, views=True)
+    view = env["result"]["views"][1]
+    env, err = await call("open_binary", path=view["view"])
+    vid = env["result"]["session_id"]
+    env, err = await call("analyze", session_id=vid)
+    r = env["result"]
+    check(not err and env["status"] == "ok" and r["load_image"] == "verified"
+          and r.get("overlay_view", {}).get("overlay") == 2, f"analyze: {env['status']} {r}")
+    env, err = await call("verify_load_image", session_id=vid)
+    check(env["status"] == "verified" and env["result"]["overlay_view"]["overlay"] == 2,
+          f"verify_load_image: {env['status']} {env['result'].get('overlay_view')}")
+    for s in (vid, sid):
+        await call("close_binary", session_id=s)
+    return (f"view 2 verified at segment {r['overlay_view']['load_segment']}, its record "
+            f"carried through analyze and verify_load_image")
+
+
 # ---------------------------------------------------------------- the run
 
 def ghidra_why():

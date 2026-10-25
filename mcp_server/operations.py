@@ -506,15 +506,18 @@ def analyze(session_id, skip_recovery=False, timeout=PIPELINE_TIMEOUT, progress=
                                              f"corrections",
               "value": load.get("status")},
              {"kind": "functions", "claim": f"{count} functions exported", "value": count}]
+    result = {"session_id": s.id, "cache": cache, "profile_id": pid,
+              "cache_key": sessions.cache_dir(s.sha256, pid).name,
+              "seconds": round(time.perf_counter() - started, 1),
+              "functions": count, "handshake": handshake.get("status"),
+              "load_image": load.get("status"),
+              "outputs": sorted(p.name for p in s.analysis.iterdir()),
+              "log_tail": log_tail}
+    view = (load.get("result") or {}).get("overlay_view")
+    if view:
+        result["overlay_view"] = {k: view[k] for k in ("overlay", "load_segment", "source")}
     return evidence.envelope("analyze", target_of(s), status="ok" if verified else "mismatch",
-                             result={"session_id": s.id, "cache": cache, "profile_id": pid,
-                                     "cache_key": sessions.cache_dir(s.sha256, pid).name,
-                                     "seconds": round(time.perf_counter() - started, 1),
-                                     "functions": count, "handshake": handshake.get("status"),
-                                     "load_image": load.get("status"),
-                                     "outputs": sorted(p.name for p in s.analysis.iterdir()),
-                                     "log_tail": log_tail},
-                             evidence=items, profile=profile)
+                             result=result, evidence=items, profile=profile)
 
 
 @guarded("verify_load_image")
@@ -524,8 +527,10 @@ def verify_load_image(session_id, limit=None, cursor=None):
     need_analysis(s)
     profile = (read_json(s.analysis / "profile.json") or {}).get("profile")
     corrections = s.analysis / "load-corrections.json"
+    record = s.copy.with_suffix(".view.json")
     env = loadimage.verify(str(s.copy), str(s.analysis / "loadimage-observed"), profile,
-                           str(corrections) if corrections.exists() else None)
+                           str(corrections) if corrections.exists() else None,
+                           str(record) if record.is_file() else None)
     return paged(env, limit, cursor)
 
 
