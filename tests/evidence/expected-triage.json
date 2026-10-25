@@ -179,6 +179,186 @@
    "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
   ]
  },
+ "com/farcalc.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-76d89c66-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/farcalc.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-76d89c66-c024e196"
+     ],
+     "in_scope": [
+      "ev-76d89c66-c024e196"
+     ]
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/farcalc.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/farjmp.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-c154f464-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/farjmp.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-c154f464-c024e196"
+     ],
+     "in_scope": [
+      "ev-c154f464-c024e196"
+     ]
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/farjmp.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
+ "com/farret.com": {
+  "envelope": {
+   "evidence": [
+    {
+     "claim": "raw .COM image",
+     "detail": "No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+     "id": "ev-055b2786-c024e196",
+     "kind": "format",
+     "level": "route",
+     "location": {
+      "file_offset": "0x0"
+     },
+     "value": "COM"
+    }
+   ],
+   "limitations": [
+    "Nothing in a .COM is disassembled here: triage only notices that there is no header. Whether the file is code, and what kind, is comrec.py's to establish."
+   ],
+   "profile": null,
+   "result": {
+    "file": "<FILE>",
+    "format": "COM",
+    "next_step": "python tools/comrec.py \"<FILE>\" --out src/farret.asm",
+    "verdict": {
+     "confidence": "high",
+     "in_scope": true,
+     "route": "comrec"
+    },
+    "verdict_evidence": {
+     "confidence": [
+      "ev-055b2786-c024e196"
+     ],
+     "in_scope": [
+      "ev-055b2786-c024e196"
+     ]
+    },
+    "verdict_text": "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+   },
+   "schema": "dos-decompiler/evidence/1",
+   "status": "ok",
+   "tool": "triage",
+   "unknowns": []
+  },
+  "exit": [
+   0,
+   0
+  ],
+  "report": [
+   "File   : <FILE>",
+   "Format : COM",
+   "",
+   "[ROUTE  ] raw .COM image",
+   "           No MZ header, and none needed. The file loads at offset 0x100 as a single segment. Use comrec.py, which reassembles to a byte-for-byte copy and proves it, rather than the MZ pipeline.",
+   "",
+   "[NEXT   ] next step",
+   "           python tools/comrec.py \"<FILE>\" --out src/farret.asm",
+   "",
+   "VERDICT: in scope, by the .COM route. Run comrec.py as shown above; it either produces a byte-identical rebuild or says why not."
+  ]
+ },
  "com/farstub.com": {
   "envelope": {
    "evidence": [
