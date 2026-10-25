@@ -638,13 +638,13 @@ def _():
 def xchg_install(vector):
     return bytes((
         0x31, 0xC0, 0x8E, 0xC0,             # xor ax, ax / mov es, ax
-        0xBB, vector * 4, 0x00,             # mov bx, vector * 4
-        0xB9, 0x00, 0x02,                   # mov cx, 0x200 (a handler)
-        0x8C, 0xCA,                         # mov dx, cs
-        0x26, 0x87, 0x0F,                   # xchg es:[bx], cx
-        0x26, 0x87, 0x57, 0x02,             # xchg es:[bx+2], dx
-        0x89, 0x0E, 0x00, 0x03,             # mov [0x300], cx
-        0x89, 0x16, 0x02, 0x03,             # mov [0x302], dx
+        0xBF, vector * 4, 0x00,             # mov di, vector * 4
+        0xBE, 0x00, 0x02,                   # mov si, 0x200 (a handler)
+        0x8C, 0xC8,                         # mov ax, cs
+        0x26, 0x87, 0x35,                   # xchg es:[di], si
+        0x26, 0x87, 0x45, 0x02,             # xchg es:[di+2], ax
+        0x89, 0x36, 0x00, 0x03,             # mov [0x300], si
+        0xA3, 0x02, 0x03,                   # mov [0x302], ax
         0xEB, 0xFE))                        # jmp $
 
 

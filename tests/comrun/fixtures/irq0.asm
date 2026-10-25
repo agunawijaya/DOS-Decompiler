@@ -112,9 +112,9 @@ user_tick:
         inc byte [cs:calls]
         iret
 
+old_timer:      dw 0xFFFF, 0xFFFF   ; written before they are read
+old_user:       dw 0xFFFF, 0xFFFF
+bios_before:    dw 0xFFFF
 ticks:          db 0
 calls:          db 0
 while_masked:   db 0
-bios_before:    dw 0
-old_timer:      dw 0, 0
-old_user:       dw 0, 0
