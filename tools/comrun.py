@@ -26,15 +26,24 @@ What it emulates, and what it refuses to
 Enough DOS and BIOS to get a game to its first screen, and no more:
 
   * INT 10h  a mode set and a palette call go into the CGA's registers, for
-             drawing (below); everything else is recorded and ignored
+             drawing (below); with --bios-text the cursor and the text calls
+             are drawn too; everything else is recorded and ignored
   * INT 21h  the handful of functions a game uses before drawing
   * INT 20h  terminate
   * IN/OUT   port reads return a value that keeps timing loops moving, writes
              are logged; there is no hardware here, except the CGA's
-             registers, which are kept, and the keyboard, the PIC's mask and
-             its end-of-interrupt, when keys go through the hardware
+             registers, which are kept, and the keyboard, the timer, the
+             PIC's mask and its end-of-interrupt, when keys or ticks go
+             through the hardware
 
-It does not emulate a disk or a timer. It does emulate a keyboard, but only
+It does not emulate a disk. The timer is a word at 0040:006C advanced every
+20,000 instructions unless asked for more: `--timer-isr` sends one interrupt
+straight to the handler that holds its vector, and `--timer hw` raises IRQ 0
+through whatever vector 8 holds, as the 8253 and the PIC do -- masked by port
+0x21, held until the last one is acknowledged, and passed by the BIOS's own
+INT 08h, when it gets there, to 0040:006C and INT 1Ch. `--timer auto` starts
+as the default and switches the moment the program replaces vector 8 or 1Ch:
+Moon Patrol (1983) installs its own INT 08h. It does emulate a keyboard, but only
 because it has to: a title screen that asks for one or two players never
 reaches the game otherwise, and `--call` cannot substitute, because the routine
 you would call reads state that the title screen was supposed to set. Zaxxon
@@ -65,9 +74,12 @@ The framebuffer at B800:0, as the CGA's registers say to draw it once the
 program has set any of them -- mode control (0x3D8), colour select (0x3D9),
 the CRTC's columns, rows, scanlines per row and start address (0x3D4/0x3D5),
 or a mode or palette through `INT 10h`, which writes the same registers. Until
-it has, the picture is 320x200 mode 4 in palette 1, as it always was. Text
-screens need an 8x8 font for anything but blank and the block characters
-(`--font`); the CGA's own is in its ROM and is not shipped here.
+it has, the picture is 320x200 mode 4 in palette 1, as it always was. Text is
+drawn with the font in tools/fonts/ -- code page 437 from unscii-8, which is in
+the public domain; the CGA's own is in IBM's ROM and is not shipped -- or with
+`--font`. Text a program writes through `INT 10h` rather than into the
+framebuffer is drawn only with `--bios-text`: Alley Cat (1984) asks its first
+question that way, and without it the screen stays black.
 
 What it loads
 -------------
@@ -155,6 +167,21 @@ CF = 0x01                       # the carry flag -- DOS's error flag
 # frame. A press shorter than a frame is never seen.
 KEY_EVERY = 200_000
 KEY_RETRY = 500                 # a scancode waiting for IF or an EOI asks again
+
+# Instructions between two IRQ 0 from --timer hw or auto. The 8253 ticks
+# 18.2 times a second, and an 8088 runs very roughly 300,000 to 600,000
+# instructions in one, so a tick is some 16,000 to 33,000 instructions. The
+# same 20,000 as the tick written to 0040:006C without the hardware, so a run
+# keeps the same sense of time either way. A program that reprograms the
+# 8253 for a faster tick is not modelled: the period stays this.
+TIMER_EVERY = 20_000
+
+# The longest slice the run loop takes while --keyboard or --timer auto has
+# not yet seen its vector replaced. The write that decides cannot stop the
+# emulator itself (see _on_vector9_write), so the loop looks this often; a
+# key or a tick is due thousands of instructions after the decision, so the
+# delay changes nothing it schedules.
+AUTO_SLICE = 1_000
 
 # Scancode set 1, the XT's, for the keys a character can name. A key with no
 # character (an arrow, a function key) is given as a full AX, 0xSSCC, exactly
@@ -322,17 +349,50 @@ class CGA:
 
 # The glyphs a picture can be drawn from without a font: blank, the full
 # block and the four half blocks, which are geometry, not lettering. They are
-# what the 160 by 100 arrangement draws with. Anything else needs --font, the
-# 2,048 bytes of an 8-by-8 font (the CGA's own is in its ROM, and is not
-# shipped here); without one it is drawn as a hollow box and counted.
+# what the 160 by 100 arrangement draws with, and all there is if the shipped
+# font below cannot be read; anything else is then drawn as a hollow box and
+# counted.
 BLOCK_GLYPHS = {0x00: [0] * 8, 0x20: [0] * 8, 0xFF: [0] * 8,
                 0xDB: [0xFF] * 8, 0xDC: [0] * 4 + [0xFF] * 4,
                 0xDD: [0xF0] * 8, 0xDE: [0x0F] * 8, 0xDF: [0xFF] * 4 + [0] * 4}
 UNKNOWN_GLYPH = [0x00, 0x7E, 0x42, 0x42, 0x42, 0x42, 0x7E, 0x00]
 MAX_LINES = 300                 # more than a CGA's 262 can show
 
+# The font text is drawn with when --font gives none: code page 437 from
+# unscii-8, which its author placed in the public domain. The CGA's own
+# glyphs are in IBM's ROM and are not shipped. tools/fonts/README.md has the
+# source, the licence and what it lacks.
+FONT = Path(__file__).resolve().parent / "fonts" / "cp437-8x8.txt"
+_shipped = {}
 
-def render_cga(fb, cga, palette=None, font=None):
+
+def shipped_font():
+    """(2,048 bytes of glyphs, the bytes the font has no glyph for), from
+    tools/fonts/cp437-8x8.txt; (None, ()) if it cannot be read, and the
+    picture is then drawn as it was before a font was shipped. A byte with no
+    glyph is given the hollow box."""
+    if "font" not in _shipped:
+        glyphs, missing = bytearray(2048), []
+        try:
+            lines = FONT.read_text(encoding="ascii").splitlines()
+        except OSError:
+            _shipped["font"] = (None, ())
+            return _shipped["font"]
+        for line in lines:
+            if not line.strip() or line.startswith("#"):
+                continue
+            code, rows, _ = line.split()
+            code = int(code, 16)
+            if rows == "-":
+                missing.append(code)
+                glyphs[code * 8:code * 8 + 8] = bytes(UNKNOWN_GLYPH)
+            else:
+                glyphs[code * 8:code * 8 + 8] = bytes.fromhex(rows)
+        _shipped["font"] = (bytes(glyphs), tuple(missing))
+    return _shipped["font"]
+
+
+def render_cga(fb, cga, palette=None, font=None, missing=()):
     """The picture the registers describe: (PIL image, notes).
 
     The image is at pixel resolution and already scaled for viewing: three
@@ -340,6 +400,8 @@ def render_cga(fb, cga, palette=None, font=None):
     did, so a standard mode 4 comes out identical to it; twice across and
     three times down for a 640-wide one, which keeps roughly the same shape.
     `palette` ("0" or "1") overrides 0x3D9's palette in 320-wide graphics.
+    `missing` lists the characters `font` has no glyph for, which it draws
+    as boxes; they are counted.
     """
     from PIL import Image
     notes = []
@@ -398,6 +460,8 @@ def render_cga(fb, cga, palette=None, font=None):
                 ch, attr = fb[at], fb[(at + 1) & 0x3FFF]
                 if font is not None:
                     bits = font[ch * 8 + (scan & 7)]
+                    if ch in missing and scan == 0:
+                        unknown += 1
                 else:
                     glyph = BLOCK_GLYPHS.get(ch)
                     if glyph is None:
@@ -409,7 +473,12 @@ def render_cga(fb, cga, palette=None, font=None):
                 bg = RGBI[(attr >> 4) & (0x07 if m & 0x20 else 0x0F)]
                 for k in range(8):
                     px[col * 8 + k, line] = fg if (bits >> (7 - k)) & 1 else bg
-    if unknown:
+    if unknown and font is not None:
+        notes.append(f"{unknown} character cells hold "
+                     + ", ".join(f"0x{c:02X}" for c in missing)
+                     + f", which the font has no glyph for, and are drawn as boxes; "
+                       f"--font takes an 8x8 font (2,048 bytes) that has them")
+    elif unknown:
         notes.append(f"{unknown} character cells hold a character with no built-in "
                      f"glyph and are drawn as boxes; give --font with an 8x8 font "
                      f"(2,048 bytes) to draw them")
@@ -465,6 +534,11 @@ class Machine:
         # it is only wanted when something is being checked against
         # a static reading.
         self.exec_map = None
+        # The same with the CS each instruction ran under and its length:
+        # {(linear address, CS, size)}, for --exec-map-json. A linear address
+        # says where, and only CS:IP says at which origin -- which is what
+        # comrec checks its layout against.
+        self.exec_where = None
         # ADDR -> [AX, ...]: keys handed over only when the program reaches a
         # chosen instruction. `--keys` alone is a blind queue, and a game that
         # polls the keyboard eats it: The Oregon Trail issues 81,665 INT 16h
@@ -511,7 +585,29 @@ class Machine:
         self.pic_mask = 0           # port 0x21; bit 1 masks the keyboard
         self.in_service = set()     # IRQ levels taken and not yet acknowledged
         self._watching_vector9 = False
+        # The timer as hardware: --timer hw or auto. Off by default, and while
+        # off the tick at 0040:006C is advanced directly, as it always was,
+        # and --timer-isr is the only way a handler runs. See _timer_step.
+        self.timer = "bios"
+        self.timer_every = TIMER_EVERY  # instructions between two IRQ 0
+        self.timer_due = None       # self.steps at which the next one is due
+        self.timer_route = None     # what --timer auto decided, once it has
+        self.timer_hooked = None    # (step, vector, segment, offset) that decided it
+        self.timer_handler = None   # (segment, offset) the last IRQ 0 went to
+        self.user_tick = None       # (segment, offset) of the INT 1Ch the BIOS raised
+        self.pending_1c = False     # the BIOS's INT 08h has an INT 1Ch to raise
+        self.timer_log = {"irq": 0, "to_program": 0, "to_bios": 0, "int1c": 0,
+                          "held": 0, "masked": 0, "eoi": 0}
+        self._watching_timer = False
         self.cga = CGA()            # what the program told the display adapter
+        # Text written through INT 10h -- the cursor calls and AH=09h, 0Ah and
+        # 0Eh -- drawn into the framebuffer with the font, as the BIOS does:
+        # --bios-text. Off by default, and while off those calls are what they
+        # always were, ignored, and only counted.
+        self.bios_text = False
+        self.video_mode = 3         # the BIOS's mode number, as INT 10h AH=0Fh says it
+        self.bios_chars = 0         # characters written through INT 10h
+        self.font = None            # what --bios-text draws with; the shipped font if None
         self.no_joystick = False    # port 0x201 as a machine with no game adapter
         self.files = Path(files) if files else None
         self.open_files = {}        # handle -> [bytes, position, name]
@@ -659,9 +755,15 @@ class Machine:
         self.recent[self.steps & 511] = addr
         if self.exec_map is not None:
             self.exec_map.add(addr - self.img_bias)
+        if self.exec_where is not None:
+            self.exec_where.add((addr, uc.reg_read(UC_X86_REG_CS), size))
         if self.steps % self.TICK_EVERY == 0:
-            self.ticks += 1
-            uc.mem_write(0x46C, struct.pack("<I", self.ticks))
+            # With the timer as hardware the BIOS's own INT 08h counts the
+            # tick, when IRQ 0 reaches it; a program that replaces vector 8
+            # and never passes the tick on stops the count, as on the machine.
+            if not self._timer_irq():
+                self.ticks += 1
+                uc.mem_write(0x46C, struct.pack("<I", self.ticks))
         off = addr - self.img_bias
         if off in self.ptr_watch:
             def rd(seg, ofs, n=16):
@@ -724,11 +826,17 @@ class Machine:
             self._dos(uc, ah)
         elif num == 0x10 and ah == 0x00:
             self.cga.bios_mode(uc.reg_read(UC_X86_REG_AX) & 0xFF)
+            if self.bios_text:
+                self._bios_set_mode(uc.reg_read(UC_X86_REG_AX) & 0xFF)
         elif num == 0x10 and ah == 0x0B:
             bx = uc.reg_read(UC_X86_REG_BX)
             self.cga.bios_palette(bx >> 8, bx & 0xFF)
+        elif num == 0x10 and ah in (0x02, 0x03, 0x09, 0x0A, 0x0E, 0x0F):
+            self._bios_video_text(uc, ah)
         elif num == 0x09 and self._hardware_keys():
             self._bios_keyboard()
+        elif num == 0x08 and self._timer_irq():
+            self._bios_timer(uc)
         elif num == 0x08 and self._hardware_keys():
             # The BIOS's timer handler, reached by a program that chains to
             # it. It acknowledges IRQ 0 itself, and so must this, or the PIC
@@ -957,6 +1065,8 @@ class Machine:
                     self._vector9_set(ds, dx)
                     if self.kbd_route is not None and self.hw_keys:
                         uc.emu_stop()
+                elif n in (8 * 4, 0x1C * 4) and self._timer_vector_set(n // 4, ds, dx):
+                    uc.emu_stop()
             return
         if ah == 0x1A:                      # set disk transfer address
             self.dta = ((ds << 4) + dx)
@@ -1152,9 +1262,121 @@ class Machine:
                 self.in_service.discard(level)
                 if level == 1:
                     self.kbd_log["eoi"] += 1
+                elif level == 0:
+                    self.timer_log["eoi"] += 1
         elif port == 0x21:
             self.pic_mask = value & 0xFF
         return True
+
+    # -- text through the BIOS ----------------------------------------------
+    #
+    # Alley Cat (1984) asks "Do you want to use a joystick (Y/N)?" and lists
+    # its skill levels through INT 10h AH=0Eh, a character a call, on a
+    # 320-wide graphics screen. Answered by doing nothing, those calls leave
+    # the screen black, and a run waiting on the question looks like a run
+    # waiting on nothing. With --bios-text they are drawn as the BIOS draws
+    # them: in a text mode the character goes into the framebuffer at the
+    # cursor; in graphics it is drawn from the font over the whole 8x8 cell,
+    # in the colour BL gives (bit 7: exclusive-or). The cursor is where the
+    # BIOS keeps it, at 0040:0050, and a line written past the bottom scrolls.
+
+    COLUMNS = {0: 40, 1: 40, 2: 80, 3: 80, 4: 40, 5: 40, 6: 80}
+    PAGE = {40: 0x800, 80: 0x1000}     # a text page's bytes, as the BIOS lays them out
+
+    def enable_bios_text(self, font=None):
+        """--bios-text: draw INT 10h text, starting as DOS leaves a colour
+        adapter -- mode 3, the cursor home."""
+        self.bios_text, self.font = True, font
+        self.uc.mem_write(0x449, bytes([3]))
+        self.uc.mem_write(0x44A, struct.pack("<H", 80))
+
+    def _bios_set_mode(self, al):
+        """INT 10h AH=00 for --bios-text: what the BIOS keeps about the mode,
+        and a cleared screen unless AL bit 7 asks to keep it."""
+        mode = al & 0x7F
+        self.video_mode = mode
+        self.uc.mem_write(0x449, bytes([mode]))
+        self.uc.mem_write(0x44A, struct.pack("<H", self.COLUMNS.get(mode, 80)))
+        self.uc.mem_write(0x450, bytes(16))
+        if not al & 0x80 and mode in self.COLUMNS:
+            self.uc.mem_write(VIDEO, b"\x20\x07" * 0x2000 if mode < 4 else bytes(0x4000))
+
+    def _bios_video_text(self, uc, ah):
+        """INT 10h AH=02h, 03h, 09h, 0Ah, 0Eh and 0Fh."""
+        cx = uc.reg_read(UC_X86_REG_CX)
+        if ah in (0x09, 0x0A, 0x0E):
+            self.bios_chars += 1 if ah == 0x0E else cx
+        if not self.bios_text or self.video_mode not in self.COLUMNS:
+            return
+        ax, bx = uc.reg_read(UC_X86_REG_AX), uc.reg_read(UC_X86_REG_BX)
+        cols = self.COLUMNS[self.video_mode]
+        page = (bx >> 8) & (7 if cols == 40 else 3) if self.video_mode < 4 else 0
+        col, row = uc.mem_read(0x450 + page * 2, 2)
+        if ah == 0x02:
+            dx = uc.reg_read(UC_X86_REG_DX)
+            uc.mem_write(0x450 + page * 2, bytes([dx & 0xFF, dx >> 8]))
+        elif ah == 0x03:
+            uc.reg_write(UC_X86_REG_DX, (row << 8) | col)
+            uc.reg_write(UC_X86_REG_CX, 0x0607)
+        elif ah == 0x0F:
+            uc.reg_write(UC_X86_REG_AX, (cols << 8) | self.video_mode)
+            uc.reg_write(UC_X86_REG_BX, bx & 0x00FF)
+        elif ah in (0x09, 0x0A):
+            # CX copies from the cursor on, which does not move.
+            for n in range(row * cols + col, min(row * cols + col + cx, 25 * cols)):
+                self._bios_put(ax & 0xFF, n // cols, n % cols, bx & 0xFF, page,
+                               ah == 0x09)
+        else:
+            ch = ax & 0xFF
+            if ch == 0x08:
+                col = max(0, col - 1)
+            elif ch == 0x0A:
+                row += 1
+            elif ch == 0x0D:
+                col = 0
+            elif ch != 0x07:
+                self._bios_put(ch, row, col, bx & 0xFF, page, False)
+                col += 1
+                if col == cols:
+                    col, row = 0, row + 1
+            if row == 25:
+                self._bios_scroll(page, cols)
+                row = 24
+            uc.mem_write(0x450 + page * 2, bytes([col, row]))
+
+    def _bios_put(self, ch, row, col, colour, page, with_attribute):
+        """One character at a cell, as the BIOS writes it."""
+        cols = self.COLUMNS[self.video_mode]
+        if self.video_mode < 4:
+            at = VIDEO + page * self.PAGE[cols] + (row * cols + col) * 2
+            self.uc.mem_write(at, bytes([ch, colour]) if with_attribute else bytes([ch]))
+            return
+        font = self.font if self.font is not None else shipped_font()[0]
+        if font is None:
+            return
+        for scan in range(8):
+            y, bits = row * 8 + scan, font[ch * 8 + scan]
+            at = VIDEO + (y & 1) * 0x2000 + (y >> 1) * 80
+            if self.video_mode == 6:
+                at, cell = at + col, bytes([bits])
+            else:
+                word = sum((colour & 3) << (14 - 2 * k) for k in range(8)
+                           if bits & (0x80 >> k))
+                at, cell = at + col * 2, bytes([word >> 8, word & 0xFF])
+            if colour & 0x80:
+                cell = bytes(a ^ b for a, b in zip(cell, self.uc.mem_read(at, len(cell))))
+            self.uc.mem_write(at, cell)
+
+    def _bios_scroll(self, page, cols):
+        """A line written past the bottom: the screen moves up one row."""
+        if self.video_mode < 4:
+            base, row = VIDEO + page * self.PAGE[cols], cols * 2
+            text = bytes(self.uc.mem_read(base + row, row * 24))
+            self.uc.mem_write(base, text + b"\x20\x07" * cols)
+            return
+        for bank in (VIDEO, VIDEO + 0x2000):
+            lines = bytes(self.uc.mem_read(bank + 4 * 80, 96 * 80))
+            self.uc.mem_write(bank, lines + bytes(4 * 80))
 
     # -- running -------------------------------------------------------------
 
@@ -1183,11 +1405,18 @@ class Machine:
             self.uc.hook_add(UC_HOOK_MEM_WRITE, self._on_vector9_write, None,
                              9 * 4, 9 * 4 + 3)
             self._watching_vector9 = True
+        if self.timer == "auto" and not self._watching_timer:
+            for vector in (0x08, 0x1C):
+                self.uc.hook_add(UC_HOOK_MEM_WRITE, self._on_timer_vector_write, None,
+                                 vector * 4, vector * 4 + 3)
+            self._watching_timer = True
         while left > 0:
             n = min(left, timer_left) if self.isr_vector else left
-            wait = self._keyboard_wait()
-            if wait is not None:
-                n = min(n, max(1, wait))
+            for wait in (self._keyboard_wait(), self._timer_wait()):
+                if wait is not None:
+                    n = min(n, max(1, wait))
+            if self._auto_undecided():
+                n = min(n, AUTO_SLICE)
             before = self.steps
             try:
                 self.uc.emu_start(addr, end, count=n)
@@ -1205,11 +1434,20 @@ class Machine:
             ip = self.uc.reg_read(UC_X86_REG_IP)
             addr = (cs << 4) + ip
             wait = self._keyboard_wait()
-            if addr == end or left <= 0 or not (self.isr_vector or wait is not None):
+            tick = self._timer_wait()
+            if addr == end or left <= 0 or not (self.isr_vector or wait is not None
+                                                or tick is not None
+                                                or self._auto_undecided()):
                 break
-            if self.isr_vector and timer_left <= 0:
+            # IRQ 0 before IRQ 1, as the PIC ranks them: due together, the
+            # keyboard's waits behind the timer's until it is acknowledged.
+            if self.pending_1c:
+                addr = self._user_tick(cs, ip)
+            elif self.isr_vector and timer_left <= 0:
                 timer_left = self.isr_every
                 addr = self._fire_isr(cs, ip)
+            elif tick is not None and tick <= 0:
+                addr = self._timer_step(cs, ip)
             elif wait is not None and wait <= 0:
                 addr = self._keyboard_step(cs, ip)
         if self.stopped is None:
@@ -1240,6 +1478,14 @@ class Machine:
         """True while keys go through port 0x60 rather than INT 16h."""
         return self.keyboard == "hw" or self.kbd_route == "hardware"
 
+    def _auto_undecided(self):
+        """An --keyboard or --timer auto still waiting for the program to
+        replace its vector, with something to move when it does. The run
+        loop slices short meanwhile, so the switch takes effect within
+        AUTO_SLICE instructions of the write that decides it."""
+        return ((self.keyboard == "auto" and self.kbd_route is None and bool(self.keys))
+                or (self.timer == "auto" and self.timer_route is None))
+
     def _vector9(self):
         off, seg = struct.unpack("<HH", self.uc.mem_read(9 * 4, 4))
         return seg, off
@@ -1268,9 +1514,12 @@ class Machine:
         at = address - 9 * 4
         vector[at:at + size] = value.to_bytes(8, "little")[:size][:4 - at]
         off, seg = struct.unpack("<HH", bytes(vector))
+        # No emu_stop here: stopped from inside a memory write, Unicorn runs
+        # the writing instruction a second time, and an install that saves
+        # the old vector with `xchg` -- Moon Patrol's does -- swaps it back
+        # and keeps its own segment as the "old" one. The run loop takes
+        # short slices until this decides instead (AUTO_SLICE).
         self._vector9_set(seg, off)
-        if self.kbd_route is not None and self.hw_keys:
-            uc.emu_stop()       # so the run loop starts the schedule now
 
     def _vector9_set(self, seg, off):
         """The program's vector 9 is now seg:off; with --keyboard auto, decide."""
@@ -1380,6 +1629,152 @@ class Machine:
         if k["irq"] and not k["eoi"] and not k["to_bios"] and k["held"]:
             line += ("\n            the handler never acknowledged the PIC (no EOI on "
                      "port 0x20), so every later IRQ 1 waited for one")
+        return line
+
+    # -- the timer as hardware --------------------------------------------
+    #
+    # --timer-isr delivers one interrupt number to whatever handler holds its
+    # vector, every N instructions, and that is all it does: it ignores the
+    # PIC's mask, never waits for an end-of-interrupt, and a handler that
+    # passes the tick on to the BIOS reaches a stub that does nothing, so the
+    # BIOS never counts it and never raises INT 1Ch. Moon Patrol (1983)
+    # replaces vector 8 with its own handler. Here IRQ 0 is what it is on the
+    # machine: a frame pushed and a jump through whatever vector 8 holds,
+    # masked by port 0x21 bit 0, held while IF is clear or an IRQ 0 is still
+    # in service; and when it reaches the BIOS -- directly, or because the
+    # program's handler jumped on to the vector it replaced -- the BIOS's
+    # INT 08h runs: the tick at 0040:006C, INT 1Ch, the acknowledgement.
+
+    def _timer_irq(self):
+        """True while the tick is IRQ 0 rather than a word written now and then."""
+        return self.timer == "hw" or self.timer_route == "hardware"
+
+    def _timer_wait(self):
+        """Instructions until the next IRQ 0 is due, or None while the timer
+        is not hardware -- in which case the run loop is the old one."""
+        if not self._timer_irq():
+            return None
+        if self.timer_due is None:
+            self.timer_due = self.steps + self.timer_every
+        return self.timer_due - self.steps
+
+    def _on_timer_vector_write(self, uc, access, address, size, value, _):
+        """--timer auto: the moment the program writes vector 8 or 1Ch."""
+        if self.timer != "auto" or self.timer_route is not None:
+            return
+        vector = 0x08 if address < 0x1C * 4 else 0x1C
+        current = bytearray(uc.mem_read(vector * 4, 4))
+        at = address - vector * 4
+        current[at:at + size] = value.to_bytes(8, "little")[:size][:4 - at]
+        off, seg = struct.unpack("<HH", bytes(current))
+        self._timer_vector_set(vector, seg, off)    # no emu_stop: see _on_vector9_write
+
+    def _timer_vector_set(self, vector, seg, off):
+        """The program's vector 8 or 1Ch is now seg:off; with --timer auto,
+        decide. True when this decided it."""
+        if self.timer != "auto" or self.timer_route is not None:
+            return False
+        if seg == (STUBS >> 4) or (seg, off) == (0, 0):
+            return False
+        self.timer_route = "hardware"
+        self.timer_hooked = (self.steps, vector, seg, off)
+        self.timer_due = self.steps + self.timer_every
+        return True
+
+    def _timer_step(self, cs, ip):
+        """Between two slices: raise IRQ 0. Returns where execution continues."""
+        here = (cs << 4) + ip
+        if self.timer_due is None or self.steps < self.timer_due:
+            return here
+        if self.pic_mask & 0x01:
+            # Masked at the PIC: this tick never reaches the CPU.
+            self.timer_log["masked"] += 1
+            self.timer_due = self.steps + self.timer_every
+            return here
+        flags = self.uc.reg_read(UC_X86_REG_EFLAGS) & 0xFFFF
+        if not flags & IF or 0 in self.in_service:
+            # Interrupts are off, or the last IRQ 0 was never acknowledged.
+            # The PIC holds the request; ask again shortly.
+            self.timer_log["held"] += 1
+            self.timer_due = self.steps + KEY_RETRY
+            return here
+        off, seg = struct.unpack("<HH", self.uc.mem_read(8 * 4, 4))
+        sp = (self.uc.reg_read(UC_X86_REG_SP) - 6) & 0xFFFF
+        ss = self.uc.reg_read(UC_X86_REG_SS)
+        self.uc.mem_write((ss << 4) + sp, struct.pack("<HHH", ip, cs, flags))
+        self.uc.reg_write(UC_X86_REG_SP, sp)
+        self.uc.reg_write(UC_X86_REG_EFLAGS, flags & ~(IF | TF))
+        self.uc.reg_write(UC_X86_REG_CS, seg)
+        self.in_service.add(0)
+        self.timer_log["irq"] += 1
+        if seg != (STUBS >> 4):
+            self.timer_log["to_program"] += 1
+            self.timer_handler = (seg, off)
+        self.timer_due = self.steps + self.timer_every
+        return (seg << 4) + off
+
+    def _bios_timer(self, uc):
+        """What the BIOS's own INT 08h does with IRQ 0: count the tick at
+        0040:006C, raise INT 1Ch, acknowledge the PIC.
+
+        Reached when IRQ 0 finds vector 8 still the BIOS's, or when the
+        program's handler goes on to the vector it replaced. The IBM BIOS
+        acknowledges after INT 1Ch returns; this does before, which differs
+        only for an INT 1Ch handler that turns interrupts back on."""
+        self.ticks += 1
+        uc.mem_write(0x46C, struct.pack("<I", self.ticks))
+        self.timer_log["to_bios"] += 1
+        self.in_service.discard(0)
+        off, seg = struct.unpack("<HH", uc.mem_read(0x1C * 4, 4))
+        if seg != (STUBS >> 4) and (seg, off) != (0, 0):
+            # Raised between two slices, from the stub's `iret`, which then
+            # returns from the IRQ 0 frame as the BIOS's own handler would.
+            self.pending_1c = True
+            uc.emu_stop()
+
+    def _user_tick(self, cs, ip):
+        """INT 1Ch, raised by the BIOS's INT 08h: a frame back to where the
+        BIOS was, and the program's handler. Returns where execution goes."""
+        self.pending_1c = False
+        off, seg = struct.unpack("<HH", self.uc.mem_read(0x1C * 4, 4))
+        flags = self.uc.reg_read(UC_X86_REG_EFLAGS) & 0xFFFF
+        sp = (self.uc.reg_read(UC_X86_REG_SP) - 6) & 0xFFFF
+        ss = self.uc.reg_read(UC_X86_REG_SS)
+        self.uc.mem_write((ss << 4) + sp, struct.pack("<HHH", ip, cs, flags))
+        self.uc.reg_write(UC_X86_REG_SP, sp)
+        self.uc.reg_write(UC_X86_REG_EFLAGS, flags & ~(IF | TF))
+        self.uc.reg_write(UC_X86_REG_CS, seg)
+        self.timer_log["int1c"] += 1
+        self.user_tick = (seg, off)
+        return (seg << 4) + off
+
+    def timer_summary(self):
+        """One line on where the ticks went, for the end of a run."""
+        t = self.timer_log
+        if self.timer == "auto" and self.timer_route is None:
+            return ("timer     : auto -- neither INT 08h nor INT 1Ch was replaced, so the "
+                    "tick went to 0040:006C, as with --timer bios")
+        if self.timer == "hw":
+            how = "--timer hw"
+        else:
+            step, vector, seg, off = self.timer_hooked
+            how = (f"auto: the program replaced INT {vector:02X}h at instruction {step:,}, "
+                   f"with {seg:04X}:{off:04X}")
+        line = f"timer     : IRQ 0 ({how}): raised {t['irq']:,} times"
+        if t["to_program"]:
+            seg, off = self.timer_handler
+            line += f", {t['to_program']:,} to the program's handler at {seg:04X}:{off:04X}"
+        line += f"; the BIOS's INT 08h ran {t['to_bios']:,} times"
+        if t["int1c"]:
+            seg, off = self.user_tick
+            line += f" and raised INT 1Ch {t['int1c']:,} times, to {seg:04X}:{off:04X}"
+        if t["masked"]:
+            line += f"; {t['masked']:,} masked at the PIC"
+        if t["held"]:
+            line += f"; held {t['held']:,} times for IF or an EOI"
+        if t["to_program"] and not t["eoi"] and not t["to_bios"] and t["held"]:
+            line += ("\n            the handler never acknowledged the PIC (no EOI on port "
+                     "0x20), so every later IRQ 0 waited for one")
         return line
 
     def _enable_interrupts(self):
@@ -1610,6 +2005,38 @@ def to_png(fb, path, palette="1", scale=3):
     return img
 
 
+def loaded_image(machine):
+    """The program's image as loaded, relocations applied: what an executed
+    instruction's bytes are compared with at the end of a run."""
+    size = (len(machine.image) if machine.mz is None
+            else machine.mz["end"] - machine.mz["hdr"])
+    return bytes(machine.uc.mem_read(BASE + LOAD, size))
+
+
+def exec_map_json(machine, loaded, binary):
+    """--exec-map-json: every instruction the run executed, with the CS:IP it
+    ran at, and whether its bytes were still the ones loaded when the run
+    ended. A linear address says where an instruction was; only CS:IP says
+    at which origin it ran, which is what comrec --seeds-from checks its
+    layout against. And code that was decompressed, patched or copied over is
+    not the file's: comrec must not take the file's bytes there for what ran."""
+    now = bytes(machine.uc.mem_read(BASE + LOAD, len(loaded)))
+    rows = set()
+    for addr, cs, size in machine.exec_where:
+        off = addr - machine.img_bias
+        if off < 0:
+            continue        # the interrupt stubs below the program
+        changed = off + size <= len(loaded) and now[off:off + size] != loaded[off:off + size]
+        rows.add((off, cs, addr - (cs << 4), size, int(changed)))
+    return {"tool": "comrun --exec-map-json", "binary": binary,
+            "format": "COM" if machine.mz is None else "MZ",
+            "image_offset": "the linear address less 0x10100: a .COM's file offset, "
+                            "an MZ's offset past its header",
+            "instructions": machine.steps,
+            "columns": ["image_offset", "cs", "ip", "size", "changed"],
+            "executed": sorted(rows)}
+
+
 def draw_screen(machine, path, render="cga", palette=None, font=None):
     """Write the screen to a PNG; the lines that say how it was drawn.
 
@@ -1623,7 +2050,8 @@ def draw_screen(machine, path, render="cga", palette=None, font=None):
             return [f"screen    : INT 10h set mode {cga.unsupported}, which this "
                     f"renderer does not model; drawn as mode 4"]
         return []
-    img, notes = render_cga(machine.framebuffer(), cga, palette, font)
+    font, missing = (font, ()) if font is not None else shipped_font()
+    img, notes = render_cga(machine.framebuffer(), cga, palette, font, missing)
     img.save(path)
     how = ", ".join(cga.writes["bios"][-3:] +
                     [f"port 0x{p:X}" for p in sorted(cga.writes["ports"])])
@@ -1671,6 +2099,19 @@ def main():
                          "counter its own handler increments. The vector is "
                          "read at each delivery, so nothing is sent until the "
                          "program has hooked it")
+    ap.add_argument("--timer", choices=("bios", "hw", "auto"), default="bios",
+                    help="how time passes. bios (the default): the tick at "
+                         "0040:006C is advanced every 20,000 instructions, as "
+                         "always, and only --timer-isr runs a handler. hw: IRQ 0 "
+                         "every --timer-every instructions, through whatever "
+                         "INT 08h vector holds, masked by port 0x21 and held "
+                         "until the last one is acknowledged; one that reaches "
+                         "the BIOS's INT 08h counts the tick and raises INT 1Ch. "
+                         "auto: bios until the program replaces vector 8 or "
+                         "1Ch, then hw. The output says which happened")
+    ap.add_argument("--timer-every", type=int, default=TIMER_EVERY, metavar="N",
+                    help=f"with --timer hw or auto, instructions between two "
+                         f"IRQ 0 (default {TIMER_EVERY:,})")
     ap.add_argument("--poll-patience", type=int, metavar="N",
                     help="answer INT 16h AH=01 with 'nothing waiting' until it "
                          "has been asked N times since the last real read. "
@@ -1726,11 +2167,25 @@ def main():
                          "before")
     ap.add_argument("--font", metavar="FILE",
                     help="an 8x8 font, 2,048 bytes, for text screens. Without "
-                         "it only blank and the block characters are drawn")
+                         "it the shipped one is used, tools/fonts/cp437-8x8.txt "
+                         "(unscii-8, public domain), which lacks four code "
+                         "points; they are drawn as boxes")
+    ap.add_argument("--bios-text", action="store_true",
+                    help="draw what the program writes through INT 10h (AH=09h, "
+                         "0Ah, 0Eh, with the cursor calls 02h and 03h and the "
+                         "mode in 0Fh) into the framebuffer, as the BIOS does: in "
+                         "a text mode at the cursor, in graphics from the font in "
+                         "BL's colour. Without it those calls are ignored, as "
+                         "always, and a screen made of them stays blank")
     ap.add_argument("--json")
     ap.add_argument("--exec-map", metavar="FILE",
                     help="write every image offset the program executed, "
                          "for checking a disassembly against a run")
+    ap.add_argument("--exec-map-json", metavar="FILE",
+                    help="write every instruction executed as JSON, with the "
+                         "CS:IP it ran at and whether its bytes were still the "
+                         "ones loaded when the run ended: what comrec "
+                         "--seeds-from checks against its layout")
     ap.add_argument("--dump", help="write a memory range as OFF:LEN")
     args = ap.parse_args()
 
@@ -1747,6 +2202,10 @@ def main():
             ap.error("--gate and --at hand keys to INT 16h at chosen places; with "
                      "--keyboard hw or auto the keys go through port 0x60 on a "
                      "schedule instead. Use one or the other")
+    if args.timer != "bios" and args.timer_isr:
+        ap.error("--timer-isr sends one interrupt straight to its handler; --timer hw "
+                 "or auto raises IRQ 0 through vector 8, and the BIOS's INT 08h raises "
+                 "INT 1Ch from it. Use one or the other")
     font = None
     if args.font:
         font = Path(args.font).read_bytes()
@@ -1758,11 +2217,18 @@ def main():
     m = Machine(image, keys=keys,
                 files=args.files or Path(args.binary).parent)
     m.keyboard, m.hw_every = args.keyboard, args.key_every
+    m.timer, m.timer_every = args.timer, args.timer_every
     m.no_joystick = args.no_joystick
+    if args.bios_text:
+        m.enable_bios_text(font)
     if args.keyboard == "hw":
         m.hw_keys, m.keys = m.keys, []
     if args.exec_map:
         m.exec_map = set()
+    loaded = None
+    if args.exec_map_json:
+        m.exec_where = set()
+        loaded = loaded_image(m)
 
     if args.timer_isr:
         spec = args.timer_isr.split(",")
@@ -1819,6 +2285,13 @@ def main():
         print(f"  timer interrupts delivered: {m.isr_fired:,}"
               + (f", {m.isr_masked:,} skipped with interrupts disabled"
                  if m.isr_masked else ""))
+    if args.timer != "bios":
+        print("  " + m.timer_summary())
+    if m.bios_chars and m.cga.programmed and not args.bios_text:
+        # Only for a program that set the adapter up: one that never did
+        # prints to a DOS console, which is not what is being drawn.
+        print(f"  INT 10h   : {m.bios_chars:,} characters written through the BIOS "
+              f"(AH=09h, 0Ah, 0Eh) are not on the screen drawn; --bios-text draws them")
     if args.keys and args.keyboard != "bios":
         print("  " + m.keyboard_summary(len(keys)))
     if args.keys and (args.keyboard == "bios" or m.keys_read):
@@ -1910,6 +2383,13 @@ def main():
         hit = sorted(a for a in m.exec_map if a >= 0)
         Path(args.exec_map).write_text(chr(10).join(f"{a:x}" for a in hit))
         print(f"executed {len(hit):,} distinct addresses -> {args.exec_map}")
+    if args.exec_map_json:
+        data = exec_map_json(m, loaded, Path(args.binary).name)
+        Path(args.exec_map_json).write_text(json.dumps(data), encoding="utf-8")
+        changed = sum(row[4] for row in data["executed"])
+        print(f"executed {len(data['executed']):,} distinct CS:IP"
+              + (f", {changed:,} of them in bytes changed since they were loaded"
+                 if changed else "") + f" -> {args.exec_map_json}")
     return 0
 
 

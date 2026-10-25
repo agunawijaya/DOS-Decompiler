@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Checks for comrun's keyboard, and for --poll-patience in particular.
+"""Checks for comrun: its keyboard and --poll-patience first, then the timer,
+the CGA's registers, the shipped font, text through the BIOS and the exec map.
 
 The case that motivated these: a queue of keystrokes meant to drive a whole
 game vanished in a single screen. The Oregon Trail consumed 88 keys in 88
@@ -515,6 +516,318 @@ def _():
     if m.cga.programmed:
         raise AssertionError("the CGA counts as programmed by a program that never was")
     return "not programmed, so mode 4 as always"
+
+
+# ---------------------------------------------------------------- the timer
+#
+# irq0.asm keeps its own time: its INT 08h handler counts ticks and passes
+# every other one on to the vector it replaced; it hooks INT 1Ch as well, and
+# masks IRQ 0 for a while first. It prints its ticks, the INT 1Ch calls, how
+# far 0040:006C moved and the ticks that came while masked, as hex bytes.
+
+def run_timer(timer=None, isr=None, budget=3_000_000, every=5_000):
+    m = comrun.Machine(build("irq0"))
+    if timer:
+        m.timer, m.timer_every = timer, every
+    if isr:
+        m.isr_vector, m.isr_every = isr, every
+    why = m.run(budget=budget)
+    return "".join(m.output), why, m
+
+
+@nasm_case("a program with its own INT 08h handler waits for ever without a timer")
+def _():
+    printed, why, m = run_timer()
+    if printed or "budget exhausted" not in why:
+        raise AssertionError(f"the fixture did not hang: printed {printed!r}, {why}")
+    return "budget exhausted, nothing printed"
+
+
+@nasm_case("--timer-isr 8 ignores the PIC's mask, and a tick passed on reaches nothing")
+def _():
+    # What the old delivery does, kept as it is: the reason --timer exists.
+    printed, why, m = run_timer(isr=0x08)
+    if printed[:2] == "06" or printed[2:6] != "0000" or printed[6:] == "00":
+        raise AssertionError(f"printed {printed!r}: the old delivery behaves differently "
+                             f"from what this test documents")
+    return f"printed {printed}: {int(printed[6:], 16)} ticks while masked, no INT 1Ch"
+
+
+@nasm_case("--timer hw: IRQ 0 through the vector, the mask, the BIOS's INT 08h and 1Ch")
+def _():
+    printed, why, m = run_timer("hw")
+    if printed != "06030300":
+        raise AssertionError(f"printed {printed!r} ({why}); 6 ticks, 3 INT 1Ch, "
+                             f"3 BIOS ticks, 0 while masked is 06030300")
+    log = m.timer_log
+    if log["to_program"] != 6 or log["to_bios"] != 3 or log["int1c"] != 3 or not log["masked"]:
+        raise AssertionError(f"the counts disagree with what was printed: {log}")
+    return f"printed {printed}; {log['masked']} masked, {log['eoi']} EOI from the handler"
+
+
+@nasm_case("--timer auto sees vector 8 written and switches")
+def _():
+    printed, why, m = run_timer("auto")
+    if printed != "06030300" or m.timer_route != "hardware":
+        raise AssertionError(f"printed {printed!r}, route {m.timer_route} ({why})")
+    step, vector, _, _ = m.timer_hooked
+    if vector != 0x08 or step > 30:
+        raise AssertionError(f"decided by vector {vector:02X}h at instruction {step}")
+    return f"decided by INT 08h at instruction {step}"
+
+
+@nasm_case("no IRQ 0 is raised while one is still in service")
+def _():
+    m = comrun.Machine(build("irq0"))
+    m.timer, m.timer_every = "hw", 1_000
+    m.in_service.add(0)                  # an IRQ 0 nobody acknowledged
+    m.run(budget=200_000)
+    if m.timer_log["irq"] or not m.timer_log["held"]:
+        raise AssertionError(f"raised while IRQ 0 was in service: {m.timer_log}")
+    return f"held {m.timer_log['held']} times, raised none"
+
+
+# Karateka's wait, in miniature: the BIOS tick at 0040:006C read directly.
+TICK_WAIT = bytes((
+    0x31, 0xC0, 0x8E, 0xD8,         # 0100  xor ax, ax / mov ds, ax
+    0xBB, 0x6C, 0x04,               # 0104  mov bx, 0x46c
+    0x8B, 0x37, 0x46,               # 0107  mov si, [bx] / inc si
+    0x3B, 0x37, 0x75, 0xFC,         # 010A  cmp si, [bx] / jne 010A
+    0xEB, 0xFE))                    # 010E  jmp $
+
+
+@nasm_case("--timer auto: a program that never takes the timer ticks 0040:006C as before")
+def _():
+    m = comrun.Machine(TICK_WAIT)
+    m.timer = "auto"
+    m.run(budget=100_000)
+    if m.uc.reg_read(comrun.UC_X86_REG_IP) != 0x10E or m.timer_route is not None:
+        raise AssertionError(f"IP {m.uc.reg_read(comrun.UC_X86_REG_IP):#x}, route "
+                             f"{m.timer_route}: the tick did not come")
+    if "neither INT 08h nor INT 1Ch" not in m.timer_summary():
+        raise AssertionError(m.timer_summary())
+    return "the wait ended on the tick; the summary says nothing was replaced"
+
+
+@nasm_case("--timer hw: a handler on INT 1Ch alone is raised by the BIOS's INT 08h")
+def _():
+    m = comrun.Machine(SPIN)
+    m.uc.mem_write(TIMER * 4, struct.pack("<HH", comrun.LOAD + 0x20, comrun.SEG))
+    m.timer, m.timer_every = "hw", 5_000
+    m.run(budget=200_000)
+    counter = int.from_bytes(m.uc.mem_read(comrun.BASE + 0x200, 2), "little")
+    ticks = int.from_bytes(m.uc.mem_read(0x46C, 4), "little")
+    if not counter or m.timer_log["int1c"] != counter or ticks != m.timer_log["to_bios"]:
+        raise AssertionError(f"counter {counter}, 0040:006C {ticks}, {m.timer_log}")
+    return f"counter {counter}, 0040:006C {ticks}, every IRQ 0 through the BIOS"
+
+
+@nasm_case("the timer is bios by default")
+def _():
+    m = comrun.Machine(b"\xEB\xFE")
+    if m.timer != "bios" or m._timer_wait() is not None:
+        raise AssertionError(f"default timer {m.timer}")
+    return "bios, no IRQ 0 scheduled"
+
+
+# Moon Patrol (1983) installs its handlers by exchanging the vector for the
+# old one: `xchg es:[bx], cx / xchg es:[bx+2], dx`. Stopping the emulator
+# from inside the memory write that decides --keyboard or --timer auto made
+# Unicorn run that instruction twice, and the second swap left the program's
+# own segment where the BIOS's should be saved.
+def xchg_install(vector):
+    return bytes((
+        0x31, 0xC0, 0x8E, 0xC0,             # xor ax, ax / mov es, ax
+        0xBB, vector * 4, 0x00,             # mov bx, vector * 4
+        0xB9, 0x00, 0x02,                   # mov cx, 0x200 (a handler)
+        0x8C, 0xCA,                         # mov dx, cs
+        0x26, 0x87, 0x0F,                   # xchg es:[bx], cx
+        0x26, 0x87, 0x57, 0x02,             # xchg es:[bx+2], dx
+        0x89, 0x0E, 0x00, 0x03,             # mov [0x300], cx
+        0x89, 0x16, 0x02, 0x03,             # mov [0x302], dx
+        0xEB, 0xFE))                        # jmp $
+
+
+@nasm_case("an install with xchg saves the BIOS's vector under auto, keyboard and timer")
+def _():
+    saved = {}
+    for name, vector in (("keyboard", 9), ("timer", 8)):
+        m = comrun.Machine(xchg_install(vector), keys=[ord("a")])
+        setattr(m, name, "auto")
+        m.run(budget=5_000)
+        off, seg = struct.unpack("<HH", bytes(m.uc.mem_read(comrun.BASE + 0x300, 4)))
+        route = m.kbd_route if name == "keyboard" else m.timer_route
+        if (seg, off) != (comrun.STUBS >> 4, vector * 4) or route != "hardware":
+            raise AssertionError(f"{name}: saved {seg:04X}:{off:04X}, route {route}")
+        saved[name] = f"{seg:04X}:{off:04X}"
+    return f"keyboard {saved['keyboard']}, timer {saved['timer']}, both decided"
+
+
+# ---------------------------------------------------------------- the font
+#
+# The shipped font, read here with a parser of its own, so that a wrong
+# reading in comrun cannot agree with itself. A "-" is a glyph the font lacks,
+# drawn as the hollow box, which is written out again here too.
+
+FONT_FILE = Path(__file__).resolve().parents[2] / "tools" / "fonts" / "cp437-8x8.txt"
+BOX = (0x00, 0x7E, 0x42, 0x42, 0x42, 0x42, 0x7E, 0x00)
+
+
+def font_rows():
+    rows = {}
+    for line in FONT_FILE.read_text(encoding="ascii").splitlines():
+        if line and not line.startswith("#"):
+            byte, glyph, _ = line.split()
+            rows[int(byte, 16)] = (BOX if glyph == "-" else
+                                   tuple(int(glyph[i:i + 2], 16) for i in range(0, 16, 2)))
+    return rows
+
+
+def expected_text(cols):
+    """text40.asm and text80.asm: cell n is character n mod 256 in attribute
+    (n * 7 + 0x1E) mod 128; blink is on, so the background is three bits."""
+    rows = font_rows()
+
+    def pixel(x, y):
+        n = (y // 8) * cols + x // 8
+        ch, attr = n % 256, (n * 7 + 0x1E) % 128
+        lit = (rows[ch][y % 8] >> (7 - x % 8)) & 1
+        return CGA_COLOURS[attr & 0x0F] if lit else CGA_COLOURS[(attr >> 4) & 7]
+    return pixel
+
+
+@nasm_case("the shipped font covers 252 of 256 characters and says which it lacks")
+def _():
+    rows = font_rows()
+    lacking = sorted(b for b, g in rows.items() if g == BOX)
+    font, missing = comrun.shipped_font()
+    if len(rows) != 256 or lacking != [0x0F, 0x7F, 0xA9, 0xF9] or list(missing) != lacking:
+        raise AssertionError(f"{len(rows)} lines, lacking {lacking}, comrun says {missing}")
+    if any(font[b * 8:b * 8 + 8] != bytes(g) for b, g in rows.items()):
+        raise AssertionError("comrun's reading of the font differs from this one")
+    return "lacking 0x0F, 0x7F, 0xA9, 0xF9, drawn as boxes"
+
+
+@nasm_case("forty-column text: every pixel against the font's own bitmaps")
+def _():
+    size, wrong = compare_png("text40", 320, 200, 3, expected_text(40))
+    if size != (960, 600) or wrong:
+        raise AssertionError(f"{size}, {len(wrong)} wrong pixels, first {wrong[:3]}")
+    return "64,000 of 64,000, all 256 characters"
+
+
+@nasm_case("eighty-column text: every pixel against the font's own bitmaps")
+def _():
+    size, wrong = compare_png("text80", 640, 200, 2, expected_text(80))
+    if size != (1280, 600) or wrong:
+        raise AssertionError(f"{size}, {len(wrong)} wrong pixels, first {wrong[:3]}")
+    return "128,000 of 128,000, all 256 characters"
+
+
+@nasm_case("without the font, eighty-column text is the boxes it was")
+def _():
+    # The bug, reproduced: the old renderer had no font to draw with.
+    import tempfile
+    from PIL import Image
+    m = comrun.Machine(build("text80"))
+    m.run(budget=200_000)
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "screen.png"
+        _, notes = comrun.render_cga(m.framebuffer(), m.cga)
+        comrun.render_cga(m.framebuffer(), m.cga)[0].save(path)
+        px = Image.open(path).convert("RGB").load()
+    pixel = expected_text(80)
+    wrong = sum(1 for y in range(200) for x in range(640)
+                if px[x * 2 + 1, y * 3 + 1] != pixel(x, y))
+    if not wrong or not any("boxes" in n for n in notes):
+        raise AssertionError(f"{wrong} pixels wrong, notes {notes}")
+    return f"{wrong:,} of 128,000 pixels wrong without a font, as expected"
+
+
+def biostext_pixel():
+    """biostext.asm under --bios-text: "Hi!" at row 1 from column 2 in colour
+    2, "ok" at row 2 from column 0 in colour 3, and 'X' exclusive-ored in
+    colour 1 onto the two blank cells after it; palette 1, bright, on black."""
+    rows = font_rows()
+    cells = {(1, 2): ("H", 2), (1, 3): ("i", 2), (1, 4): ("!", 2),
+             (2, 0): ("o", 3), (2, 1): ("k", 3), (2, 2): ("X", 1), (2, 3): ("X", 1)}
+    colours = [CGA_COLOURS[0], CGA_COLOURS[11], CGA_COLOURS[13], CGA_COLOURS[15]]
+
+    def pixel(x, y):
+        ch, colour = cells.get((y // 8, x // 8), (" ", 0))
+        lit = (rows[ord(ch)][y % 8] >> (7 - x % 8)) & 1
+        return colours[colour if lit else 0]
+    return pixel
+
+
+@nasm_case("--bios-text: AH=0Eh and 09h on a 320-wide screen, from the font")
+def _():
+    import tempfile
+    from PIL import Image
+    m = comrun.Machine(build("biostext"))
+    m.enable_bios_text()
+    m.run(budget=200_000)
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "screen.png"
+        comrun.draw_screen(m, str(path))
+        px = Image.open(path).convert("RGB").load()
+    pixel = biostext_pixel()
+    wrong = [(x, y) for y in range(200) for x in range(320)
+             if px[x * 3 + 1, y * 3 + 1] != pixel(x, y)]
+    if wrong:
+        raise AssertionError(f"{len(wrong)} wrong pixels, first {wrong[:3]}")
+    return "64,000 of 64,000: two colours, a new line, exclusive-or"
+
+
+@nasm_case("without --bios-text the same screen is black, and the characters counted")
+def _():
+    m = comrun.Machine(build("biostext"))
+    m.run(budget=200_000)
+    # "Hi!", a carriage return and a line feed, "ok": seven AH=0Eh calls;
+    # and AH=09h with CX=2.
+    if any(m.framebuffer()) or m.bios_chars != 9:
+        raise AssertionError(f"framebuffer drawn on, or {m.bios_chars} characters counted")
+    return "black; 9 characters counted for the hint"
+
+
+@nasm_case("--bios-text in eighty-column text: attributes, the cursor, a scroll")
+def _():
+    m = comrun.Machine(build("biostty"))
+    m.enable_bios_text()
+    m.run(budget=200_000)
+    fb = bytes(m.framebuffer())
+
+    def cell(row, col):
+        at = (row * 80 + col) * 2
+        return fb[at], fb[at + 1]
+    seen = {"top": cell(0, 0), "x": cell(23, 78), "y": cell(23, 79), "z": cell(24, 0)}
+    want = {"top": (0x20, 0x07), "x": (ord("x"), 0x07), "y": (ord("y"), 0x07),
+            "z": (ord("z"), 0x07)}
+    cursor, mode = struct.unpack("<HH", bytes(m.uc.mem_read(comrun.BASE + 0x200, 4)))
+    if seen != want or cursor != 0x1801 or mode != 0x5003:
+        raise AssertionError(f"cells {seen}, cursor {cursor:#06x}, mode {mode:#06x}")
+    return "AAA scrolled away, xy on row 23, z on row 24, cursor 24:1, mode 3 of 80"
+
+
+# ---------------------------------------------------------------- the exec map
+
+@nasm_case("--exec-map-json: CS:IP for each instruction, and code changed after loading")
+def _():
+    # mov byte [patch], 0x90 / patch: inc ax / jmp $ -- the inc runs as a nop.
+    prog = bytes((0xC6, 0x06, 0x05, 0x01, 0x90, 0x40, 0xEB, 0xFE))
+    m = comrun.Machine(prog)
+    m.exec_where = set()
+    loaded = comrun.loaded_image(m)
+    m.run(budget=50)
+    data = comrun.exec_map_json(m, loaded, "patch.com")
+    rows = {row[0]: row for row in data["executed"]}
+    if data["columns"] != ["image_offset", "cs", "ip", "size", "changed"]:
+        raise AssertionError(f"columns {data['columns']}")
+    if rows.get(0) != (0, comrun.SEG, 0x100, 5, 0):
+        raise AssertionError(f"the first instruction: {rows.get(0)}")
+    if rows.get(5) != (5, comrun.SEG, 0x105, 1, 1) or rows[6][4] != 0:
+        raise AssertionError(f"the patched one {rows.get(5)}, the jump {rows.get(6)}")
+    return "1000:0100 as offset 0, and the patched instruction marked changed"
 
 
 def main():
