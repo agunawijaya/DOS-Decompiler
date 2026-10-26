@@ -178,7 +178,8 @@ async def comrun(session_id: str, keys: str | None = None, keyboard: str = "bios
                  timer_every: int | None = None, png: bool = True, exec_map: bool = False,
                  files: str | None = None, stop_at: str | None = None, timeout: int = 900,
                  keep_to: str | None = None, limit: int | None = None,
-                 cursor: str | None = None) -> CallToolResult:
+                 cursor: str | None = None, adapter: str = "cga", cpu: str = "8088",
+                 at: str | None = None) -> CallToolResult:
     """Run the session's program under emulation (comrun.py) and capture what
     it draws and does: where it stopped, interrupts, the vectors it replaced
     and the `int`s sent to its own handlers, files, what it printed, and the
@@ -188,10 +189,16 @@ async def comrun(session_id: str, keys: str | None = None, keyboard: str = "bios
     no_joystick for a program that probes port 0x201; bios_text to draw text
     printed through INT 10h. exec_map writes comrun/exec-map.json for comrec's
     seeds_from="session". files is the data folder, read only; by default the
-    original's. Stopped after timeout seconds."""
+    original's. adapter cga, ega or tandy: ega answers as an EGA with 256 KB
+    and draws mode 0Dh, tandy as a Tandy 1000 and draws mode 9. cpu 8088 (a
+    LOCK prefix stepped over, a divide error returning after the divide) or
+    386 (as Unicorn is). at "ADDR=KEY,...": a key when the program reaches an
+    image offset, by the path it reads then -- the BIOS's buffer, or port
+    0x60 and IRQ 1 through its own INT 09h; the result says which. Stopped
+    after timeout seconds."""
     return await call(op.comrun, session_id, keys, keyboard, timer, no_joystick, bios_text,
                       budget, key_every, timer_every, png, exec_map, files, stop_at,
-                      timeout, keep_to, limit, cursor)
+                      timeout, keep_to, limit, cursor, adapter, cpu, at)
 
 
 @server.tool()

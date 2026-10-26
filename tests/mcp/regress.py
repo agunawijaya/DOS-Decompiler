@@ -546,6 +546,43 @@ async def _():
     return "3 lines, INT 21h 4 times through its own; comrec seeded from the run, verified"
 
 
+@case("comrun: --adapter, --at and --cpu through the tool, each said in the result")
+async def _():
+    said = []
+    env, err = await call("open_binary", path=str(Fix.extra["ega0d"]), format="com")
+    sid = env["result"]["session_id"]
+    env, err = await call("comrun", session_id=sid, budget=3_000_000, adapter="ega")
+    r = env["result"]
+    check(not err and r.get("adapter") == "ega" and r["screen"][0].startswith(
+        "screen    : EGA mode 0Dh") and "start 0x2000" in r["screen"][0], f"ega: {r}")
+    env, err = await call("comrun", session_id=sid, adapter="vga")
+    check(err and "cga, ega or tandy" in env["result"]["reason"], "a bad adapter was taken")
+    await call("close_binary", session_id=sid)
+    said.append("EGA mode 0Dh drawn")
+    env, err = await call("open_binary", path=str(Fix.extra["atkeys"]), format="com")
+    sid = env["result"]["session_id"]
+    env, err = await call("comrun", session_id=sid, keyboard="auto", at="10=a,30=b,50=c")
+    r = env["result"]
+    paths = [k["path"] for k in r.get("at_keys", [])]
+    check(not err and r["printed"] == ["a 30 c 2E"] and len(paths) == 3
+          and paths[0].startswith("the BIOS's buffer") and paths[1].startswith("port 0x60")
+          and "INT 16h too" in paths[2], f"at: {r}")
+    await call("close_binary", session_id=sid)
+    said.append("three keys, three paths")
+    env, err = await call("open_binary", path=str(Fix.extra["lock"]), format="com")
+    sid = env["result"]["session_id"]
+    env, err = await call("comrun", session_id=sid, budget=10_000)
+    r = env["result"]
+    check(not err and r["printed"] == ["6 8 0"] and r["cpu"]["lock_prefixes_stepped_over"] == 3,
+          f"8088: {r}")
+    env, err = await call("comrun", session_id=sid, budget=10_000, cpu="386")
+    check(not err and "Invalid instruction" in env["result"]["stopped"]
+          and "cpu" not in env["result"], f"386: {env['result']}")
+    await call("close_binary", session_id=sid)
+    said.append("LOCK stepped over 3 times on an 8088, refused on a 386")
+    return "; ".join(said)
+
+
 @case("format: open_binary and triage say a .PTL looks like a .COM; triage and survey take com")
 async def _():
     ptl = Fix.extra["ptl"]
@@ -760,6 +797,11 @@ def build():
                  "overlaid": extra / "OVERLAID.EXE", "packed": extra / "PACKED.EXE"}
     subprocess.run([nasm, "-f", "bin", "-o", str(Fix.extra["swint"]),
                     str(COMRUN_FIX / "swint.asm")], check=True)
+    # Prompt 16's: EGA mode 0Dh, three keys read three ways, LOCK prefixes.
+    for name in ("ega0d", "atkeys", "lock"):
+        Fix.extra[name] = extra / f"{name.upper()}.COM"
+        subprocess.run([nasm, "-f", "bin", "-o", str(Fix.extra[name]),
+                        str(COMRUN_FIX / f"{name}.asm")], check=True, capture_output=True)
     subprocess.run([nasm, "-f", "bin", "-o", str(Fix.extra["ptl"]),
                     str(COM_FIX / "jmpstub.asm")], check=True)
     subprocess.run([nasm, "-f", "bin", "-o", str(Fix.extra["overlaid"]),

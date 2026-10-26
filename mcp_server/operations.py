@@ -332,22 +332,28 @@ def comdiff(session_a, session_b, min_bytes=None, similar=None, emulate=True, li
 
 COMRUN_TIMEOUT = 900           # seconds for one run; 40 million instructions take ~110
 KEYBOARD = ("bios", "hw", "auto")
+ADAPTERS = ("cga", "ega", "tandy")
+CPUS = ("8088", "386")
 
 
 @guarded("comrun")
 def comrun(session_id, keys=None, keyboard="bios", timer="bios", no_joystick=False,
            bios_text=False, budget=2_000_000, key_every=None, timer_every=None,
            png=True, exec_map=False, files=None, stop_at=None, timeout=COMRUN_TIMEOUT,
-           keep_to=None, limit=None, cursor=None):
+           keep_to=None, limit=None, cursor=None, adapter="cga", cpu="8088", at=None):
     """comrun.py on the session's copy, as the command line runs it, with the
     capture written inside the session: comrun/screen.png, comrun/exec-map.json
     (what comrec's seeds_from="session" reads) and comrun/summary.json, whose
     content is the result. files is the folder the program's data is read
-    from, never written: by default the original's own."""
+    from, never written: by default the original's own. adapter, cpu and at
+    are --adapter, --cpu and --at; their defaults leave the run as it was."""
     s = sessions.get(session_id)
     if keyboard not in KEYBOARD or timer not in KEYBOARD:
         raise Refused(f"keyboard {keyboard!r} and timer {timer!r} must each be bios, hw "
                       f"or auto", "pass one of those")
+    if adapter not in ADAPTERS or cpu not in CPUS:
+        raise Refused(f"adapter {adapter!r} must be cga, ega or tandy and cpu {cpu!r} 8088 "
+                      f"or 386", "pass one of those")
     budget = parse_number(budget, "budget")
     if not 1 <= budget <= 400_000_000:
         raise Refused(f"budget {budget:,} is not between 1 and 400,000,000 instructions",
@@ -362,6 +368,12 @@ def comrun(session_id, keys=None, keyboard="bios", timer="bios", no_joystick=Fal
             "--summary-json", str(summary)]
     if keys:
         args += ["--keys", str(keys)]
+    if at:
+        args += ["--at", str(at)]
+    if adapter != "cga":
+        args += ["--adapter", adapter]
+    if cpu != "8088":
+        args += ["--cpu", cpu]
     if no_joystick:
         args.append("--no-joystick")
     if bios_text:
