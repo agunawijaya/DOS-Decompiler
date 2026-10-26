@@ -1260,9 +1260,11 @@ DIVIDES = [
     ("div byte [si+12h]", "f67412", 3), ("aam 0", "d400", 2),
     ("cs: div bl", "2ef6f3", 3), ("cs: es: aam 0", "2e26d400", 4),
     ("cs: es: ss: div byte [bx+300h]", "2e2636f6b70003", 7),
+    ("cs: div byte [bp+2]", "2ef67602", 4), ("cs: es: div bl", "2e26f6f3", 4),
     ("div bl, no more bytes", "f6f3", 2),
     ("test bl, 1 (f6 /0)", "f6c301", None), ("mul bl (f6 /4)", "f6e3", None),
     ("neg bl (f6 /3)", "f6db", None), ("nop", "90", None), ("aad 0", "d500", None),
+    ("add al, 0 (below d4)", "0400", None),
     ("an opcode and nothing after it", "f6", None), ("a prefix alone", "2e", None),
     ("a prefix and an opcode", "2ef6", None), ("fifteen prefixes", "2e" * 15, None),
 ]
@@ -1292,8 +1294,9 @@ def far_segment_program():
     """A program at 2345:0FF0, a segment whose base shares bits with its
     offsets, so that an address made with | or ^ instead of + is wrong: its
     INT 0 handler at 0E00 keeps each return IP at 0E80 on, its INT 3 handler
-    at 0E40 counts at 0E90. Main: the vectors, `lock nop`, `int3`, a divide
-    by zero, the same behind thirteen prefixes (15 bytes), `jmp $`."""
+    at 0E40 counts at 0E90. Main: the vectors, `lock nop`, `int3`, `int 3`
+    in its two-byte form, a divide by zero, the same behind thirteen prefixes
+    (15 bytes), `jmp $`."""
     seg = 0x2345
     code = {
         0x0E00: bytes((0x56, 0x55, 0x89, 0xE5,                  # push si / push bp / mov bp, sp
@@ -1310,14 +1313,15 @@ def far_segment_program():
                        0x26, 0x8C, 0x0E, 0x0E, 0x00,            # mov [es:0Eh], cs
                        0xF0, 0x90,                              # 100C: lock nop
                        0xCC,                                    # 100E: int3
-                       0x30, 0xDB, 0xF6, 0xF3))                 # 100F: xor bl, bl / 1011: div bl
-                 + b"\x2E" * 13 + bytes((0xF6, 0xF3))           # 1013: 15 bytes, div bl
-                 + bytes((0xEB, 0xFE)),                         # 1022: jmp $
+                       0xCD, 0x03,                              # 100F: int 3
+                       0x30, 0xDB, 0xF6, 0xF3))                 # 1011: xor bl, bl / 1013: div bl
+                 + b"\x2E" * 13 + bytes((0xF6, 0xF3))           # 1015: 15 bytes, div bl
+                 + bytes((0xEB, 0xFE)),                         # 1024: jmp $
     }
     return seg, code
 
 
-@case("a segment whose base shares bits with IP: LOCK, int3, two divides, each where it is")
+@case("a segment whose base shares bits with IP: LOCK, int 3 both ways, two divides, each where it is")
 def _():
     seg, code = far_segment_program()
     m = comrun.Machine(b"\xEB\xFE")
@@ -1328,13 +1332,27 @@ def _():
     returns = list(struct.unpack("<2H", bytes(m.uc.mem_read((seg << 4) + 0x0E80, 4))))
     breakpoints = m.uc.mem_read((seg << 4) + 0x0E90, 1)[0]
     lock_site = (seg << 4) + 0x100C - comrun.BASE - comrun.LOAD
-    if (returns != [0x1013, 0x1022] or breakpoints != 1 or m.lock_sites != {lock_site}
+    if (returns != [0x1015, 0x1024] or breakpoints != 2 or m.lock_sites != {lock_site}
             or m.exceptions.get(0, (0, []))[1] != [(seg, 0x0E00)]
-            or m.dispatched.get(3, (0, []))[0] != 1):
-        raise AssertionError(f"{why}; returns {[hex(r) for r in returns]}, int3 {breakpoints}, "
+            or m.dispatched.get(3, (0, []))[0] != 2):
+        raise AssertionError(f"{why}; returns {[hex(r) for r in returns]}, int 3 {breakpoints}, "
                              f"LOCK at {[hex(a) for a in m.lock_sites]}, {m.exceptions}, "
                              f"{m.dispatched}")
-    return "returned to 1013 and 1022, int3 to its handler, the LOCK at its own address"
+    return "returned to 1015 and 1024, both int 3s to its handler, the LOCK at its own address"
+
+
+@case("a divide error with no handler, in a segment of its own, names its place in the image")
+def _():
+    # xor bl, bl / div bl at 2345:1000: the divide at image 0x14352, beyond
+    # twice the image's base, so the offset made with % or ^ is another.
+    seg = 0x2345
+    m = comrun.Machine(b"\xEB\xFE")
+    m.uc.mem_write((seg << 4) + 0x1000, bytes((0x30, 0xDB, 0xF6, 0xF3)))
+    m.uc.reg_write(comrun.UC_X86_REG_CS, seg)
+    why = m.run(start=(seg << 4) + 0x1000 - comrun.BASE - comrun.LOAD, budget=20)
+    if not why.startswith("divide error at 2345:1002 (image 0x014352); the program has no "):
+        raise AssertionError(why)
+    return why[:44] + "..."
 
 
 @case("a divide ending at the segment's last byte returns to FFFF; a trap with no handler goes on")
