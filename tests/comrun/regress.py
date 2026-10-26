@@ -1244,9 +1244,135 @@ def _():
     # mov ax, 1234 / xor bl, bl / div bl / jmp $
     m = comrun.Machine(bytes((0xB8, 0xD2, 0x04, 0x30, 0xDB, 0xF6, 0xF3, 0xEB, 0xFE)))
     why = m.run(budget=1_000)
-    if not why.startswith("divide error at 1000:0105") or "Divide overflow" not in why:
+    if (not why.startswith("divide error at 1000:0105 (image 0x000005); the program has "
+                           "no INT 00h handler of its own") or "Divide overflow" not in why):
         raise AssertionError(why)
     return why[:44] + "..."
+
+
+# divide_length and lock_prefix on encodings written out here: a divide's
+# length is its prefixes, the opcode, ModRM and the displacement ModRM asks
+# for (mod 0: two bytes if r/m is 6; mod 1: one; mod 2: two; mod 3: none).
+DIVIDES = [
+    ("div bl", "f6f3", 2), ("idiv word [1234h]", "f73e3412", 4),
+    ("div byte [bp+2]", "f67602", 3), ("div byte [bx+300h]", "f6b70003", 4),
+    ("div byte [bx]", "f637", 2), ("idiv word [bx+si]", "f738", 2),
+    ("div byte [si+12h]", "f67412", 3), ("aam 0", "d400", 2),
+    ("cs: div bl", "2ef6f3", 3), ("cs: es: aam 0", "2e26d400", 4),
+    ("cs: es: ss: div byte [bx+300h]", "2e2636f6b70003", 7),
+    ("div bl, no more bytes", "f6f3", 2),
+    ("test bl, 1 (f6 /0)", "f6c301", None), ("mul bl (f6 /4)", "f6e3", None),
+    ("neg bl (f6 /3)", "f6db", None), ("nop", "90", None), ("aad 0", "d500", None),
+    ("an opcode and nothing after it", "f6", None), ("a prefix alone", "2e", None),
+    ("a prefix and an opcode", "2ef6", None), ("fifteen prefixes", "2e" * 15, None),
+]
+LOCKS = [("f090", 0), ("2ef090", 1), ("2e26f090", 2), ("f3f090", 1), ("f390", None),
+         ("90f0", None), ("2e2e", None), ("f2f3f0f040", 2)]
+
+
+@case("a divide's length and a LOCK's place, read from the bytes")
+def _():
+    wrong = []
+    for name, raw, length in DIVIDES:
+        try:
+            got = comrun.divide_length(bytes.fromhex(raw))
+        except Exception as e:                                 # noqa: BLE001
+            got = f"{type(e).__name__}"
+        if got != length:
+            wrong.append(f"{name}: {got}, not {length}")
+    for raw, at in LOCKS:
+        if comrun.lock_prefix(bytes.fromhex(raw)) != at:
+            wrong.append(f"lock_prefix({raw}): {comrun.lock_prefix(bytes.fromhex(raw))}")
+    if wrong:
+        raise AssertionError("; ".join(wrong))
+    return f"{len(DIVIDES)} encodings, {len(LOCKS)} prefix runs"
+
+
+def far_segment_program():
+    """A program at 2345:0FF0, a segment whose base shares bits with its
+    offsets, so that an address made with | or ^ instead of + is wrong: its
+    INT 0 handler at 0E00 keeps each return IP at 0E80 on, its INT 3 handler
+    at 0E40 counts at 0E90. Main: the vectors, `lock nop`, `int3`, a divide
+    by zero, the same behind thirteen prefixes (15 bytes), `jmp $`."""
+    seg = 0x2345
+    code = {
+        0x0E00: bytes((0x56, 0x55, 0x89, 0xE5,                  # push si / push bp / mov bp, sp
+                       0x2E, 0x8B, 0x36, 0x7E, 0x0E,            # mov si, [cs:0E7E]
+                       0x8B, 0x46, 0x04,                        # mov ax, [bp+4]
+                       0x2E, 0x89, 0x84, 0x80, 0x0E,            # mov [cs:si+0E80], ax
+                       0x2E, 0x83, 0x06, 0x7E, 0x0E, 0x02,      # add word [cs:0E7E], 2
+                       0x5D, 0x5E, 0xCF)),                      # pop bp / pop si / iret
+        0x0E40: bytes((0x2E, 0xFE, 0x06, 0x90, 0x0E, 0xCF)),    # inc byte [cs:0E90] / iret
+        0x0FF0: bytes((0x31, 0xC0, 0x8E, 0xC0,                  # xor ax, ax / mov es, ax
+                       0x26, 0xC7, 0x06, 0x00, 0x00, 0x00, 0x0E,  # mov word [es:0], 0E00h
+                       0x26, 0x8C, 0x0E, 0x02, 0x00,            # mov [es:2], cs
+                       0x26, 0xC7, 0x06, 0x0C, 0x00, 0x40, 0x0E,  # mov word [es:0Ch], 0E40h
+                       0x26, 0x8C, 0x0E, 0x0E, 0x00,            # mov [es:0Eh], cs
+                       0xF0, 0x90,                              # 100C: lock nop
+                       0xCC,                                    # 100E: int3
+                       0x30, 0xDB, 0xF6, 0xF3))                 # 100F: xor bl, bl / 1011: div bl
+                 + b"\x2E" * 13 + bytes((0xF6, 0xF3))           # 1013: 15 bytes, div bl
+                 + bytes((0xEB, 0xFE)),                         # 1022: jmp $
+    }
+    return seg, code
+
+
+@case("a segment whose base shares bits with IP: LOCK, int3, two divides, each where it is")
+def _():
+    seg, code = far_segment_program()
+    m = comrun.Machine(b"\xEB\xFE")
+    for off, data in code.items():
+        m.uc.mem_write((seg << 4) + off, data)
+    m.uc.reg_write(comrun.UC_X86_REG_CS, seg)
+    why = m.run(start=(seg << 4) + 0x0FF0 - comrun.BASE - comrun.LOAD, budget=400)
+    returns = list(struct.unpack("<2H", bytes(m.uc.mem_read((seg << 4) + 0x0E80, 4))))
+    breakpoints = m.uc.mem_read((seg << 4) + 0x0E90, 1)[0]
+    lock_site = (seg << 4) + 0x100C - comrun.BASE - comrun.LOAD
+    if (returns != [0x1013, 0x1022] or breakpoints != 1 or m.lock_sites != {lock_site}
+            or m.exceptions.get(0, (0, []))[1] != [(seg, 0x0E00)]
+            or m.dispatched.get(3, (0, []))[0] != 1):
+        raise AssertionError(f"{why}; returns {[hex(r) for r in returns]}, int3 {breakpoints}, "
+                             f"LOCK at {[hex(a) for a in m.lock_sites]}, {m.exceptions}, "
+                             f"{m.dispatched}")
+    return "returned to 1013 and 1022, int3 to its handler, the LOCK at its own address"
+
+
+@case("a divide ending at the segment's last byte returns to FFFF; a trap with no handler goes on")
+def _():
+    seg, code = far_segment_program()
+    m = comrun.Machine(b"\xEB\xFE")
+    m.uc.mem_write((seg << 4) + 0x0E00, code[0x0E00])
+    m.uc.mem_write(0, struct.pack("<HH", 0x0E00, seg))           # vector 0 to the handler
+    m.uc.mem_write((seg << 4) + 0xFFFD, bytes((0xF6, 0xF3)))     # div bl at FFFD
+    m.uc.reg_write(comrun.UC_X86_REG_BX, 0)
+    m.uc.reg_write(comrun.UC_X86_REG_CS, seg)
+    m.run(start=(seg << 4) + 0xFFFD - comrun.BASE - comrun.LOAD, budget=12)
+    back = struct.unpack("<H", bytes(m.uc.mem_read((seg << 4) + 0x0E80, 2)))[0]
+    # pushf / pop ax / or ah, 1 / push ax / popf / nop / nop / jmp $: TF set,
+    # and vector 1 still the BIOS's, whose INT 1 is an iret.
+    t = comrun.Machine(bytes((0x9C, 0x58, 0x80, 0xCC, 0x01, 0x50, 0x9D,
+                              0x90, 0x90, 0xEB, 0xFE)))
+    why = t.run(budget=40)
+    if back != 0xFFFF or not why.startswith("budget exhausted") or t.exceptions:
+        raise AssertionError(f"returned to {back:#x}; the trap run: {why}, {t.exceptions}")
+    return "FFFF, not 0; the trap run reached its jmp $ and delivered nothing"
+
+
+@case("--call after a divide error that went to the program's handler returns")
+def _():
+    # 0100: install INT 0 at 0120 through DOS, then jmp $. 0110: a routine that
+    # divides by zero, stores 1 at [0300] and returns. 0120: the handler, iret.
+    prog = bytearray(0x30)
+    prog[0x00:0x0A] = bytes((0xBA, 0x20, 0x01, 0xB8, 0x00, 0x25, 0xCD, 0x21, 0xEB, 0xFE))
+    prog[0x10:0x19] = bytes((0x30, 0xDB, 0xF6, 0xF3, 0xC6, 0x06, 0x00, 0x03, 0x01))
+    prog[0x19] = 0xC3
+    prog[0x20] = 0xCF
+    m = comrun.Machine(bytes(prog))
+    m.run(budget=50)
+    why = m.call(0x10, budget=1_000)
+    if why != "returned" or m.uc.mem_read(comrun.BASE + 0x300, 1)[0] != 1:
+        raise AssertionError(why)
+    return "returned, past the divide, the store done"
 
 
 @nasm_case("--at: one key each way -- the BIOS's buffer, IRQ 1, and both")
@@ -1281,6 +1407,28 @@ def _():
     if r.returncode or "a 30 c 2E" not in r.stdout or "key at 0x30" not in r.stdout:
         raise AssertionError(f"exit {r.returncode}: {(r.stdout + r.stderr)[-400:]}")
     return "printed a 30 c 2E, and a line for each key"
+
+
+@nasm_case("--cpu 8088 and 386 from the command line, as the model has them")
+def _():
+    # The value is argv's string, not a literal the code compares by identity.
+    import subprocess
+    import tempfile
+    seen = {}
+    with tempfile.TemporaryDirectory() as td:
+        for name in ("lock", "except"):
+            com = Path(td) / f"{name}.com"
+            com.write_bytes(build(name))
+            for cpu in ("8088", "386"):
+                r = subprocess.run([sys.executable, str(Path(comrun.__file__)), str(com),
+                                    "--cpu", "".join(cpu), "--budget", "3000"],
+                                   capture_output=True, text=True)
+                seen[(name, cpu)] = r.stdout
+    if ("6 8 0 6" not in seen[("lock", "8088")] or "6 3 1 1" not in seen[("except", "8088")]
+            or "Invalid instruction" not in seen[("lock", "386")]
+            or "returning to its divide, as a 386's does" not in seen[("except", "386")]):
+        raise AssertionError(f"{seen}")
+    return "8088: 6 8 0 6 and 6 3 1 1; 386: refused, and back to the divide"
 
 
 def pit_loops(reload=0x6000, every=20_000):

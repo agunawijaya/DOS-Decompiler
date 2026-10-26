@@ -88,13 +88,29 @@ test = ["tests/evidence/regress.py", "--only", "triage", "--only", "packer",
         "--only", "open question", "--only", "not there"]
 
 # The sweep's 8088: which IDIV an 8088 refuses, read from its operand, and
-# where that ends a case (prompt 08).
+# where that ends a case (prompt 08); and since prompt 16 the LOCK prefix it
+# steps over, which decides whether a case ends in the CPU's refusal.
 [[target]]
 name = "sweep-8088"
 module = "tools/sweep.py"
 functions = ["idiv_form", "signed", "Program._on_divide", "Program._refused_by_8088",
-             "limitations"]
+             "limitations", "Program._on_invalid", "Program._after_lock",
+             "Program._restore_lock"]
 test = ["tests/sweep/regress.py"]
+
+# comrun's 8088 (prompt 16): where a LOCK prefix is among an instruction's
+# prefixes, the length of a divide, and what the run does with each -- the
+# LOCK stepped over, a divide error sent to the program's handler and past
+# the divide, the CPU's record of it cleared. The sweep shares step_over_lock
+# and put_back, which comrun's suite reaches where the sweep's cannot (a LOCK
+# at the end of a segment).
+[[target]]
+name = "comrun-8088"
+module = "tools/comrun.py"
+functions = ["lock_prefix", "step_over_lock", "put_back", "divide_length",
+             "Machine._on_invalid", "Machine._after_lock", "Machine._restore_lock",
+             "Machine._cpu_exception", "Machine._clear_exception", "Machine._software_int"]
+test = ["tests/comrun/regress.py"]
 # Sequence alignment in match.py: module isolation and ordered source.
 [[target]]
 name = "match"

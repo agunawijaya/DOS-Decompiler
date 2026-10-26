@@ -1708,3 +1708,253 @@ signature = "8e316cd0e124ffb3"
 kind = "equivalent"
 mutant = "if o[\"kind\"] is \"overlay-modules\":"
 why = "Every kind is a string constant written in triage.py, which CPython interns, so is and == agree for every observation analyse records."
+
+# Prompt 16: the sweep's LOCK step-over and the limitation that says so.
+
+[[survivor]]
+target = "sweep-8088"
+signature = "56604b8db2be0093"
+kind = "equivalent"
+mutant = "if self.cpu < \"8088\":"
+why = "The CPU is 8088 or 386 (Program refuses any other), and \"386\" sorts before \"8088\", so < \"8088\" holds exactly when != does."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "33e193bd498e197e"
+kind = "equivalent"
+mutant = "if cpu >= \"8088\" and lock_steps:"
+why = "The CPU is 8088 or 386, and of the two only \"8088\" sorts at or after \"8088\"."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "9dd18543e5cb9fbc"
+kind = "equivalent"
+mutant = "if cpu <= \"8088\" and lock_steps:"
+why = "Under 386 _on_invalid returns at once, so no LOCK is stepped over, lock_steps is 0 and the condition is false whatever the comparison says."
+
+[[survivor]]
+target = "sweep-8088"
+signature = "59db5c9c06159498"
+kind = "equivalent"
+mutant = "said = LOCK_LIMITATION.format(steps=lock_steps, plural=\"\" if lock_steps <= 1 else \"s\")"
+why = "This line runs only when lock_steps is at least 1, where <= 1 and == 1 agree."
+
+# Prompt 16: comrun's 8088 -- the LOCK step-over the sweep shares, the divide
+# error's length and delivery, and the CPU state cleared after it.
+
+[[survivor]]
+target = "comrun-8088"
+signature = "54209e765ff7549b"
+kind = "equivalent"
+mutant = "raw = bytes(uc.mem_read(here, 16))"
+why = "lock_prefix stops at the first byte that is not a prefix, which an instruction Unicorn decodes, 15 bytes at most, has within the first 15; a sixteenth is never looked at."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "0b0ddc82baac1e2a"
+kind = "equivalent"
+mutant = "raw = bytes(uc.mem_read(here, 14))"
+why = "A LOCK with the opcode after it, in 15 bytes at most, is within the first 14."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "d0cb7e5e6b4b4a45"
+kind = "equivalent"
+mutant = "if at <= 0:"
+why = "at is the LOCK's index in a byte string, never below 0."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "4bb0ce6853234885"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here | at, here + at + 1)"
+why = "here | at is at most here + at, so the range still covers the byte replaced; dropping more translations than that one costs time, not results: each is rebuilt from memory."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "28149019df0f82a8"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here // at, here + at + 1)"
+why = "The range starts lower and still covers the byte replaced; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "3ff7109ed4934ca6"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here - at, here + at + 1)"
+why = "The range starts lower and still covers the byte replaced; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "c79a66ec18fee335"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here >> at, here + at + 1)"
+why = "The range starts lower and still covers the byte replaced; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "3668deb007f5b4d4"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here % at, here + at + 1)"
+why = "The range starts lower and still covers the byte replaced; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "f17bc6ee3f8c9df6"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here & at, here + at + 1)"
+why = "The range starts lower and still covers the byte replaced; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "50376133ac68e559"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here ^ at, here + at + 1)"
+why = "here ^ at is at most here + at, so the range still covers the byte replaced; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "dbf160f1f81e6946"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here + at, here + at + 2)"
+why = "The range ends later and still covers the byte replaced; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "9c0048a8ce124381"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here + at, here + at << 1)"
+why = "The range ends later and still covers the byte replaced; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "5e54a8c47ac994f0"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(here + at, here << at + 1)"
+why = "The range ends later and still covers the byte replaced; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "e035a6776d4fc505"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(at, at + 2)"
+why = "The range ends later and still covers the byte put back; dropping more translations costs time, not results."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "caa8bf3a490b7922"
+kind = "equivalent"
+mutant = "uc.ctl_remove_cache(at, at << 1)"
+why = "The address is far above 1, so at << 1 ends the range later; it still covers the byte put back."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "f1f7babb87443365"
+kind = "equivalent"
+mutant = "while at != len(raw) and raw[at] in PREFIXES:"
+why = "at grows by one from 0, so it meets len(raw) before it could pass it, and != stops it there as < does."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "11df8233c55ef877"
+kind = "equivalent"
+mutant = "while at is not len(raw) and raw[at] in PREFIXES:"
+why = "at and len(raw) are at most 15, small ints of which CPython keeps one object, so is not is !=, which agrees with < as the line before says."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "2174cf4830049d59"
+kind = "equivalent"
+mutant = "if opcode not in (0xF6, 0xF7) or (modrm >> 3) & 6 not in (6, 7):"
+why = "The reg field & 6 is 6 for 6 and 7 and something else for every other value, so the test agrees with & 7 on all eight."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "8577f4314306a10d"
+kind = "equivalent"
+mutant = "mod, rm = modrm >> 6, modrm % 7"
+why = "rm % 7 differs from rm & 7 only for 7, which becomes 0, and rm is only compared with 6, which neither is."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "06cc0d351cb5aab1"
+kind = "equivalent"
+mutant = "and uc.mem_read((cs << 4) + ip - 1, 1)[ -1] == self.ONE_BYTE[num])"
+why = "A one-byte read's last byte is its first."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "e70f14b47594160f"
+kind = "equivalent"
+mutant = "and uc.mem_read((cs << 4) + ip - 1, 2)[0] == self.ONE_BYTE[num])"
+why = "The first byte of a two-byte read is the byte a one-byte read gives."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "10ba741380af368a"
+kind = "equivalent"
+mutant = "and uc.mem_read((cs << 4) + ip - 1, 1)[0] <= self.ONE_BYTE[num])"
+why = "Unicorn raises INT 3 and INT 4 only from int3 and into (CC, CE) or from int n, which the line before has taken; so here the byte is CC or CE whenever num is 3 or 4, and any comparison with it holds."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "38ca69858fa41b04"
+kind = "equivalent"
+mutant = "and uc.mem_read((cs << 4) + ip - 1, 1)[0] >= self.ONE_BYTE[num])"
+why = "Unicorn raises INT 3 and INT 4 only from int3 and into (CC, CE) or from int n, which the line before has taken; so here the byte is CC or CE whenever num is 3 or 4, and any comparison with it holds."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "66c2ee9864f9b751"
+kind = "equivalent"
+mutant = "and uc.mem_read((cs << 4) + ip - 1, 1)[0] is self.ONE_BYTE[num])"
+why = "Both are ints below 256, of which CPython keeps one object each, so is is ==."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "b8cc36afe8a81c13"
+kind = "code-problem"
+mutant = "except CosmicRayTestingException:"
+why = "The two bytes before CS:IP of an instruction that has just run are always readable, so this except never runs; it came over from prompt 15's _to_program."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "46b89c6b851a2aae"
+kind = "equivalent"
+mutant = "return True"
+why = "Two lines with this signature: _software_int's except, which never runs (above), and _cpu_exception's return for an `int 0` or `int 1` instruction, where True only skips the rest of _on_int, which has no branch for INT 0 or INT 1."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "e78f0f5001c94ddf"
+kind = "equivalent"
+mutant = "return False"
+why = "_cpu_exception's three returns after it has dealt with INT 0 or INT 1: False sends _on_int on to its chain, which has no branch for either, and the run is already stopped or sent to the handler."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "d8ad6adb482d255c"
+kind = "equivalent"
+mutant = "if num <= 0:"
+why = "_cpu_exception is called for INT 0 and INT 1 alone, and <= 0 holds for 0 only."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "8d0b4c94b0439adf"
+kind = "equivalent"
+mutant = "size = divide_length(bytes(uc.mem_read(here, 16)))"
+why = "divide_length reads no further than the divide's prefixes, opcode and ModRM, all within the 15 bytes an instruction Unicorn runs has at most."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "6c5d94364ef26f02"
+kind = "equivalent"
+mutant = "back = (ip + size) & 0xFFFF if self.cpu >= \"8088\" and size else ip"
+why = "The CPU is 8088 or 386, and of the two only \"8088\" sorts at or after \"8088\"."
+
+[[survivor]]
+target = "comrun-8088"
+signature = "fa94071c5ef2c02f"
+kind = "equivalent"
+mutant = "if self.cpu < \"8088\":"
+why = "The CPU is 8088 or 386 (the command line allows no other), and \"386\" sorts before \"8088\", so < \"8088\" holds exactly when != does."
