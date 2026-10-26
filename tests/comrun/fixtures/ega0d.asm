@@ -40,8 +40,8 @@
         org 0x100
 
 %macro gc 2                         ; graphics controller register %1 = %2
-        mov dx, 0x3ce
         mov ax, ((%2) << 8) | (%1)
+        mov dx, 0x3ce
         out dx, ax
 %endmacro
 

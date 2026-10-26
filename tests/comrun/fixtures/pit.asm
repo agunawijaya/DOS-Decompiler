@@ -1,38 +1,37 @@
-; pit.asm -- the processor measured against the 8253, the way The Ancient Art
-; of War (1987) does it before its title: counter 2 loaded with 7950h in mode
-; 2, its gate opened, then latched and read again and again, counting loops,
-; until the count is below 100. It prints the loops in hex.
+; pit.asm -- a program that measures the processor against the 8253, as The
+; Ancient Art of War (1987) does before its title: counter 2 loaded with
+; 6000h in mode 2, then its gate opened, then latched and read again and
+; again, the loops counted in BX until the count is 200 or below. It prints
+; the loops in hex.
 ;
 ; Read without a latch the counter gives whatever a port gives; a run that
-; answers every port read with an alternating value never gets below 100.
+; answers every port read with an alternating value never gets that low.
 
         org 0x100
 
-start:  cli
-        in al, 0x61
-        or al, 1                    ; open counter 2's gate
-        out 0x61, al
-        mov al, 0xb4                ; counter 2, low then high byte, mode 2
+start:  mov al, 10110100b           ; counter 2, low then high byte, mode 2
         out 0x43, al
-        mov ax, 0x7950
+        mov ax, 0x6000
         out 0x42, al
-        xchg al, ah
+        mov al, ah
         out 0x42, al
-        xor cx, cx
-.again: inc cx
+        in al, 0x61
+        or al, 1                    ; and only now open its gate
+        out 0x61, al
+        xor bx, bx
+.again: inc bx
         mov al, 0x80                ; latch counter 2
         out 0x43, al
         in al, 0x42
-        mov ah, al
+        mov cl, al
         in al, 0x42
-        xchg ah, al
-        cmp ax, 100
+        mov ch, al
+        cmp cx, 200
         ja .again
-        sti
-        mov [loops], cx
-        mov al, ch
+        mov [loops], bx
+        mov al, bh
         call hex
-        mov al, cl
+        mov al, bl
         call hex
         mov ax, 0x4c00
         int 0x21

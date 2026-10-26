@@ -833,7 +833,8 @@ every port read gets cannot be:
   at 1,193,182 Hz, which in this harness's time is 65,536 counts to a timer
   tick of `--timer-every` instructions -- and a read with no latch is answered
   as before, so a game that reads port 0x40 for a random number runs as it
-  ran. `pit.asm` is the calibration loop: 0x41B loops.
+  ran. `pit.asm` is a calibration loop of its own (6000h, the gate opened
+  after loading, down to 200): 828 loops, as the arithmetic says.
 - **The light pen.** Jungle Hunt finds the CRT beam by clearing the light pen
   latch (3DBh), setting it (3DCh), reading the address it took from CRTC
   registers 10h and 11h, dividing by forty, and waiting for row 99. The noise
