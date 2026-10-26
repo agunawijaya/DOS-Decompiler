@@ -52,6 +52,11 @@ How a case runs on the original
     divide) or -128 (a byte divide), which a 386 returns. Under --cpu 8088 a
     hook on every IDIV works the quotient out first and ends the case as
     `divide` on those two. The games this toolkit was built on ran on 8088s.
+    The other: a LOCK prefix, which an 8088 ran on any instruction and
+    Unicorn refuses on `nop` and on arithmetic into a register. Under --cpu
+    8088 such an instruction runs without it, as comrun.py runs it, and the
+    result counts how often (lock_prefixes_stepped_over, written only when
+    it is not 0).
 
 Memory is put back after every case: every byte a case wrote, and every byte
 the sweep wrote for it, returns to what the image holds.
@@ -186,8 +191,8 @@ Follow calls, raise interrupts, or see self-modifying code (an instruction is
 decoded once, the first time it runs). It compares the outputs it was told
 to; reads, the flags other than carry, and registers other than AX and DX are
 not compared. Of the ways an 8088 differs from the 386 Unicorn emulates, only
-IDIV's refusal of -32768 and -128 is modelled; knowledge/18-oracle-sweeps.md
-says how a candidate should model it too.
+IDIV's refusal of -32768 and -128 and the LOCK prefix are modelled;
+knowledge/18-oracle-sweeps.md says how a candidate should model the first.
 """
 
 import importlib.util
@@ -210,11 +215,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import emuverify  # noqa: E402
 import evidence  # noqa: E402
+from comrun import lock_prefix  # noqa: E402
 
 from capstone import Cs, CS_ARCH_X86, CS_MODE_16  # noqa: E402
 from capstone.x86 import X86_OP_IMM, X86_OP_MEM, X86_OP_REG  # noqa: E402
 from unicorn import (Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_CODE,  # noqa: E402
-                     UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UcError)
+                     UC_HOOK_INTR, UC_HOOK_MEM_WRITE, UC_HOOK_INSN_INVALID, UcError)
 from unicorn.x86_const import (UC_X86_REG_AX, UC_X86_REG_BX, UC_X86_REG_CX,  # noqa: E402
                                UC_X86_REG_DX, UC_X86_REG_SI, UC_X86_REG_DI,
                                UC_X86_REG_BP, UC_X86_REG_SP, UC_X86_REG_IP,
@@ -670,6 +676,11 @@ class Program:
         self.uc.hook_add(UC_HOOK_CODE, self._on_code)
         self.uc.hook_add(UC_HOOK_INTR, self._on_intr)
         self.uc.hook_add(UC_HOOK_MEM_WRITE, self._on_write)
+        # Called only for an instruction Unicorn refuses: see _on_invalid.
+        self.uc.hook_add(UC_HOOK_INSN_INVALID, self._on_invalid)
+        self.lock_steps = 0
+        self._lock_resume = None
+        self._lock_patch = None
         # The CPU as it is before any case, put back at the start of each.
         # One emulator serves the whole sweep, and a fault ended with
         # emu_stop leaves it believing it is still delivering that exception:
@@ -734,6 +745,8 @@ class Program:
         return insn
 
     def _on_code(self, uc, linear, size, _):
+        if (self._lock_resume is not None or self._lock_patch is not None)                 and self._after_lock(linear):
+            return
         st = self.state
         st.insns += 1
         if st.insns > self.budget:
@@ -757,6 +770,52 @@ class Program:
             self._skip_call(uc, cs, linear - (cs << 4), insn)
         elif kind == "div":
             self._on_divide(uc, cs, linear, insn)
+
+    # -- LOCK on an 8088 -- as comrun.py models it, which says what was
+    # measured: Unicorn refuses a LOCK prefix on `nop` and on arithmetic into
+    # a register, which an 8088 ran. Under --cpu 8088 the instruction runs
+    # without it.
+
+    def _on_invalid(self, uc, _):
+        if self.cpu != "8088":
+            return False
+        cs, ip = uc.reg_read(UC_X86_REG_CS), uc.reg_read(UC_X86_REG_IP)
+        here = (cs << 4) + ip
+        try:
+            raw = bytes(uc.mem_read(here, 15))
+        except UcError:
+            return False
+        at = lock_prefix(raw)
+        if at is None:
+            return False
+        self.lock_steps += 1
+        if at == 0:
+            uc.reg_write(UC_X86_REG_IP, (ip + 1) & 0xFFFF)
+            self._lock_resume = here + 1
+        else:
+            # A LOCK after other prefixes: a copy of the prefix before it in
+            # its place until the instruction has run.
+            self._lock_patch = (here + at, 0xF0)
+            uc.mem_write(here + at, raw[at - 1:at])
+            uc.ctl_remove_cache(here + at, here + at + 1)
+            self._lock_resume = here
+        return True
+
+    def _after_lock(self, linear):
+        """True for the instruction a LOCK was stepped over in, arriving
+        again; it was counted the first time."""
+        if linear == self._lock_resume:
+            self._lock_resume = None
+            return True
+        self._restore_lock()
+        return False
+
+    def _restore_lock(self):
+        if self._lock_patch is not None:
+            at, byte = self._lock_patch
+            self._lock_patch = None
+            self.uc.mem_write(at, bytes((byte,)))
+            self.uc.ctl_remove_cache(at, at + 1)
 
     def _on_divide(self, uc, cs, linear, insn):
         """On an 8088, end the case at an IDIV whose quotient it refuses."""
@@ -895,11 +954,14 @@ class Program:
         uc.reg_write(UC_X86_REG_SP, sp)
         uc.reg_write(UC_X86_REG_FLAGS, 0x0202)
         st = self.state = CaseState(executed, trace)
+        self._lock_resume = None
         try:
             uc.emu_start((self.cs << 4) + self.ip, IMAGE_BASE + SENTINEL_IP, count=0)
         except UcError as e:
             cs, ip = uc.reg_read(UC_X86_REG_CS), uc.reg_read(UC_X86_REG_IP)
             st.end, st.where = f"cpu: {e}", (cs, ip)
+        finally:
+            self._restore_lock()
         if st.end is None:
             cs, ip = uc.reg_read(UC_X86_REG_CS), uc.reg_read(UC_X86_REG_IP)
             st.end, st.where = "cpu: stopped without returning", (cs, ip)
@@ -1510,8 +1572,23 @@ DIVIDE_LIMITATION = {
 }
 
 
-def limitations(cpu):
-    return LIMITATIONS[:2] + [DIVIDE_LIMITATION[cpu]] + LIMITATIONS[2:]
+# The 8088's sentence when the sweep met a LOCK prefix Unicorn refuses, and
+# stepped over it; with none met, the LOCK changed nothing, and the sentence
+# above is the one written, as before.
+LOCK_LIMITATION = (
+    "The CPU is an 8088 in two respects only: IDIV raises the divide fault on a quotient "
+    "of exactly -32768 (a word divide) or -128 (a byte divide), as an 8088 does and a 386 "
+    "does not; and a LOCK prefix Unicorn refuses -- on `nop` and on arithmetic into a "
+    "register -- is stepped over, as an 8088 ran it on any instruction ({steps:,} time"
+    "{plural} in this sweep). In every other respect DIV and IDIV are Unicorn's, which "
+    "divides as a 386 does.")
+
+
+def limitations(cpu, lock_steps=0):
+    said = DIVIDE_LIMITATION[cpu]
+    if cpu == "8088" and lock_steps:
+        said = LOCK_LIMITATION.format(steps=lock_steps, plural="" if lock_steps == 1 else "s")
+    return LIMITATIONS[:2] + [said] + LIMITATIONS[2:]
 
 
 def run_sweep(args, progress=None):
@@ -1658,6 +1735,10 @@ def run_sweep(args, progress=None):
         "coverage": cov,
         "trace": trace,
     }
+    lock_steps = original.lock_steps + (candidate.program.lock_steps
+                                        if isinstance(candidate, BinaryCandidate) else 0)
+    if lock_steps:
+        result["lock_prefixes_stepped_over"] = lock_steps
     items = []
     if first is not None:
         items.append({"kind": "sweep-divergence",
@@ -1693,7 +1774,7 @@ def run_sweep(args, progress=None):
         unknowns.append(f"How much of the routine did the sweep exercise? {cov['reason']}.")
     env = evidence.envelope("emuverify sweep", evidence.target_identity(original.exe),
                             status=status, result=result, evidence=items,
-                            limitations=limitations(args.cpu), unknowns=unknowns)
+                            limitations=limitations(args.cpu, lock_steps), unknowns=unknowns)
     return env, seconds
 
 
@@ -1723,6 +1804,10 @@ def summary(env, seconds=None):
                                 if r["cpu"] == "8088" else
                                 "386: IDIV returns a quotient of -32768 or -128, which an "
                                 "8088 refuses"))
+    if r.get("lock_prefixes_stepped_over"):
+        steps = r["lock_prefixes_stepped_over"]
+        out.append(f"           a LOCK prefix Unicorn refuses stepped over {steps:,} "
+                   f"time{'' if steps == 1 else 's'}, as an 8088 ran it")
     faults = "; ".join(f"{n:,} {k} faults on both sides"
                        for k, n in r["faults_on_both_sides"].items())
     out.append(f"agree      {r['agree']:,}" + (f" ({faults})" if faults else ""))

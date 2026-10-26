@@ -953,6 +953,47 @@ def _():
     return ", ".join(out) + ", from the pipeline's functions.json"
 
 
+# ---------------------------------------------------------------- LOCK
+
+def lock_domain():
+    # x from -5 to 5: 11 cases, each through the three LOCK prefixes of timed.
+    return domain("lock", {"args": [{"name": "x", "range": [-5, 5]}], "compare": ["ax"]})
+
+
+def lock_candidate():
+    path = WORK / "timed.py"
+    path.write_text("def timed(args, ctx):\n    return {'ax': (args[0] + 1) & 0xFFFF}\n",
+                    encoding="utf-8")
+    return ["--candidate", f"{path}:timed"]
+
+
+@case("8088: a LOCK Unicorn refuses is stepped over, three a case, and the sweep says so")
+def _():
+    code, text, env = sweep(at("lock", "timed"), lock_domain(), *lock_candidate(),
+                            functions=False, which="lock")
+    r = expect_verified(code, text, env, 11, percent=None)
+    if r.get("lock_prefixes_stepped_over") != 33:
+        raise AssertionError(f"stepped over {r.get('lock_prefixes_stepped_over')}, not 3 x 11")
+    if not any(l.startswith("The CPU is an 8088 in two respects only") and "(33 times" in l
+               for l in env["limitations"]):
+        raise AssertionError(f"the limitations do not say so: {env['limitations']}")
+    if "a LOCK prefix Unicorn refuses stepped over 33 times" not in text:
+        raise AssertionError(f"the prose does not say so:\n{text[-800:]}")
+    return "11 cases verified; 33 stepped over, in the result, the prose and the limitations"
+
+
+@case("386: the same LOCK prefixes end every case where Unicorn refuses them")
+def _():
+    code, text, env = sweep(at("lock", "timed"), lock_domain(), *lock_candidate(),
+                            functions=False, which="lock", extra=["--cpu", "386"])
+    first = expect_mismatch(code, text, env, 1, {"x": -5}, ["fault"])
+    if first["original"].get("fault") != "cpu" or "lock_prefixes_stepped_over" in env["result"]:
+        raise AssertionError(f"original {first['original']}, result {env['result'].keys()}")
+    if any("two respects" in l for l in env["limitations"]):
+        raise AssertionError("the 386's limitations speak of the 8088's LOCK")
+    return "mismatch at case 1: the original's cpu fault, the candidate's 0xfffc"
+
+
 def main():
     global WORK
     ap = argparse.ArgumentParser(description=__doc__,
@@ -973,6 +1014,7 @@ def main():
         assemble("sweep", "sweep.asm")
         assemble("rebuild", "rebuild.asm")
         assemble("rebuild-wrong", "rebuild.asm", "WRONG")
+        assemble("lock", "lock.asm")
         for name, fn, needs in CASES:
             if args.only and args.only not in name:
                 continue
