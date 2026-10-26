@@ -891,6 +891,412 @@ def _():
     return "AL 1, then 2 -- an overlay loaded over another runs"
 
 
+# ---------------------------------------------------------------- EGA and Tandy
+#
+# ega0d.asm and tandy9.asm draw pictures whose every pixel follows from the
+# fixture's own arithmetic, written out again here, so that a wrong reading in
+# comrun's models cannot agree with itself.
+
+def ega_colour(value):
+    """An EGA palette register at 200 lines: blue, green, red in bits 0-2,
+    the intensity in bit 4."""
+    return CGA_COLOURS[(value & 7) | (8 if value & 0x10 else 0)]
+
+
+def expected_ega0d():
+    palette = [0x17, 0x16, 0x15, 0x14, 0x13, 0x12, 0x11, 0x10,
+               0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x04, 0x39]
+
+    def band_a(line, column, bit):
+        planes = (0x55, 0x33, 0x0F, (column * 8 + line) & 0xFF)
+        return sum(((plane >> bit) & 1) << p for p, plane in enumerate(planes))
+
+    def index(x, y):
+        column, pixel = x // 8, x % 8
+        bit = 7 - pixel
+        if y < 20:
+            return band_a(y, column, bit)
+        if y < 40 or y >= 180:
+            return column & 15
+        if y < 60:
+            return 1 if pixel < 4 else 12
+        if y < 80:
+            return 10 if pixel < 2 else 5
+        if y < 90:
+            return 0 if pixel < 4 else 15
+        if y < 100:
+            return 15 if pixel < 4 else 0
+        if y < 120:
+            return band_a(y - 100, column, bit)
+        if y < 140:
+            return column & 15 if pixel % 2 else 3
+        if y < 160:
+            return 15 if band_a(y - 140, column, bit) & 7 == 5 else 0
+        return band_a(y - 160, column, bit) >> 3
+
+    return lambda x, y: ega_colour(palette[index(x, y)])
+
+
+def run_adapter(name, adapter, budget=3_000_000):
+    m = comrun.Machine(build(name))
+    if adapter:
+        m.set_adapter(adapter)
+    why = m.run(budget=budget)
+    return m, why
+
+
+def compare_adapter_png(m, expected):
+    """The picture comrun draws of a 320x200 screen, against `expected`,
+    sampled at the middle of each 3x3 block: (size, wrong pixels, lines)."""
+    import tempfile
+    from PIL import Image
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "screen.png"
+        lines = comrun.draw_screen(m, str(path))
+        if not path.exists():
+            return None, [], lines
+        img = Image.open(path).convert("RGB")
+        px = img.load()
+        wrong = [(x, y) for y in range(200) for x in range(320)
+                 if px[x * 3 + 1, y * 3 + 1] != expected(x, y)]
+        return img.size, wrong, lines
+
+
+@nasm_case("--adapter ega: mode 0Dh through every register path, every pixel")
+def _():
+    m, why = run_adapter("ega0d", "ega")
+    size, wrong, lines = compare_adapter_png(m, expected_ega0d())
+    if "int 0x21 exit" not in why or size != (960, 600) or wrong:
+        raise AssertionError(f"{why}; {size}, {len(wrong)} wrong pixels, first {wrong[:3]}; "
+                             f"{lines}")
+    if not lines or "start 0x2000" not in lines[0]:
+        raise AssertionError(f"the screen lines do not say page 1: {lines}")
+    return "64,000 of 64,000: ten bands, page 1 by the CRTC, palette by BIOS and 3C0"
+
+
+@nasm_case("without --adapter ega, mode 0Dh is the stripes of mode 4, as before")
+def _():
+    # The bug, reproduced: the old renderer drew mode 4 from B800.
+    m, why = run_adapter("ega0d", None)
+    size, wrong, lines = compare_adapter_png(m, expected_ega0d())
+    if len(wrong) < 50_000 or "does not model" not in lines[0] or "--adapter ega" not in lines[1]:
+        raise AssertionError(f"{len(wrong)} wrong pixels; {lines}")
+    return f"{len(wrong):,} of 64,000 pixels wrong, and the line names --adapter ega"
+
+
+def expected_tandy9():
+    palette = [(7 * i) % 16 for i in range(16)]
+    palette[3], palette[5] = 15, 0
+
+    def pixel(x, y):
+        b = x // 2
+        return CGA_COLOURS[palette[(b + 3 * y + (5 if x % 2 else 0)) % 16]]
+    return pixel
+
+
+@nasm_case("--adapter tandy: mode 9 on page 2, shown while page 6 is drawn on")
+def _():
+    m, why = run_adapter("tandy9", "tandy")
+    size, wrong, lines = compare_adapter_png(m, expected_tandy9())
+    if "int 0x21 exit" not in why or size != (960, 600) or wrong:
+        raise AssertionError(f"{why}; {size}, {len(wrong)} wrong pixels, first {wrong[:3]}; "
+                             f"{lines}")
+    if "CRT page 2, CPU page 6" not in lines[0]:
+        raise AssertionError(f"the screen lines do not name the pages: {lines}")
+    return "64,000 of 64,000: four banks, two nibbles a byte, the shown page, three palettes"
+
+
+@nasm_case("without --adapter tandy, mode 9 is drawn as mode 4 from B800, wrong")
+def _():
+    m, why = run_adapter("tandy9", None)
+    size, wrong, lines = compare_adapter_png(m, expected_tandy9())
+    if len(wrong) < 50_000 or "--adapter tandy" not in lines[1]:
+        raise AssertionError(f"{len(wrong)} wrong pixels; {lines}")
+    return f"{len(wrong):,} of 64,000 pixels wrong, and the line names --adapter tandy"
+
+
+def mode_0d(*body):
+    """A .COM that sets mode 0Dh, runs `body` (bytes), then exits."""
+    return (bytes((0xB8, 0x0D, 0x00, 0xCD, 0x10)) + b"".join(body)
+            + bytes((0xB8, 0x00, 0x4C, 0xCD, 0x21)))
+
+
+GC_ODD_EVEN = bytes((0xBA, 0xCE, 0x03, 0xB8, 0x05, 0x10, 0xEF))   # GC 5 = 10h
+WRITE_A000 = bytes((0xB8, 0x00, 0xA0, 0x8E, 0xC0,                  # mov es, A000
+                    0x26, 0xC6, 0x06, 0x00, 0x00, 0x01))           # mov byte [es:0], 1
+
+
+@case("--adapter ega: odd/even addressing stops the run at the write, and says so")
+def _():
+    m = comrun.Machine(mode_0d(GC_ODD_EVEN, WRITE_A000))
+    m.set_adapter("ega")
+    why = m.run(budget=1_000)
+    if "odd/even" not in why or "not modelled" not in why or m.ega.written:
+        raise AssertionError(f"{why}; {m.ega.written} writes reached the planes")
+    return why.split(": ", 1)[1][:60] + "..."
+
+
+@case("--adapter ega: panning is refused at the picture, and no PNG is left")
+def _():
+    import tempfile
+    pan = bytes((0xBA, 0xDA, 0x03, 0xEC,                # in al, 3DAh: the flip-flop to index
+                 0xBA, 0xC0, 0x03, 0xB0, 0x13, 0xEE,    # attribute 13h ...
+                 0xB0, 0x04, 0xEE))                     # ... = 4: pan by four pixels
+    m = comrun.Machine(mode_0d(pan))
+    m.set_adapter("ega")
+    m.run(budget=1_000)
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "screen.png"
+        path.write_bytes(b"an earlier run's")
+        lines = comrun.draw_screen(m, str(path))
+        left = path.exists()
+    if left or "not drawn: horizontal panning (04h)" not in " ".join(lines):
+        raise AssertionError(f"PNG left: {left}; {lines}")
+    return "not drawn: horizontal panning (04h) is not modelled; the old PNG removed"
+
+
+@case("--adapter ega: a write to a register the EGA lacks is ignored, and counted")
+def _():
+    # Rampage's `out dx, ax` with AX 00CDh at 3CEh: index 0Dh, which has no register.
+    m = comrun.Machine(mode_0d(bytes((0xBA, 0xCE, 0x03, 0xB8, 0xCD, 0x00, 0xEF))))
+    m.set_adapter("ega")
+    m.run(budget=1_000)
+    if m.ega.ignored != {(0x3CF, 0x0D): 1} or m.ega.gc != comrun.EGA.GC_0D:
+        raise AssertionError(f"ignored {m.ega.ignored}, graphics controller {m.ega.gc}")
+    return "3CFh index 0Dh: 1 write, nothing changed"
+
+
+# What a program asks to learn the adapter: INT 11h, INT 10h AH=12h BL=10h,
+# INT 10h AX=1A00h, and the bytes at F000:C000 and F000:FFFE, each stored.
+ASK = bytes((
+    0xCD, 0x11, 0xA3, 0x00, 0x02,                   # int 11h / mov [0200], ax
+    0xB4, 0x12, 0xB3, 0x10, 0xCD, 0x10,             # ah 12h, bl 10h / int 10h
+    0x89, 0x1E, 0x02, 0x02,                         # mov [0202], bx
+    0xB8, 0x00, 0x1A, 0xCD, 0x10, 0xA3, 0x04, 0x02, # ax 1A00h / int 10h / mov [0204], ax
+    0x1E, 0xB8, 0x00, 0xF0, 0x8E, 0xD8,             # push ds / mov ds, F000
+    0xA0, 0x00, 0xC0, 0x88, 0xC4,                   # mov al, [C000] / mov ah, al
+    0xA0, 0xFE, 0xFF, 0x1F,                         # mov al, [FFFE] / pop ds
+    0xA3, 0x06, 0x02,                               # mov [0206], ax
+    0xEB, 0xFE))                                    # jmp $
+
+
+@case("each adapter answers the questions as its BIOS and ROM would")
+def _():
+    seen = {}
+    for adapter in comrun.ADAPTERS:
+        m = comrun.Machine(ASK)
+        m.uc.reg_write(comrun.UC_X86_REG_AX, 0x5555)
+        m.set_adapter(adapter)
+        m.run(budget=200)
+        equipment, ega, vga, rom = struct.unpack("<HHHH", bytes(m.uc.mem_read(comrun.BASE + 0x200, 8)))
+        seen[adapter] = (equipment, ega & 0xFF, vga & 0xFF, rom >> 8, rom & 0xFF)
+    want = {"cga": (0x5555, 0x10, 0x00, 0x00, 0x00),    # as comrun always answered
+            "ega": (0x000D, 0x03, 0x00, 0x00, 0xFF),
+            "tandy": (0x002D, 0x10, 0x00, 0x21, 0xFF)}
+    if seen != want:
+        raise AssertionError(f"{seen}")
+    return "cga as before; ega BL 3 and equipment 000Dh; tandy 21h at F000:C000"
+
+
+@case("the summary names the questions the program asked")
+def _():
+    m = comrun.Machine(ASK)
+    m.set_adapter("ega")
+    m.run(budget=200)
+    line = m.adapter_summary()
+    want = ("INT 10h AH=12h 1 time, INT 10h AH=1Ah 1 time, INT 11h 1 time, "
+            "read F000:C000 1 time, read F000:FFFE 1 time")
+    if not line.endswith(want):
+        raise AssertionError(line)
+    cga = comrun.Machine(ASK)
+    cga.run(budget=200)
+    if "--adapter ega" not in (cga.adapter_summary() or ""):
+        raise AssertionError(f"cga says {cga.adapter_summary()!r}")
+    return "five questions; under cga a pointer to --adapter ega"
+
+
+@case("a vector at F000:FF53, the BIOS's `iret`, is no handler, for `int` or the tick")
+def _():
+    # Vector 1Ch to F000:FF53, as Jungle Hunt switches it off; `int 1Ch`;
+    # mov [0200], 1; then wait for the tick with IRQ 0 running.
+    prog = bytes((0x31, 0xC0, 0x8E, 0xC0,                         # xor ax, ax / mov es, ax
+                  0x26, 0xC7, 0x06, 0x70, 0x00, 0x53, 0xFF,       # mov word [es:70h], FF53h
+                  0x26, 0xC7, 0x06, 0x72, 0x00, 0x00, 0xF0,       # mov word [es:72h], F000h
+                  0xCD, 0x1C,                                     # int 1Ch
+                  0xC6, 0x06, 0x00, 0x02, 0x01,                   # mov byte [0200], 1
+                  0xEB, 0xFE))                                    # jmp $
+    m = comrun.Machine(prog)
+    m.timer, m.timer_every = "hw", 5_000
+    m.run(budget=30_000)
+    if (m.uc.mem_read(comrun.BASE + 0x200, 1)[0] != 1 or m.dispatched
+            or m.timer_log["int1c"] or not m.timer_log["to_bios"] or 0x1C in m.replaced_vectors()):
+        raise AssertionError(f"{m.stopped}; dispatched {m.dispatched}, {m.timer_log}")
+    return f"the int came back; {m.timer_log['to_bios']} ticks raised no INT 1Ch"
+
+
+@nasm_case("--cpu 8088: LOCK stepped over on nop, mov, inc, and after cs:")
+def _():
+    m = comrun.Machine(build("lock"))
+    why = m.run(budget=10_000)
+    printed = "".join(m.output)
+    if printed != "6 8 0" or m.lock_steps != 3 or sorted(m.lock_sites) != [0x03, 0x08, 0x0F]:
+        raise AssertionError(f"printed {printed!r}, {why}; {m.lock_steps} at {m.lock_sites}")
+    if m.steps != 45:
+        raise AssertionError(f"{m.steps} instructions: a LOCK stepped over was counted twice")
+    return "printed 6 8 0; 3 stepped over, at 0x3, 0x8 and 0xF; 45 instructions"
+
+
+@nasm_case("--cpu 386: Unicorn's LOCK -- refused on nop and inc reg, run on mov")
+def _():
+    seen = {}
+    for name, offset in (("nop", 0x03), ("mov", 0x05), ("inc bx", 0x08), ("cs: nop", 0x0F)):
+        m = comrun.Machine(build("lock"))
+        m.cpu = "386"
+        why = m.run(start=offset, budget=1)
+        seen[name] = "refused" if "Invalid instruction" in why else "ran"
+    if seen != {"nop": "refused", "mov": "ran", "inc bx": "refused", "cs: nop": "refused"}:
+        raise AssertionError(f"{seen}")
+    return "nop, inc bx, cs: nop refused; mov run, the prefix ignored"
+
+
+EXCEPT_RETURNS = {"8088": [0x133, 0x13A, 0x143, 0x14C, 0x150], "386": [0x131] * 5}
+
+
+@nasm_case("--cpu 8088: five divide errors to the program's INT 0, each after its divide")
+def _():
+    m = comrun.Machine(build("except"))
+    why = m.run(budget=10_000)
+    returns = list(struct.unpack("<5H", bytes(m.uc.mem_read(comrun.BASE + 0x100 + 0xD1, 10))))
+    printed = "".join(m.output)
+    if printed != "5 3 1 1 " or returns != EXCEPT_RETURNS["8088"]:
+        raise AssertionError(f"printed {printed!r}, returns {[hex(r) for r in returns]}, {why}")
+    if any(n == 8 for n, _ in m.ints) or m.exceptions[0][0] != 5 or m.exceptions[1][0] != 3:
+        raise AssertionError(f"a double fault, or counts {m.exceptions}")
+    return "printed 5 3 1 1; returned to 0x133, 0x13A, 0x143, 0x14C, 0x150; no INT 8"
+
+
+@nasm_case("--cpu 386: a divide error returns to the divide, which divides again")
+def _():
+    m = comrun.Machine(build("except"))
+    m.cpu = "386"
+    m.run(budget=2_000)
+    returns = list(struct.unpack("<5H", bytes(m.uc.mem_read(comrun.BASE + 0x100 + 0xD1, 10))))
+    if returns != EXCEPT_RETURNS["386"] or m.exceptions[0][0] < 5:
+        raise AssertionError(f"returns {[hex(r) for r in returns]}, {m.exceptions}")
+    return f"0x131 every time, {m.exceptions[0][0]} deliveries in 2,000 instructions"
+
+
+@case("a divide error with no handler of the program's ends the run, and says so")
+def _():
+    # mov ax, 1234 / xor bl, bl / div bl / jmp $
+    m = comrun.Machine(bytes((0xB8, 0xD2, 0x04, 0x30, 0xDB, 0xF6, 0xF3, 0xEB, 0xFE)))
+    why = m.run(budget=1_000)
+    if not why.startswith("divide error at 1000:0105") or "Divide overflow" not in why:
+        raise AssertionError(why)
+    return why[:44] + "..."
+
+
+@nasm_case("--at: one key each way -- the BIOS's buffer, IRQ 1, and both")
+def _():
+    seen = {}
+    for mode in ("bios", "hw", "auto"):
+        m = comrun.Machine(build("atkeys"))
+        m.keyboard = mode
+        m.at_keys = {0x10: [ord("a")], 0x30: [ord("b")], 0x50: [ord("c")]}
+        why = m.run(budget=2_000_000)
+        seen[mode] = "".join(m.output)
+        paths = [path for _, _, _, path in m.at_log]
+        if (len(paths) != 3 or not paths[0].startswith("the BIOS's buffer")
+                or not paths[1].startswith("port 0x60 and IRQ 1")
+                or "INT 16h too" in paths[1] or "INT 16h too" not in paths[2]):
+            raise AssertionError(f"{mode}: {paths}; {why}")
+    if set(seen.values()) != {"a 30 c 2E "}:
+        raise AssertionError(f"{seen}")
+    return "a 30 c 2E by bios, hw and auto; each path named"
+
+
+@nasm_case("--at from the command line: before the start-up run, in any --keyboard")
+def _():
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        com = Path(td) / "atkeys.com"
+        com.write_bytes(build("atkeys"))
+        r = subprocess.run([sys.executable, str(Path(comrun.__file__)), str(com), "--keyboard",
+                            "auto", "--at", "10=a,30=b,50=c", "--budget", "2000000"],
+                           capture_output=True, text=True)
+    if r.returncode or "a 30 c 2E" not in r.stdout or "key at 0x30" not in r.stdout:
+        raise AssertionError(f"exit {r.returncode}: {(r.stdout + r.stderr)[-400:]}")
+    return "printed a 30 c 2E, and a line for each key"
+
+
+def pit_loops(reload=0x7950, every=20_000):
+    """pit.asm's loop count, from the 8253's arithmetic: 65,536 counts to a
+    tick of `every` instructions. The count is loaded by the program's tenth
+    instruction; the first latch is its fourteenth, and a loop is nine."""
+    now = lambda steps: steps * 65536 // every          # noqa: E731
+    loops = 0
+    while True:
+        loops += 1
+        count = reload - (now(14 + 9 * (loops - 1)) - now(10)) % reload
+        if count <= 100:
+            return loops
+
+
+@nasm_case("a latched count of the 8253 counts down: pit.asm's calibration ends")
+def _():
+    m = comrun.Machine(build("pit"))
+    why = m.run(budget=200_000)
+    loops = int.from_bytes(m.uc.mem_read(comrun.BASE + 0x100 + len(build("pit")) - 2, 2), "little")
+    if "int 0x21 exit" not in why or loops != pit_loops() or m.pit.latches != loops:
+        raise AssertionError(f"{why}; {loops} loops, {m.pit.latches} latches, "
+                             f"{pit_loops()} expected")
+    return f"{loops:,} loops, as 65,536 counts a tick say"
+
+
+@case("the 8253's counter 2 holds while its gate is closed, and a read with no latch alternates")
+def _():
+    pit = comrun.PIT()
+    pit.control(0xB4, 0)                     # counter 2, low then high, mode 2
+    pit.write(2, 0x00, 0)
+    pit.write(2, 0x10, 0)                    # 1000h
+    pit.control(0x80, 500)                   # latched with the gate closed
+    held = pit.read(2) | (pit.read(2) << 8)
+    pit.gate(True, 600)
+    pit.control(0x80, 700)
+    running = pit.read(2) | (pit.read(2) << 8)
+    if (held, running, pit.read(2)) != (0x1000, 0x1000 - 100, None):
+        raise AssertionError(f"held {held:#x}, running {running:#x}")
+    return "1000h held, F9Ch 100 counts after the gate opened, then no latch"
+
+
+def pen_row_column(every=20_000):
+    """lightpen.asm's answer from the 6845's arithmetic: mode 4's CRTC (57
+    columns, 128 rows of two lines and 6 more, 40 shown), a frame of 912 x
+    262 / 12 counts of the 8253, 65,536 counts to `every` instructions. The
+    latch is set by the program's sixth instruction, and a pass is 19."""
+    frame, lines = 912 * 262 // 12, 128 * 2 + 6
+    steps = 6
+    while True:
+        t = steps * 65536 // every % frame
+        line, column = t * lines // frame, (t * lines % frame) * 57 // frame
+        address = (line // 2) * 40 + column
+        if address // 40 == 99:
+            return 99, address % 40
+        steps += 19
+
+
+@nasm_case("the light pen latch takes the beam's address: lightpen.asm finds row 99")
+def _():
+    m = comrun.Machine(build("lightpen"))
+    why = m.run(budget=200_000)
+    printed = "".join(m.output)
+    row, column = pen_row_column()
+    if "int 0x21 exit" not in why or printed != f"{row:02X}{column:02X}":
+        raise AssertionError(f"printed {printed!r} ({why}); expected row {row} column {column}")
+    return f"printed {printed}: row 99, column {column}, after {m.pen_presets} presets"
+
+
 def main():
     failures = 0
     cases = list(CASES)
