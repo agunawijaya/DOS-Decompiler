@@ -1870,13 +1870,6 @@ why = "The reg field & 6 is 6 for 6 and 7 and something else for every other val
 
 [[survivor]]
 target = "comrun-8088"
-signature = "8577f4314306a10d"
-kind = "equivalent"
-mutant = "mod, rm = modrm >> 6, modrm % 7"
-why = "rm % 7 differs from rm & 7 only for 7, which becomes 0, and rm is only compared with 6, which neither is."
-
-[[survivor]]
-target = "comrun-8088"
 signature = "06cc0d351cb5aab1"
 kind = "equivalent"
 mutant = "and uc.mem_read((cs << 4) + ip - 1, 1)[ -1] == self.ONE_BYTE[num])"
