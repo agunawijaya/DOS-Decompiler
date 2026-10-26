@@ -215,7 +215,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import emuverify  # noqa: E402
 import evidence  # noqa: E402
-from comrun import lock_prefix  # noqa: E402
+from comrun import put_back, step_over_lock  # noqa: E402
 
 from capstone import Cs, CS_ARCH_X86, CS_MODE_16  # noqa: E402
 from capstone.x86 import X86_OP_IMM, X86_OP_MEM, X86_OP_REG  # noqa: E402
@@ -779,23 +779,11 @@ class Program:
     def _on_invalid(self, uc, _):
         if self.cpu != "8088":
             return False
-        cs, ip = uc.reg_read(UC_X86_REG_CS), uc.reg_read(UC_X86_REG_IP)
-        here = (cs << 4) + ip
-        raw = bytes(uc.mem_read(here, 15))      # the bytes it has just decoded
-        at = lock_prefix(raw)
-        if at is None:
+        stepped = step_over_lock(uc, uc.reg_read(UC_X86_REG_CS), uc.reg_read(UC_X86_REG_IP))
+        if stepped is None:
             return False
+        self._lock_resume, self._lock_patch = stepped
         self.lock_steps += 1
-        if at == 0:
-            uc.reg_write(UC_X86_REG_IP, (ip + 1) & 0xFFFF)
-            self._lock_resume = here + 1
-        else:
-            # A LOCK after other prefixes: a copy of the prefix before it in
-            # its place until the instruction has run.
-            self._lock_patch = (here + at, 0xF0)
-            uc.mem_write(here + at, raw[at - 1:at])
-            uc.ctl_remove_cache(here + at, here + at + 1)
-            self._lock_resume = here
         return True
 
     def _after_lock(self, linear):
@@ -809,10 +797,8 @@ class Program:
 
     def _restore_lock(self):
         if self._lock_patch is not None:
-            at, byte = self._lock_patch
+            put_back(self.uc, self._lock_patch)
             self._lock_patch = None
-            self.uc.mem_write(at, bytes((byte,)))
-            self.uc.ctl_remove_cache(at, at + 1)
 
     def _on_divide(self, uc, cs, linear, insn):
         """On an 8088, end the case at an IDIV whose quotient it refuses."""

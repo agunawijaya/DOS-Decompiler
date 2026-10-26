@@ -215,6 +215,37 @@ def lock_prefix(raw):
     return None
 
 
+def step_over_lock(uc, cs, ip):
+    """Run the instruction at CS:IP, which Unicorn refused, without its LOCK
+    prefix, as an 8088 runs it: (resume, patch), or None when it has no LOCK
+    and the refusal stands. Shared by comrun and the sweep.
+
+    With the prefix first, IP moves one byte on, and `resume` is the linear
+    address the instruction now starts at, which the caller's code hook must
+    not count as a second instruction. After other prefixes, the LOCK is
+    replaced by a copy of the prefix before it -- which changes nothing a
+    prefix means -- and `patch` is (address, byte) to put back with put_back
+    once the instruction has run; `resume` is its own address."""
+    here = (cs << 4) + ip
+    raw = bytes(uc.mem_read(here, 15))          # the bytes Unicorn has just decoded
+    at = lock_prefix(raw)
+    if at is None:
+        return None
+    if at == 0:
+        uc.reg_write(UC_X86_REG_IP, (ip + 1) & 0xFFFF)
+        return here + 1, None
+    uc.mem_write(here + at, raw[at - 1:at])
+    uc.ctl_remove_cache(here + at, here + at + 1)
+    return here, (here + at, 0xF0)
+
+
+def put_back(uc, patch):
+    """The byte step_over_lock replaced, back, and its translation dropped."""
+    at, byte = patch
+    uc.mem_write(at, bytes((byte,)))
+    uc.ctl_remove_cache(at, at + 1)
+
+
 def divide_length(raw):
     """The length of the instruction at the start of `raw` when it is one that
     raises the divide error -- DIV or IDIV (F6 or F7 with ModRM reg 6 or 7)
@@ -1441,10 +1472,12 @@ class Machine:
     # return differs from later processors: an 8088's divide error pushes the
     # address of the instruction AFTER the divide, a 286's or later's the
     # divide itself. Intel says so in the 80386 Programmer's Reference Manual
-    # (1986), section 14.7, "Differences From 8086", item 3: "Divide
-    # exceptions on the 80386 always leave the saved CS:IP value pointing to
-    # the instruction that failed. On the 8086/8088, the CS:IP value points
-    # to the next instruction." --cpu 8088 returns after the divide; 386 to it.
+    # (1986), section 14.7, "Differences From 8086", item 2, "Divide
+    # Exceptions Point to the DIV instruction": "Divide exceptions on the 80386
+    # always leave the saved CS:IP value pointing to the instruction that
+    # failed. On the 8086/8088, the CS:IP value points to the next
+    # instruction." (Read in MIT's HTML copy of the manual, 6.828's readings,
+    # i386/s14_07.htm.) --cpu 8088 returns after the divide; 386 to it.
 
     def _cpu_exception(self, uc, num):
         """INT 0 or INT 1 raised by the CPU rather than by an instruction
@@ -1453,14 +1486,14 @@ class Machine:
         cs = uc.reg_read(UC_X86_REG_CS)
         ip = uc.reg_read(UC_X86_REG_IP)
         here = (cs << 4) + ip
-        if self._software_int(uc, num, cs, ip) or STUBS <= here < STUBS + 0x400:
+        if self._software_int(uc, num, cs, ip):
             return False
         handler = self._program_vector(num)
         if num == 0:
-            # Unicorn leaves IP on the divide, as a later x86 does.
-            size = divide_length(bytes(uc.mem_read(here, 8)))
-            if size is None:
-                return False
+            # Unicorn leaves IP on the divide, as a later x86 does, and raises
+            # INT 0 for DIV, IDIV and AAM alone; were it ever another
+            # instruction, its length unknown, it returns as on a 386.
+            size = divide_length(bytes(uc.mem_read(here, 15)))
             if handler is None:
                 self.stopped = (f"divide error at {cs:04X}:{ip:04X} (image "
                                 f"{here - self.img_bias:#08x}); the program has no INT 00h "
@@ -1468,7 +1501,7 @@ class Machine:
                                 f"and ends the program")
                 uc.emu_stop()
                 return True
-            back = (ip + size) & 0xFFFF if self.cpu == "8088" else ip
+            back = (ip + size) & 0xFFFF if self.cpu == "8088" and size else ip
             # Unicorn keeps a record of the fault until something it trusts
             # delivers it, and this hook is not that: the next divide error
             # would arrive as a double fault. The run loop clears the record.
@@ -1520,27 +1553,13 @@ class Machine:
         refuses for its LOCK prefix without the prefix. True to go on."""
         if self.cpu != "8088":
             return False
-        cs = uc.reg_read(UC_X86_REG_CS)
-        ip = uc.reg_read(UC_X86_REG_IP)
-        here = (cs << 4) + ip
-        raw = bytes(uc.mem_read(here, 15))      # the bytes it has just decoded
-        at = lock_prefix(raw)
-        if at is None:
+        cs, ip = uc.reg_read(UC_X86_REG_CS), uc.reg_read(UC_X86_REG_IP)
+        stepped = step_over_lock(uc, cs, ip)
+        if stepped is None:
             return False
+        self._lock_resume, self._lock_patch = stepped
         self.lock_steps += 1
-        self.lock_sites.add(here - self.img_bias)
-        if at == 0:
-            # The prefix first: start the instruction one byte later.
-            uc.reg_write(UC_X86_REG_IP, (ip + 1) & 0xFFFF)
-            self._lock_resume = here + 1
-        else:
-            # After other prefixes: in its place, a copy of the prefix before
-            # it, which changes nothing a prefix means, until the instruction
-            # has run (_after_lock).
-            self._lock_patch = (here + at, 0xF0)
-            uc.mem_write(here + at, raw[at - 1:at])
-            uc.ctl_remove_cache(here + at, here + at + 1)
-            self._lock_resume = here
+        self.lock_sites.add((cs << 4) + ip - self.img_bias)
         return True
 
     def _after_lock(self, addr):
@@ -1556,10 +1575,8 @@ class Machine:
 
     def _restore_lock(self):
         if self._lock_patch is not None:
-            at, byte = self._lock_patch
+            put_back(self.uc, self._lock_patch)
             self._lock_patch = None
-            self.uc.mem_write(at, bytes((byte,)))
-            self.uc.ctl_remove_cache(at, at + 1)
 
     def cpu_summary(self):
         """One line on what the CPU model did that Unicorn would not have, or

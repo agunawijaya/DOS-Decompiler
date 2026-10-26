@@ -1169,20 +1169,26 @@ def _():
     return "every refused form refused; mov run, the prefix ignored"
 
 
-EXCEPT_RETURNS = {"8088": [0x133, 0x13A, 0x143, 0x14C, 0x150], "386": [0x131] * 5}
+# Each divide's address plus its length, from NASM's listing of except.asm;
+# its handler keeps them in `returns`, at image 0xD8.
+EXCEPT_RETURNS = {"8088": [0x133, 0x13A, 0x143, 0x14C, 0x150, 0x157], "386": [0x131] * 6}
 
 
-@nasm_case("--cpu 8088: five divide errors to the program's INT 0, each after its divide")
+def except_returns(m):
+    return list(struct.unpack("<6H", bytes(m.uc.mem_read(comrun.BASE + 0x100 + 0xD8, 12))))
+
+
+@nasm_case("--cpu 8088: six divide errors to the program's INT 0, each after its divide")
 def _():
     m = comrun.Machine(build("except"))
     why = m.run(budget=10_000)
-    returns = list(struct.unpack("<5H", bytes(m.uc.mem_read(comrun.BASE + 0x100 + 0xD1, 10))))
+    returns = except_returns(m)
     printed = "".join(m.output)
-    if printed != "5 3 1 1 " or returns != EXCEPT_RETURNS["8088"]:
+    if printed != "6 3 1 1 " or returns != EXCEPT_RETURNS["8088"]:
         raise AssertionError(f"printed {printed!r}, returns {[hex(r) for r in returns]}, {why}")
-    if any(n == 8 for n, _ in m.ints) or m.exceptions[0][0] != 5 or m.exceptions[1][0] != 3:
+    if any(n == 8 for n, _ in m.ints) or m.exceptions[0][0] != 6 or m.exceptions[1][0] != 3:
         raise AssertionError(f"a double fault, or counts {m.exceptions}")
-    return "printed 5 3 1 1; returned to 0x133, 0x13A, 0x143, 0x14C, 0x150; no INT 8"
+    return "printed 6 3 1 1; ModRM mod 0-3 and AAM, each returned to past its divide; no INT 8"
 
 
 @nasm_case("--cpu 386: a divide error returns to the divide, which divides again")
@@ -1190,10 +1196,27 @@ def _():
     m = comrun.Machine(build("except"))
     m.cpu = "386"
     m.run(budget=2_000)
-    returns = list(struct.unpack("<5H", bytes(m.uc.mem_read(comrun.BASE + 0x100 + 0xD1, 10))))
-    if returns != EXCEPT_RETURNS["386"] or m.exceptions[0][0] < 5:
+    returns = except_returns(m)
+    if returns != EXCEPT_RETURNS["386"] or m.exceptions[0][0] < 6:
         raise AssertionError(f"returns {[hex(r) for r in returns]}, {m.exceptions}")
     return f"0x131 every time, {m.exceptions[0][0]} deliveries in 2,000 instructions"
+
+
+@case("a LOCK stepped over at CS:FFFE runs the instruction at FFFF")
+def _():
+    # lock inc ax at 2000:FFFE: the instruction after the prefix is at IP
+    # FFFF, the segment's last byte, and must run there, not at IP 0.
+    m = comrun.Machine(b"\xEB\xFE")
+    high = 0x2000
+    m.uc.mem_write((high << 4) + 0xFFFE, b"\xF0\x40")
+    m.uc.mem_write(high << 4, b"\xEB\xFE")                    # jmp $, were IP 0 reached
+    m.uc.reg_write(comrun.UC_X86_REG_AX, 5)
+    m.uc.reg_write(comrun.UC_X86_REG_CS, high)
+    m.run(start=(high << 4) + 0xFFFE - comrun.BASE - comrun.LOAD, budget=3)
+    ax = m.uc.reg_read(comrun.UC_X86_REG_AX)
+    if ax != 6 or m.lock_steps != 1:
+        raise AssertionError(f"AX {ax}, {m.lock_steps} stepped over")
+    return "AX 5 to 6: the increment at FFFF ran"
 
 
 @case("a divide error with no handler of the program's ends the run, and says so")

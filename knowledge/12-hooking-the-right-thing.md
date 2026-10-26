@@ -811,14 +811,16 @@ arrive as five INT 0. Where it returns is the 8088's: "Divide exceptions on
 the 80386 always leave the saved CS:IP value pointing to the instruction that
 failed. On the 8086/8088, the CS:IP value points to the next instruction"
 (Intel, 80386 Programmer's Reference Manual, 1986, section 14.7, "Differences
-From 8086", item 3). So `--cpu 8088` pushes the address after the divide,
+From 8086", item 2, read in the HTML copy MIT's 6.828 course keeps,
+`readings/i386/s14_07.htm`). So `--cpu 8088` pushes the address after the divide,
 from its decoded length, and `386` the divide itself. The trap flag's INT 1,
 which Unicorn raises after each instruction as an 8088 does, goes to the
 program's handler too, and `int3` and `into` reach its INT 3 and 4 as `int n`
 does. A divide error with no handler of the program's ends the run, saying
 that DOS's handler prints "Divide overflow" and ends the program.
-`except.asm` divides five ways, traps three instructions and raises INT 3 and
-4: "5 3 1 1" on an 8088, its handler given the address after each divide.
+`except.asm` divides six ways (ModRM mod 0 to 3, a direct address, and AAM),
+traps three instructions and raises INT 3 and 4: "6 3 1 1" on an 8088, its
+handler given the address after each divide.
 
 ### Hardware the program reads back
 

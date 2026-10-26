@@ -3,15 +3,16 @@
 ; own handler in vector 0. It installs handlers for INT 0 and INT 1 through
 ; DOS and for INT 3 and INT 4 straight into the table, then:
 ;
-;   divides five ways that raise the divide error -- by zero, a quotient too
-;   big for AL, IDIV from a word at a direct address, DIV from [bp+disp8] and
-;   AAM 0 -- each a different length, at the image offsets listed below;
+;   divides six ways that raise the divide error -- by zero, a quotient too
+;   big for AL, IDIV from a word at a direct address, DIV from [bp+disp8],
+;   AAM 0 and DIV from [bx+disp16] -- each a different length, at the image
+;   offsets listed below;
 ;   sets the trap flag for three instructions;
 ;   executes `int3` (CC) and `into` (CE) with the overflow flag set.
 ;
 ; Its INT 0 handler keeps each return address it was given, in `returns`.
 ; On an 8088 that is the instruction after the divide, so the program goes on
-; and prints "5 3 1 1": the divide errors, the traps, INT 3 and INT 4. On a
+; and prints "6 3 1 1": the divide errors, the traps, INT 3 and INT 4. On a
 ; 286 or later it is the divide itself, which divides again.
 
         org 0x100
@@ -43,6 +44,8 @@ div3:   idiv word [zero]            ; image 0x3F: a direct address, 4 bytes
 div4:   div byte [bp+2]             ; image 0x49: [bp+disp8], 3 bytes
         mov al, 9
 div5:   db 0xD4, 0x00               ; image 0x4E: aam 0, 2 bytes
+        mov bx, zero - 0x300
+div6:   div byte [bx+0x300]         ; image 0x53: [bx+disp16], 4 bytes
 
         pushf
         pop ax
