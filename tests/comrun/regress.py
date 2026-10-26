@@ -1138,9 +1138,15 @@ def _():
 @nasm_case("--cpu 8088: LOCK stepped over on nop and inc, first and behind 1, 2, 3 prefixes")
 def _():
     m = comrun.Machine(build("lock"))
+    m.exec_map = set()
     why = m.run(budget=10_000)
     printed = "".join(m.output)
     sites = [0x03, 0x08, 0x0F, 0x12, 0x16]
+    # Each instruction where it starts, and not the byte after a LOCK it was
+    # restarted at: below 0x1B are the eight before `mov cx, 3`.
+    starts = sorted(a for a in m.exec_map if a < 0x1B)
+    if starts != [0x00, 0x03, 0x05, 0x08, 0x0A, 0x0F, 0x12, 0x16]:
+        raise AssertionError(f"executed {[hex(a) for a in starts]}")
     if printed != "6 8 0 6" or m.lock_steps != 5 or sorted(m.lock_sites) != sites:
         raise AssertionError(f"printed {printed!r}, {why}; {m.lock_steps} at {m.lock_sites}")
     # Counted by hand from the fixture: 9 to the loop, 3 times round it, 11
@@ -1170,12 +1176,12 @@ def _():
 
 
 # Each divide's address plus its length, from NASM's listing of except.asm;
-# its handler keeps them in `returns`, at image 0xD8.
-EXCEPT_RETURNS = {"8088": [0x133, 0x13A, 0x143, 0x14C, 0x150, 0x157], "386": [0x131] * 6}
+# its handler keeps them in `returns`, at image 0xDA.
+EXCEPT_RETURNS = {"8088": [0x133, 0x13A, 0x143, 0x14C, 0x152, 0x159], "386": [0x131] * 6}
 
 
 def except_returns(m):
-    return list(struct.unpack("<6H", bytes(m.uc.mem_read(comrun.BASE + 0x100 + 0xD8, 12))))
+    return list(struct.unpack("<6H", bytes(m.uc.mem_read(comrun.BASE + 0x100 + 0xDA, 12))))
 
 
 @nasm_case("--cpu 8088: six divide errors to the program's INT 0, each after its divide")
@@ -1188,7 +1194,7 @@ def _():
         raise AssertionError(f"printed {printed!r}, returns {[hex(r) for r in returns]}, {why}")
     if any(n == 8 for n, _ in m.ints) or m.exceptions[0][0] != 6 or m.exceptions[1][0] != 3:
         raise AssertionError(f"a double fault, or counts {m.exceptions}")
-    return "printed 6 3 1 1; ModRM mod 0-3 and AAM, each returned to past its divide; no INT 8"
+    return "printed 6 3 1 1; ModRM mod 0-3 and a prefixed AAM, each returned to past it; no INT 8"
 
 
 @nasm_case("--cpu 386: a divide error returns to the divide, which divides again")
@@ -1200,6 +1206,20 @@ def _():
     if returns != EXCEPT_RETURNS["386"] or m.exceptions[0][0] < 6:
         raise AssertionError(f"returns {[hex(r) for r in returns]}, {m.exceptions}")
     return f"0x131 every time, {m.exceptions[0][0]} deliveries in 2,000 instructions"
+
+
+@case("--cpu 8088: one LOCK is said as one; a refusal with no LOCK still faults")
+def _():
+    m = comrun.Machine(bytes((0xF0, 0x90, 0xEB, 0xFE)))         # lock nop / jmp $
+    m.run(budget=20)
+    line = m.cpu_summary() or ""
+    if not line.endswith("a LOCK prefix stepped over 1 time, at 0x0"):
+        raise AssertionError(line)
+    m = comrun.Machine(bytes((0x0F, 0x0B, 0xEB, 0xFE)))         # a later x86's UD2
+    why = m.run(budget=20)
+    if "Invalid instruction" not in why or m.lock_steps or m.cpu_summary() is not None:
+        raise AssertionError(f"{why}; {m.lock_steps} stepped over")
+    return "1 time; 0F 0B refused as before"
 
 
 @case("a LOCK stepped over at CS:FFFE runs the instruction at FFFF")

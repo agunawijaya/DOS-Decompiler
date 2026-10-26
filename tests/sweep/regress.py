@@ -1000,6 +1000,26 @@ def _():
     return "ax 0xfffc after 11 instructions, the LOCKs at both parities and behind 1-3 prefixes"
 
 
+@case("8088: one LOCK stepped over is said as one; a refusal with no LOCK still ends the case")
+def _():
+    once = domain("once", {"args": [{"name": "x", "list": [7]}], "compare": ["ax"]})
+    code, text, env = sweep(at("lock", "once"), once, *lock_candidate(0),
+                            functions=False, which="lock")
+    expect_verified(code, text, env, 1, percent=None)
+    if (env["result"].get("lock_prefixes_stepped_over") != 1
+            or not any("(1 time in this sweep)" in l for l in env["limitations"])
+            or "stepped over 1 time, as" not in text):
+        raise AssertionError(f"{env['result'].get('lock_prefixes_stepped_over')}; "
+                             f"{env['limitations']}\n{text[-600:]}")
+    code, text, env = sweep(at("lock", "refused"), once, *lock_candidate(0),
+                            functions=False, which="lock")
+    first = expect_mismatch(code, text, env, 1, {"x": 7}, ["fault"])
+    if (first["original"].get("fault") != "cpu"
+            or "lock_prefixes_stepped_over" in env["result"]):
+        raise AssertionError(f"original {first['original']}, result {env['result'].keys()}")
+    return "1 time, singular, in the result, the prose and the limitation; 0F 0B a cpu fault"
+
+
 @case("386: the same LOCK prefixes end every case where Unicorn refuses them")
 def _():
     code, text, env = sweep(at("lock", "timed"), lock_domain(), *lock_candidate(),

@@ -77,6 +77,26 @@ timed:
     ret
 timed_end:
 
+; int refused(int x) -- an instruction Unicorn refuses with no LOCK in it,
+; 0F 0B (a later x86's UD2): the step-over leaves it alone, and every case
+; ends in the refusal under either CPU.
+refused:
+    frame
+    db 0x0F, 0x0B
+    pop bp
+    ret
+refused_end:
+
+; int once(int x) { return x; } -- one LOCK, so that a sweep of one case
+; steps over exactly one.
+once:
+    frame
+    mov ax, [bp + 4]
+    db 0xF0, 0x90                       ; lock nop
+    pop bp
+    ret
+once_end:
+
 ; ---------------------------------------------------------------- data
     align 16
 data_start:

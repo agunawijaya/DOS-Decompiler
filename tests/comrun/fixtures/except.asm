@@ -5,8 +5,8 @@
 ;
 ;   divides six ways that raise the divide error -- by zero, a quotient too
 ;   big for AL, IDIV from a word at a direct address, DIV from [bp+disp8],
-;   AAM 0 and DIV from [bx+disp16] -- each a different length, at the image
-;   offsets listed below;
+;   AAM 0 behind two segment overrides, and DIV from [bx+disp16] -- two to
+;   four bytes long, at the image offsets listed below;
 ;   sets the trap flag for three instructions;
 ;   executes `int3` (CC) and `into` (CE) with the overflow flag set.
 ;
@@ -43,9 +43,9 @@ div3:   idiv word [zero]            ; image 0x3F: a direct address, 4 bytes
         mov ax, 7
 div4:   div byte [bp+2]             ; image 0x49: [bp+disp8], 3 bytes
         mov al, 9
-div5:   db 0xD4, 0x00               ; image 0x4E: aam 0, 2 bytes
+div5:   db 0x2E, 0x26, 0xD4, 0x00   ; image 0x4E: cs es aam 0, 4 bytes
         mov bx, zero - 0x300
-div6:   div byte [bx+0x300]         ; image 0x53: [bx+disp16], 4 bytes
+div6:   div byte [bx+0x300]         ; image 0x55: [bx+disp16], 4 bytes
 
         pushf
         pop ax
