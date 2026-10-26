@@ -3,10 +3,11 @@
 ;
 ; int timed(int x) { return x + 1; } -- with the `lock nop` delays Jungle Hunt
 ; (1983) times its port writes with, and the increment written `lock inc ax`.
-; An 8088 runs every one of them. Unicorn refuses all three: `nop`, arithmetic
-; into a register, and `nop` again with the LOCK after a segment override. So
-; under --cpu 8088 the sweep runs them without it, and under 386 every case
-; ends in the CPU's refusal. 7 instructions.
+; An 8088 runs every one of them. Unicorn refuses all five: `nop` and
+; arithmetic into a register, the LOCK first or after one, two or three
+; segment overrides, at odd and even addresses. So under --cpu 8088 the sweep
+; runs them without it, and under 386 every case ends in the CPU's refusal.
+; 11 instructions, each counted once.
 ;
 ; tests/sweep/regress.py reads the labels from NASM's listing.
 
@@ -67,8 +68,11 @@ timed:
     frame
     mov ax, [bp + 4]
     db 0xF0, 0x90                       ; lock nop
+    nop                                 ; so that the next starts at the other parity
     db 0xF0, 0x40                       ; lock inc ax
     db 0x2E, 0xF0, 0x90                 ; cs lock nop
+    db 0x2E, 0x26, 0xF0, 0x90           ; cs es lock nop
+    db 0x26, 0x2E, 0x36, 0xF0, 0x90     ; es cs ss lock nop
     pop bp
     ret
 timed_end:

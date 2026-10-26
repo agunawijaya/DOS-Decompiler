@@ -781,10 +781,7 @@ class Program:
             return False
         cs, ip = uc.reg_read(UC_X86_REG_CS), uc.reg_read(UC_X86_REG_IP)
         here = (cs << 4) + ip
-        try:
-            raw = bytes(uc.mem_read(here, 15))
-        except UcError:
-            return False
+        raw = bytes(uc.mem_read(here, 15))      # the bytes it has just decoded
         at = lock_prefix(raw)
         if at is None:
             return False

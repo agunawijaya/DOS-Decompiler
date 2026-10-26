@@ -956,30 +956,48 @@ def _():
 # ---------------------------------------------------------------- LOCK
 
 def lock_domain():
-    # x from -5 to 5: 11 cases, each through the three LOCK prefixes of timed.
+    # x from -5 to 5: 11 cases, each through the five LOCK prefixes of timed.
     return domain("lock", {"args": [{"name": "x", "range": [-5, 5]}], "compare": ["ax"]})
 
 
-def lock_candidate():
-    path = WORK / "timed.py"
-    path.write_text("def timed(args, ctx):\n    return {'ax': (args[0] + 1) & 0xFFFF}\n",
+def lock_candidate(add=1):
+    path = WORK / f"timed{add}.py"
+    path.write_text(f"def timed(args, ctx):\n    return {{'ax': (args[0] + {add}) & 0xFFFF}}\n",
                     encoding="utf-8")
     return ["--candidate", f"{path}:timed"]
 
 
-@case("8088: a LOCK Unicorn refuses is stepped over, three a case, and the sweep says so")
+@case("8088: a LOCK Unicorn refuses is stepped over, five a case, and the sweep says so")
 def _():
     code, text, env = sweep(at("lock", "timed"), lock_domain(), *lock_candidate(),
                             functions=False, which="lock")
     r = expect_verified(code, text, env, 11, percent=None)
-    if r.get("lock_prefixes_stepped_over") != 33:
-        raise AssertionError(f"stepped over {r.get('lock_prefixes_stepped_over')}, not 3 x 11")
-    if not any(l.startswith("The CPU is an 8088 in two respects only") and "(33 times" in l
+    if r.get("lock_prefixes_stepped_over") != 55:
+        raise AssertionError(f"stepped over {r.get('lock_prefixes_stepped_over')}, not 5 x 11")
+    if not any(l.startswith("The CPU is an 8088 in two respects only") and "(55 times" in l
                for l in env["limitations"]):
         raise AssertionError(f"the limitations do not say so: {env['limitations']}")
-    if "a LOCK prefix Unicorn refuses stepped over 33 times" not in text:
+    if "a LOCK prefix Unicorn refuses stepped over 55 times" not in text:
         raise AssertionError(f"the prose does not say so:\n{text[-800:]}")
-    return "11 cases verified; 33 stepped over, in the result, the prose and the limitations"
+    return "11 cases verified; 55 stepped over, in the result, the prose and the limitations"
+
+
+@case("8088: each instruction of a case with LOCKs stepped over runs and is traced once")
+def _():
+    # A candidate one too high stops the sweep at case 1, and the trace of
+    # that case lists what the original ran: the 11 instructions lock.asm
+    # has, at the offsets written beside each, and not the continuation of an
+    # instruction a LOCK was stepped over in, which is not one.
+    code, text, env = sweep(at("lock", "timed"), lock_domain(), *lock_candidate(2),
+                            functions=False, which="lock",
+                            extra=["--trace-on-divergence", "30"])
+    first = expect_mismatch(code, text, env, 1, {"x": -5}, ["ax"])
+    base = L("lock", "timed")
+    want = [f"{LOAD:04x}:{base + d:04x}" for d in (0, 1, 3, 6, 8, 9, 11, 14, 18, 23, 24)]
+    seen = [t["at"] for t in env["result"]["trace"] or []]
+    if first["original"].get("ax") != 0xFFFC or seen != want:
+        raise AssertionError(f"original {first['original']}; traced {seen}, not {want}")
+    return "ax 0xfffc after 11 instructions, the LOCKs at both parities and behind 1-3 prefixes"
 
 
 @case("386: the same LOCK prefixes end every case where Unicorn refuses them")

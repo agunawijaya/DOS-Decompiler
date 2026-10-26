@@ -573,13 +573,13 @@ async def _():
     sid = env["result"]["session_id"]
     env, err = await call("comrun", session_id=sid, budget=10_000)
     r = env["result"]
-    check(not err and r["printed"] == ["6 8 0"] and r["cpu"]["lock_prefixes_stepped_over"] == 3,
+    check(not err and r["printed"] == ["6 8 0 6"] and r["cpu"]["lock_prefixes_stepped_over"] == 5,
           f"8088: {r}")
     env, err = await call("comrun", session_id=sid, budget=10_000, cpu="386")
     check(not err and "Invalid instruction" in env["result"]["stopped"]
           and "cpu" not in env["result"], f"386: {env['result']}")
     await call("close_binary", session_id=sid)
-    said.append("LOCK stepped over 3 times on an 8088, refused on a 386")
+    said.append("LOCK stepped over 5 times on an 8088, refused on a 386")
     return "; ".join(said)
 
 

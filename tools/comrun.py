@@ -1458,10 +1458,7 @@ class Machine:
         handler = self._program_vector(num)
         if num == 0:
             # Unicorn leaves IP on the divide, as a later x86 does.
-            try:
-                size = divide_length(bytes(uc.mem_read(here, 8)))
-            except UcError:
-                size = None
+            size = divide_length(bytes(uc.mem_read(here, 8)))
             if size is None:
                 return False
             if handler is None:
@@ -1526,10 +1523,7 @@ class Machine:
         cs = uc.reg_read(UC_X86_REG_CS)
         ip = uc.reg_read(UC_X86_REG_IP)
         here = (cs << 4) + ip
-        try:
-            raw = bytes(uc.mem_read(here, 15))
-        except UcError:
-            return False
+        raw = bytes(uc.mem_read(here, 15))      # the bytes it has just decoded
         at = lock_prefix(raw)
         if at is None:
             return False

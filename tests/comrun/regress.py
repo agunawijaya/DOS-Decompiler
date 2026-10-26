@@ -1120,8 +1120,9 @@ def _():
     # Vector 1Ch to F000:FF53, as Jungle Hunt switches it off; `int 1Ch`;
     # mov [0200], 1; then wait for the tick with IRQ 0 running.
     prog = bytes((0x31, 0xC0, 0x8E, 0xC0,                         # xor ax, ax / mov es, ax
-                  0x26, 0xC7, 0x06, 0x70, 0x00, 0x53, 0xFF,       # mov word [es:70h], FF53h
-                  0x26, 0xC7, 0x06, 0x72, 0x00, 0x00, 0xF0,       # mov word [es:72h], F000h
+                  0xBF, 0x70, 0x00,                               # mov di, 70h
+                  0xB8, 0x53, 0xFF, 0xAB,                         # mov ax, FF53h / stosw
+                  0xB8, 0x00, 0xF0, 0xAB,                         # mov ax, F000h / stosw
                   0xCD, 0x1C,                                     # int 1Ch
                   0xC6, 0x06, 0x00, 0x02, 0x01,                   # mov byte [0200], 1
                   0xEB, 0xFE))                                    # jmp $
@@ -1134,29 +1135,38 @@ def _():
     return f"the int came back; {m.timer_log['to_bios']} ticks raised no INT 1Ch"
 
 
-@nasm_case("--cpu 8088: LOCK stepped over on nop, mov, inc, and after cs:")
+@nasm_case("--cpu 8088: LOCK stepped over on nop and inc, first and behind 1, 2, 3 prefixes")
 def _():
     m = comrun.Machine(build("lock"))
     why = m.run(budget=10_000)
     printed = "".join(m.output)
-    if printed != "6 8 0" or m.lock_steps != 3 or sorted(m.lock_sites) != [0x03, 0x08, 0x0F]:
+    sites = [0x03, 0x08, 0x0F, 0x12, 0x16]
+    if printed != "6 8 0 6" or m.lock_steps != 5 or sorted(m.lock_sites) != sites:
         raise AssertionError(f"printed {printed!r}, {why}; {m.lock_steps} at {m.lock_sites}")
-    if m.steps != 45:
-        raise AssertionError(f"{m.steps} instructions: a LOCK stepped over was counted twice")
-    return "printed 6 8 0; 3 stepped over, at 0x3, 0x8 and 0xF; 45 instructions"
+    # Counted by hand from the fixture: 9 to the loop, 3 times round it, 11
+    # for each of three digits with a space and 6 for the last, 2 to exit.
+    if m.steps != 56:
+        raise AssertionError(f"{m.steps} instructions, not 56: a LOCK stepped over was "
+                             f"counted twice, or an instruction not at all")
+    if bytes(m.uc.mem_read(comrun.BASE + comrun.LOAD + 0x0F, 12)) != bytes.fromhex(
+            "2ef0902e26f09026" "2e36f040"):
+        raise AssertionError("a LOCK replaced to run its instruction was not put back")
+    return "printed 6 8 0 6; 5 stepped over, at 0x3, 0x8, 0xF, 0x12, 0x16; 56 instructions"
 
 
 @nasm_case("--cpu 386: Unicorn's LOCK -- refused on nop and inc reg, run on mov")
 def _():
     seen = {}
-    for name, offset in (("nop", 0x03), ("mov", 0x05), ("inc bx", 0x08), ("cs: nop", 0x0F)):
+    for name, offset in (("nop", 0x03), ("mov", 0x05), ("inc bx", 0x08), ("cs: nop", 0x0F),
+                         ("cs: es: nop", 0x12), ("es: cs: ss: inc ax", 0x16)):
         m = comrun.Machine(build("lock"))
         m.cpu = "386"
         why = m.run(start=offset, budget=1)
         seen[name] = "refused" if "Invalid instruction" in why else "ran"
-    if seen != {"nop": "refused", "mov": "ran", "inc bx": "refused", "cs: nop": "refused"}:
+    if seen != {"nop": "refused", "mov": "ran", "inc bx": "refused", "cs: nop": "refused",
+                "cs: es: nop": "refused", "es: cs: ss: inc ax": "refused"}:
         raise AssertionError(f"{seen}")
-    return "nop, inc bx, cs: nop refused; mov run, the prefix ignored"
+    return "every refused form refused; mov run, the prefix ignored"
 
 
 EXCEPT_RETURNS = {"8088": [0x133, 0x13A, 0x143, 0x14C, 0x150], "386": [0x131] * 5}
@@ -1230,16 +1240,17 @@ def _():
     return "printed a 30 c 2E, and a line for each key"
 
 
-def pit_loops(reload=0x7950, every=20_000):
+def pit_loops(reload=0x6000, every=20_000):
     """pit.asm's loop count, from the 8253's arithmetic: 65,536 counts to a
-    tick of `every` instructions. The count is loaded by the program's tenth
-    instruction; the first latch is its fourteenth, and a loop is nine."""
+    tick of `every` instructions. Counting starts at the program's ninth
+    instruction, which opens the gate; the first latch is its thirteenth, and
+    a loop is nine."""
     now = lambda steps: steps * 65536 // every          # noqa: E731
     loops = 0
     while True:
         loops += 1
-        count = reload - (now(14 + 9 * (loops - 1)) - now(10)) % reload
-        if count <= 100:
+        count = reload - (now(13 + 9 * (loops - 1)) - now(9)) % reload
+        if count <= 200:
             return loops
 
 
@@ -1274,7 +1285,7 @@ def pen_row_column(every=20_000):
     """lightpen.asm's answer from the 6845's arithmetic: mode 4's CRTC (57
     columns, 128 rows of two lines and 6 more, 40 shown), a frame of 912 x
     262 / 12 counts of the 8253, 65,536 counts to `every` instructions. The
-    latch is set by the program's sixth instruction, and a pass is 19."""
+    latch is set by the program's sixth instruction, and a pass is 21."""
     frame, lines = 912 * 262 // 12, 128 * 2 + 6
     steps = 6
     while True:
@@ -1283,7 +1294,7 @@ def pen_row_column(every=20_000):
         address = (line // 2) * 40 + column
         if address // 40 == 99:
             return 99, address % 40
-        steps += 19
+        steps += 21
 
 
 @nasm_case("the light pen latch takes the beam's address: lightpen.asm finds row 99")
