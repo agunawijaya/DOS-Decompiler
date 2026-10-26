@@ -2238,8 +2238,8 @@ class Machine:
 
     # -- the adapter ----------------------------------------------------------
     #
-    # The Ancient Art of War (1987) will not start without "EGA or VGA card or
-    # Tandy 1000", and asks in four ways before its title: INT 11h, INT 10h
+    # The Ancient Art of War (1987) will not start without an EGA, a VGA or a
+    # Tandy 1000, and asks in four ways before its title: INT 11h, INT 10h
     # AX=1A00h (a VGA's BIOS answers AL=1Ah), INT 10h AH=12h BL=10h (an EGA's
     # BIOS changes BL; it wants 3, 256 KB) and the byte at F000:C000 (0x21
     # on a Tandy 1000). Rampage (1986) asks nothing: the player chooses CGA,
