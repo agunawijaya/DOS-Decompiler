@@ -460,8 +460,19 @@ on an 8088, 1,807 where a 386 has 1,805.
 The same section of Intel's list notes a second difference, which does not
 reach a sweep: "On the 8086/8088, the CS:IP value points to the next
 instruction", where the 386 saves the one that failed. It matters only to a
-program with its own `INT 0` handler, and the sweep stops at the fault. Other
-ways an 8088 differs from a 386 are not modelled either.
+program with its own `INT 0` handler, and the sweep stops at the fault
+(comrun, which runs on, returns there: `12-hooking-the-right-thing.md`).
+
+One more difference is modelled since prompt 16: the LOCK prefix. An 8088 runs
+it on any instruction; Unicorn refuses it on `nop` and on arithmetic into a
+register, and a routine with Jungle Hunt's `lock nop` delays ended every case
+in that refusal. Under `--cpu 8088` such an instruction runs without it, and
+the result counts the times in `lock_prefixes_stepped_over`, the prose says
+so and the limitation that names the CPU's differences names both -- each only
+when a LOCK was met, so a sweep that met none writes what it wrote before.
+`tests/sweep/fixtures/lock.asm` has three, and under `--cpu 386` every case
+ends where Unicorn refuses the first. Other ways an 8088 differs from a 386
+are not modelled.
 
 ## Exhaustive and sampled
 
@@ -532,7 +543,8 @@ And `--evidence` writes the envelope (`17-evidence.md`): tool
 not start). The `result` holds:
 
 - the original and candidate, with each one's DGROUP and how it was found;
-- `cpu`, `8088` or `386`;
+- `cpu`, `8088` or `386`, and `lock_prefixes_stepped_over` when an 8088 sweep
+  stepped over one;
 - the domain, with each dimension's boundary values;
 - `mode`, `seed`, `cases_run` and `agree`;
 - `faults_on_both_sides`;

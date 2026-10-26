@@ -130,6 +130,8 @@ photographed, check whether it can be computed from the file first. A game
 with its own INT 09h handler needs `--keyboard hw`; its own INT 08h,
 `--timer auto`; one that probes port 0x201 needs `--no-joystick`, or its
 "button" is noise. A black screen after INT 10h AH=0Eh needs `--bios-text`.
+One that wants an EGA or a Tandy 1000 needs `--adapter`. Read what a wait
+compares before sending a key, and give it there: `--at ADDR=KEY`.
 
 `tools/comdiff.py KNOWN.COM known.asm GAME.COM game.asm` compares two .COM
 programs routine by routine. Instruction-identical pairs are run under

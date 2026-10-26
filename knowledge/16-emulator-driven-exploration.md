@@ -226,6 +226,35 @@ Each is a small piece of scaffolding that would make the *next*
 Comprehend game — or any other 1980s adventure — cheaper to
 open up.
 
+## When a run stops, it may be the machine the program asked about
+
+Four games stopped short in comrun before prompt 16, and in none of them was
+the emulator's budget or the explorer's loop the reason. Each was a question
+the program put to the machine, answered wrongly
+([12-hooking-the-right-thing.md](12-hooking-the-right-thing.md) has the
+detail):
+
+- **"Which adapter is this?"** The Ancient Art of War asks four ways and quits
+  without an EGA, VGA or Tandy. `--adapter ega` or `tandy` answers, and draws
+  mode 0Dh or 9. Read how the program asks before choosing what to answer:
+  Rampage asks nothing, and its menu chooses.
+- **"Is there a key?" -- by which path.** A key queued blind goes to whatever
+  reads first, and a start-up flush reads first. `--at ADDR=KEY` gives it at
+  the wait itself, through the BIOS's buffer or the program's own INT 09h as
+  the program reads at that moment, in any `--keyboard` mode, and the run says
+  which path each key took. The Dam Busters' title flushes the buffer, then
+  takes any key.
+- **"Which processor?"** `lock nop` is a delay on an 8088 and an invalid
+  opcode to Unicorn; a divide error goes to the program's own handler and
+  returns past the divide. `--cpu 8088`, the default, models both.
+- **"How fast, and where is the beam?"** A program that latches the 8253 or
+  sets the light pen latch reads back the machine's state, which an
+  alternating port answer cannot be; both are modelled now, on the clock the
+  timer already uses.
+
+A run that ends early with a message the program printed, or in a loop over
+a port, is a question unanswered before it is a budget too small.
+
 ## The rule
 
 > **Bound every exploration loop, flush every progress print, and

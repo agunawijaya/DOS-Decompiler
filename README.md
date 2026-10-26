@@ -363,9 +363,17 @@ with its own keyboard handler; IRQ 0 through a timer handler the game
 installed, with `--timer hw` or `auto`; the screen drawn from what the program
 told the CGA, so a game that sets its mode through the ports is drawn as it
 looks, text with a font in the public domain that ships in `tools/fonts/`, and
-text written through the BIOS with `--bios-text`. An `int` the program makes
+text written through the BIOS with `--bios-text`; with `--adapter ega` or
+`tandy` the machine answers as an EGA or a Tandy 1000 when the program asks,
+and EGA mode 0Dh is drawn from its four planes, Tandy mode 9 from its pages.
+An `int` the program makes
 through a vector it installed reaches its own handler, as on the machine:
-Tapper's file shim on INT 80h, an overlay manager on INT 3Fh. What it executed,
+Tapper's file shim on INT 80h, an overlay manager on INT 3Fh; so do a divide
+error and the trap flag's INT 1, returning as an 8088's do, and a LOCK prefix
+Unicorn refuses is stepped over, as the 8088 ran it (`--cpu 8088`, the
+default). `--at ADDR=KEY` gives a key when the program reaches a place, by the
+path it reads then -- the BIOS's buffer, or port 0x60 and IRQ 1 through its own
+INT 09h -- in any `--keyboard` mode. What it executed,
 with the CS:IP of each instruction (`--exec-map-json`), goes back into
 `comrec.py --seeds-from`, which walks from the code the run reached and the
 walk did not.
@@ -380,6 +388,8 @@ all of it padding read as code, and 87.3% of its code region after.
 python tools\comdiff.py ROLLO.COM rollo.asm MOONBUGS.COM moonbugs.asm --json diff.json
 python tools\comrun.py GAME.COM --keyboard hw --no-joystick --keys " ,0x4D00" --png screen.png
 python tools\comrun.py GAME.COM --timer auto --keyboard auto --exec-map-json run.json
+python tools\comrun.py GAME.COM --adapter ega --keys 2 --png ega.png
+python tools\comrun.py GAME.EXE --keyboard auto --at D22E=0x3920 --png next.png
 python tools\comrec.py GAME.COM --out src\game.asm --seeds-from run.json
 ```
 
@@ -721,7 +731,8 @@ python tools\match.py src.json out\functions.json --align `
 #    reference (ref.py:fn) or a rebuild (--candidate-exe, --candidate-entry).
 #    Stops at the first input where they disagree; reports coverage of the
 #    routine's body. Exit 0 verified, 1 mismatch, 3 blocked. The CPU is an
-#    8088 unless --cpu 386: IDIV also faults on a quotient of -32768 or -128.
+#    8088 unless --cpu 386: IDIV also faults on a quotient of -32768 or -128,
+#    and a LOCK prefix Unicorn refuses is stepped over.
 python tools\emuverify.py sweep path\to\GAME.EXE 1000:0024 --domain muldiv.json `
        --candidate port.mjs:muldiv --functions out\functions.json
 ```
@@ -887,7 +898,7 @@ interface and `AGENTS.md` stays the method.
 | `survey`, `triage` | `survey.py`, `triage.py`; both take `format` (`com` for a .COM image under another name) |
 | `open_binary`, `close_binary`, `list_sessions` | sessions: the target copied into a session folder; the original is never written |
 | `unpack`, `comrec` | `unpack.py`, `comrec.py`, writing inside the session; `comrec` takes `seeds_from`, an exec map or `"session"` for the one the session's `comrun` wrote |
-| `comrun` | `comrun.py` on the session's program: keys, `keyboard` and `timer` (`bios`, `hw`, `auto`), `no_joystick`, `bios_text`; the screen and exec map written inside the session, the run returned as data |
+| `comrun` | `comrun.py` on the session's program: keys, `keyboard` and `timer` (`bios`, `hw`, `auto`), `no_joystick`, `bios_text`, `adapter` (`cga`, `ega`, `tandy`), `cpu` (`8088`, `386`), `at`; the screen and exec map written inside the session, the run returned as data |
 | `overlays` | `overlays.py`: the Microsoft LINK overlays of an MZ session, and with `views` one view per module inside the session; `open_binary` on a view brings its record |
 | `comdiff` | `comdiff.py` on two `.COM` sessions, each through the listing `comrec` wrote in it |
 | `analyze` | `pipeline.ps1`, with progress by stage; cached by target SHA-256, profile id and a hash of the pipeline's Python |
@@ -1044,7 +1055,8 @@ tools/
     comrun.py                run a program and capture its screen: keys through
                              INT 16h or the keyboard hardware, the timer as
                              IRQ 0, the picture from the CGA's registers, text
-                             with the shipped font
+                             with the shipped font; an EGA or a Tandy 1000 with
+                             --adapter, an 8088 with --cpu
     fonts/                   cp437-8x8.txt, code page 437 from unscii-8 (public
                              domain), its builder, and its source and licence
     docaudit.py              find every count in the documents, so a stale one
@@ -1141,7 +1153,10 @@ tests/comdiff/               two sibling .COM programs, one routine of each kind
 tests/comrun/                comrun's keyboard (INT 16h, port 0x60, IRQ 1, the
                              PIC), its timer (IRQ 0, the BIOS's INT 08h and 1Ch),
                              the CGA drawn from its registers, every character
-                             of the font, text through the BIOS, the exec map
+                             of the font, text through the BIOS, the exec map;
+                             EGA 0Dh and Tandy 9 pixel by pixel, LOCK and the
+                             CPU's exceptions, --at by each path, the 8253's
+                             count and the light pen read back
 tests/unpack/                the packer-header readers, and EXEPACK packed here in
                              both layouts around a stub written for the tests
 tests/overlays/              a root with its own INT 3Fh manager and two LINK
@@ -1163,7 +1178,7 @@ tests/bodies/                function bodies, origins, shared code, what no
                              function claims, and the code region
 tests/sweep/                 sweeps against Python, JavaScript and a rebuild;
                              wrong candidates caught at the planted input; the
-                             8088's IDIV under both CPUs
+                             8088's IDIV and LOCK under both CPUs
 tests/mcp/                   the MCP server over stdio, through the SDK's client
 tests/agents/                every agent-specific file still a pointer, every
                              agent starting the same server

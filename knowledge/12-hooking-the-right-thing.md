@@ -674,8 +674,187 @@ space bar -- over its logo, and, with K and a space, to a frame showing four
 bars in perspective, beer taps, two customers in hats and "50" at the top left. The overlaid fixture
 calls its modules 1, 2 and 1 again through its own INT 3Fh manager. And The
 Ancient Art of War, unpacked, gets through its first `int 3Fh` into overlay 1,
-which stops at its own check for an EGA, VGA or Tandy -- an adapter comrun does
-not draw.
+which stops at its own check for an EGA, VGA or Tandy -- an adapter comrun did
+not have until `--adapter` (below).
+
+### The adapter is the program's question, then its screen
+
+Two games of prompt 16 wanted more than a CGA, and they ask differently.
+**Rampage (1986) asks nothing**: it prints a one-line menu of the three
+adapters and draws as it is told -- mode 4 and `.P4` files, mode 0Dh and
+`.P16` files, or Tandy mode 9 and the same `.P16` files. **The Ancient Art of
+War (1987) asks four times**, in overlay 1 at 19E1:0095 of the unpacked root,
+read from its code and seen in a run: `INT 11h` (it keeps the equipment word,
+and later rewrites 0040:0010's video bits on the EGA path); `INT 10h
+AX=1A00h`, a VGA if AL comes back 1Ah; else `INT 10h AH=12h BL=10h`, an EGA if
+BL changes, and only 3, 256 KB, will do; then the word at F000:C000, a Tandy
+1000 if its low byte is 0x21. Nothing else is asked, and the machine byte at
+F000:FFFE is not read.
+
+`--adapter ega` and `tandy` answer those as the adapter's BIOS and ROM would:
+an EGA changes BL to 3 (BH 0, CL 9) and has the equipment word 000Dh, its
+video bits 00; a Tandy has 0x21 at F000:C000 and 002Dh; both 0xFF at
+F000:FFFE; AX=1A00h goes unanswered on all three, which is how a BIOS without
+VGA support leaves it. `cga`, the default, answers exactly as comrun always
+has -- AH=12h and AX=1A00h unanswered, as a CGA's BIOS leaves them, nothing
+written to the equipment word or the ROM -- and when a program asks for an EGA
+or a VGA it says so under the run, with `--adapter ega` named.
+
+**The EGA's picture is not in memory at all.** Mode 0Dh keeps four planes of
+64 KB behind the one window at A000, and what a byte written there does is the
+graphics controller's business: the sequencer's map mask picks the planes; in
+write mode 0 the byte is rotated, or replaced by the set/reset colour on the
+planes enable set/reset names, combined with the latches by the function
+(replace, and, or, xor), and the bit mask chooses bit by bit between that and
+the latches; write mode 1 stores the latches; write mode 2 spreads a colour.
+A read loads all four latches and returns one plane (read mode 0) or a
+colour-compare mask (read mode 1). comrun keeps the planes outside Unicorn's
+memory, and hooks A000: a write goes through that logic, and a read is
+answered by writing the result into memory in the hook, which runs before the
+read -- measured, a word read and a `movsb` from A000 to A000 included. The
+picture is the planes from the CRTC's start address, the offset register
+apart, each pixel through the attribute controller's palette (3C0, or `INT
+10h AH=10h`), read in a 200-line mode as RGBI from bits 0-2 and 4.
+
+What the two games use, counted register by register in a run: Rampage writes
+one plane at a time (map mask 1, 2, 4, 8, write mode 0, replace, bit mask
+FFh), clears with set/reset on all four, reads each plane through read map
+select, flips pages with the CRTC's start address and loads its palette with
+AX=1002h; The Ancient Art of War writes 4.7 million bytes in 30 million
+instructions with a partial bit mask after a read that loads the latches, uses
+the xor function (data rotate 18h), map masks 1, 2, 4, 8, E and F, read mode 0
+on every map, and flips pages at 4000h. Neither uses write modes 1 or 2, read
+mode 1, rotation, and/or, or the attribute controller's port; the fixture
+`ega0d.asm` uses all of them, and the suite works out every pixel from the
+fixture's own arithmetic. Not modelled, and refused rather than drawn wrong:
+odd/even addressing (the run stops at the access and says which register),
+write mode 3, which an EGA does not have, the CGA-style shift register,
+horizontal panning and a split screen (the picture is not drawn, and no PNG is
+left). Rampage writes `out dx, ax` with AX 00CDh at 3CEh once -- index 0Dh,
+which the EGA does not have -- and the write is ignored, as the EGA ignores
+it, and counted under the screen.
+
+**The Tandy's picture is part of the machine's RAM**, in 16 KB pages, and two
+registers in port 3DF say which: the CRT page is shown, the CPU page is what
+the window at B800 reaches. Rampage draws on one and shows the other, through
+`INT 10h AH=05h AL=81h` and `83h`; comrun keeps the eight pages and swaps the
+window when the CPU page changes, and draws the CRT page: lines in four banks
+of 8 KB, two pixels a byte, high nibble first, each through the video gate
+array's palette (3DA index 10h-1Fh, 3DE, or `INT 10h AH=10h`), four bits RGBI.
+`tandy9.asm` draws on page 2 while page 6 is shown and then flips.
+
+**Two models agreeing is the best check there is without the hardware.**
+Rampage's EGA and Tandy character screens come from the same `.P16` files
+through different code: planes against nibbles, and palettes that are each
+other's bits reversed (EGA register 1 is blue, 01h; Tandy register 8 is blue,
+1). The two captures are identical in 64,000 of 64,000 pixels.
+
+### A key at the moment the program reads it, by the way it reads it
+
+`--at ADDR=KEY` hands a key over when the program reaches an image offset, and
+was refused with `--keyboard hw` and `auto`, because those send keys through
+port 0x60 on a schedule and `--at` used the BIOS's buffer. And it was read
+after the start-up run, so it had only ever reached a routine run by `--call`:
+The Dam Busters' title would not have taken one in any mode. Now `--at` works
+from the start in every mode and goes the way the program reads the keyboard
+at that moment, whatever `--keyboard` says about the `--keys` queue: into the
+BIOS's buffer while vector 9 is the BIOS's, as a make code and IRQ 1 through
+the program's own INT 09h once it has one (the run stops before the
+instruction at ADDR, raises IRQ 1 at once, and the instruction runs when the
+handler returns), and in the buffer as well when that handler passes the key
+on. The run says which, a line per key. `atkeys.asm` reads a key each way.
+
+**Read what the program compares before choosing a key.** The Dam Busters
+(1984) at its title: `call 0xD255` empties the BIOS's buffer (`while a key is
+waiting, read it`) -- which is where Antigravity's blind space went -- then
+0xD22E waits for any key through `INT 16h` AH=01h and 00h, comparing it with
+nothing, or for its INT 1Ch counter to reach 0x301. Its own INT 09h (D271) and
+INT 0 (D445) are installed only after the title, at 0x0065. The next screen,
+a menu of three starting positions, waits at the same 0xD22E and takes AL
+minus '1' from 0 to 9, or AH minus 3Bh (F1-F10). With `--at
+D22E=0x3920,D22E=0x0231` -- a space for the title, '1' for the menu, each
+through the BIOS's buffer -- the run reaches its map: a region's name beside
+a compass, over a grey map of black lines, cyan lakes and magenta and cyan
+symbols.
+
+### The processor is an 8088
+
+**LOCK.** Jungle Hunt (1983) times port writes with `lock nop` and loops with
+`lock loop`, and Unicorn refused the first: invalid opcode at 0x49ED. It got
+there legitimately: `call 0x49C0` at 0x0633, straight after its title, a
+routine that puts its own handler in vector 8 and then finds the beam through
+the light pen (below). comrec's walk stopped at the same byte, because
+capstone 5 refuses `lock nop` too. An 8088 asserts its LOCK pin for any
+instruction and runs it; a 386 refuses LOCK on anything but a read-modify-write
+of memory, and Unicorn on less -- measured, on `nop` and on arithmetic into a
+register (add, inc, not, cmp), with or without a segment override, while
+`lock mov`, `lock loop`, `lock out` and the memory forms run with the prefix
+ignored. `--cpu 8088`, comrun's default as the sweep's, steps over a LOCK in
+an instruction Unicorn refuses: from Unicorn's invalid-instruction hook, the
+instruction restarted one byte on, or with the LOCK replaced by a copy of the
+prefix before it when another prefix comes first, put back once it has run.
+The run says how many. `--cpu 386` leaves Unicorn as it is, which is not quite
+a 386 (`lock mov` runs). The sweep does the same under its `--cpu 8088`.
+
+**The CPU's exceptions go through the vector.** A divide error went to
+comrun's answer, which did nothing, even where the program had a handler.
+Asked to go on, Unicorn ran the divide again and called it a double fault
+(INT 8), and the third time stopped with no hook called -- and the run
+reported its budget exhausted at the divide. The reason is QEMU's: it keeps
+the exception it is delivering until its own code has delivered it, and a hook
+that delivers it is not that code (the sweep met the same, and restores a
+saved context before each case). comrun now sends a divide error -- DIV, IDIV
+or AAM -- to the program's INT 0 handler when it has one, stops the slice,
+and restores a context saved before the run with every register written back
+(FPU included), which clears the record: measured, five divide errors in a row
+arrive as five INT 0. Where it returns is the 8088's: "Divide exceptions on
+the 80386 always leave the saved CS:IP value pointing to the instruction that
+failed. On the 8086/8088, the CS:IP value points to the next instruction"
+(Intel, 80386 Programmer's Reference Manual, 1986, section 14.7, "Differences
+From 8086", item 3). So `--cpu 8088` pushes the address after the divide,
+from its decoded length, and `386` the divide itself. The trap flag's INT 1,
+which Unicorn raises after each instruction as an 8088 does, goes to the
+program's handler too, and `int3` and `into` reach its INT 3 and 4 as `int n`
+does. A divide error with no handler of the program's ends the run, saying
+that DOS's handler prints "Divide overflow" and ends the program.
+`except.asm` divides five ways, traps three instructions and raises INT 3 and
+4: "5 3 1 1" on an 8088, its handler given the address after each divide.
+
+### Hardware the program reads back
+
+Two of the four games read the hardware's state, which the alternating answer
+every port read gets cannot be:
+
+- **The 8253's count.** The Ancient Art of War, past its adapter check,
+  measures the processor: counter 2 in mode 2 from 7950h, its gate opened,
+  latched (port 0x43, 80h) and read back until the count is below 100, the
+  loops counted. Two consecutive alternating reads never are. A count the
+  program latched is now answered from a model -- what it loaded, counted down
+  at 1,193,182 Hz, which in this harness's time is 65,536 counts to a timer
+  tick of `--timer-every` instructions -- and a read with no latch is answered
+  as before, so a game that reads port 0x40 for a random number runs as it
+  ran. `pit.asm` is the calibration loop: 0x41B loops.
+- **The light pen.** Jungle Hunt finds the CRT beam by clearing the light pen
+  latch (3DBh), setting it (3DCh), reading the address it took from CRTC
+  registers 10h and 11h, dividing by forty, and waiting for row 99. The noise
+  made that divide overflow. Setting the latch now takes the address the 6845
+  would be reading, from a beam that sweeps the CRTC's total once a frame,
+  912 x 262 dots, 19,912 of the 8253's counts. `lightpen.asm` finds row 99.
+
+And one byte of ROM a program names: Jungle Hunt switches INT 1Ch off by
+pointing it at F000:FF53, where the IBM BIOS keeps an `iret`; the first tick
+the BIOS's INT 08h passed on ran into the empty memory at F000. A vector
+holding F000:FF53 is now no handler -- for `int`, the BIOS's tick and IRQs --
+and the memory is left as it was, so a run that wanders through F000 goes as
+it always went.
+
+With these, Jungle Hunt passes 0x49ED (LOCK stepped over 2,256 times in 12
+million instructions), comes back to its title, and with F1 given at 0x3780
+(`--at 3780=0x3B00`) plays: the score line with the time at 4540, the player
+hanging on a vine under the canopy. And The Ancient Art of War, unpacked,
+under `--adapter ega`, passes its check and its calibration and, with no key,
+runs on into a battle: an island with a fort and soldiers, two lines of
+alerts, and a command bar.
 
 ## The referee is not the deliverable
 
@@ -700,8 +879,9 @@ queue (`--keys`) and a clock that advances, both there because without them a
 title screen waits forever; `--stop-at ADDR --stop-after N` stops on the Nth
 arrival, to look at a frame other than the first. Its flags for programs
 that supply their own hardware, `--poll-patience` (`04-pitfalls.md`),
-`--timer-isr`, `--timer`, `--keyboard`, `--no-joystick` and `--bios-text`
-(above), are off by default.
+`--timer-isr`, `--timer`, `--keyboard`, `--no-joystick`, `--bios-text` and
+`--adapter` (above), are off by default; `--cpu` is an 8088 unless told
+otherwise, which changes nothing for a program with no LOCK and no exception.
 Reversing them cost most of a session. When a screen resists being
 photographed, check whether it can be *computed* first — and if the answer
 involves a table and a `Random`, it can.

@@ -316,8 +316,8 @@ mode Kimi copies a shell tool's output to stderr.
 
 When the agents were first run, `AGENTS.md` was 40,684 bytes, and Codex cut
 it inside Step 5 and Antigravity inside Step 3. Since prompt 09a it is kept
-under the smallest limit: after prompt 14, 23,341 bytes as checked out on
-Windows, 22,890 with Unix line endings. The rules stay in it; the measurements and cases behind
+under the smallest limit: after prompt 16, 23,753 bytes as checked out on
+Windows, 23,297 with Unix line endings. The rules stay in it; the measurements and cases behind
 them moved to the `knowledge/` file each step names. `tests/agents` fails if
 it grows past 24,000 bytes in either form.
 
@@ -339,7 +339,9 @@ twentieth, `comdiff` -- 7 characters, a 349-character description, `int`,
 `float` and `bool` arguments -- and nothing in the table changed. Prompt 15
 added `comrun` and `overlays`, 22 in all, measured through the server's own
 listing; only the longest description moved, to `comrun`'s 730 characters
-(`sweep`'s is still 376), with no limit documented to compare it with:
+(`sweep`'s is still 376), with no limit documented to compare it with. Prompt
+16 gave `comrun` `adapter`, `cpu` and `at`, and its description is 1,166
+characters, 20 arguments (`prompts/reports/16-files/tool-listing.py`):
 
 | | Value | Limit found |
 |---|---|---|
@@ -347,7 +349,7 @@ listing; only the longest description moved, to `comrun`'s 730 characters
 | Longest qualified name | `mcp__dos-decompiler__verify_load_image`, 38 | Gemini 63; the others document none on the pages read |
 | Characters | `[a-z_]` in tool names, `dos-decompiler` for the server | Gemini `[A-Za-z0-9_.:-]`; Claude Code replaces anything outside `[A-Za-z0-9_-]` |
 | Schema keywords | `type`, `properties`, `required`, `title`, `default`, `anyOf` (optional values), `items`, `additionalProperties` (the dict arguments of `apply_names` and `sweep`) | Gemini removes `$schema`, `additionalProperties` and an `anyOf`'s `default`, and keeps the rest |
-| Longest description | `comrun`, 730 characters (`sweep` 376 before prompt 15) | none documented |
+| Longest description | `comrun`, 1,166 characters (730 at prompt 15; `sweep` 376 before it) | none documented |
 | Largest result | one page, at most 64,000 bytes | Claude Code 25,000 tokens by default |
 
 Nothing is over a documented limit, so nothing was renamed. `apply_names`
@@ -380,6 +382,25 @@ toolkit said too little.
 The lesson for an agent is the one `AGENTS.md` already states for comrec's
 coverage: a figure that looks like a property of the program -- 0.5% decoded,
 a black screen -- is first a question about what the tool did not do.
+
+Four more runs, on 2026-10-25 and 26, stopped at the same kind of place, and
+prompt 16 answered each (`12-hooking-the-right-thing`):
+
+- **Antigravity on Rampage** chose EGA and Tandy at the game's own menu and
+  got stripes and garble: comrun drew a CGA only. `--adapter ega` and `tandy`
+  draw both, and the two pictures agree pixel for pixel.
+- **Antigravity on The Dam Busters** was refused `--at` with `--keyboard auto`,
+  and stopped there, as it should have. `--at` now works in every mode -- and
+  had never reached a start-up run at all, only `--call`. The space it queued
+  blind was eaten by the title's own flush of the keyboard.
+- **Kimi on Jungle Hunt** stopped at `lock nop`, a timing delay Unicorn
+  refuses and an 8088 runs. `--cpu 8088`, the default, steps over it.
+- **Claude Code on The Ancient Art of War** stopped at the game's adapter
+  check; `--adapter ega` passes it, and the run goes on into a battle.
+
+Both Antigravity reports were headed "Agent: Codex", copied from an earlier
+report's header; `prompts/DECOMPILE.md` now says the agent line, like the
+model and the effort, is the session's own.
 
 ## What the repository cannot do for you
 
