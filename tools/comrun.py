@@ -27,14 +27,29 @@ Enough DOS and BIOS to get a game to its first screen, and no more:
 
   * INT 10h  a mode set and a palette call go into the CGA's registers, for
              drawing (below); with --bios-text the cursor and the text calls
-             are drawn too; everything else is recorded and ignored
+             are drawn too; with --adapter ega or tandy, that adapter's own
+             calls (below); everything else is recorded and ignored
   * INT 21h  the handful of functions a game uses before drawing
   * INT 20h  terminate
   * IN/OUT   port reads return a value that keeps timing loops moving, writes
              are logged; there is no hardware here, except the CGA's
-             registers, which are kept, and the keyboard, the timer, the
-             PIC's mask and its end-of-interrupt, when keys or ticks go
-             through the hardware
+             registers, which are kept, its light pen latch, an 8253 count
+             the program latched, and the keyboard, the timer, the PIC's
+             mask and its end-of-interrupt, when keys or ticks go through
+             the hardware
+
+The processor is an 8088 (--cpu 8088, the default): a LOCK prefix Unicorn
+refuses is stepped over, as the 8088 ran it on any instruction, and a divide
+error returns past the divide. --cpu 386 leaves Unicorn as it is. On both, a
+divide error and the trap flag's INT 1 go to a handler the program put in
+the vector, and a divide error with none ends the run as DOS would.
+
+The adapter is a CGA (--adapter cga, the default, as always). --adapter ega
+answers INT 10h AH=12h as an EGA with 256 KB and draws mode 0Dh from four
+planes at A000; --adapter tandy has a Tandy 1000's ROM signature and draws
+mode 9 from its pages. Both answer INT 11h with an equipment word that says
+so. A register value the model does not model stops the run, or the
+picture, rather than be drawn wrong, and says which.
 
 It does not emulate a disk. The timer is a word at 0040:006C advanced every
 20,000 instructions unless asked for more: `--timer-isr` sends one interrupt
@@ -79,7 +94,10 @@ drawn with the font in tools/fonts/ -- code page 437 from unscii-8, which is in
 the public domain; the CGA's own is in IBM's ROM and is not shipped -- or with
 `--font`. Text a program writes through `INT 10h` rather than into the
 framebuffer is drawn only with `--bios-text`: Alley Cat (1984) asks its first
-question that way, and without it the screen stays black.
+question that way, and without it the screen stays black. With --adapter ega
+in mode 0Dh the picture is the EGA's planes from the CRTC's start address,
+and with --adapter tandy in mode 9 the Tandy's shown page, each through its
+palette and at the scale of a 320-wide CGA picture; see EGA and Tandy.
 
 What it loads
 -------------
@@ -116,6 +134,8 @@ Usage:
     python comrun.py GAME.EXE --files . --png screen.png
     python comrun.py GAME.COM --keys 1 --stop-at 0x3B1 --png frame.png
     python comrun.py GAME.COM --keyboard hw --keys 0x3B00,1 --png frame.png
+    python comrun.py GAME.EXE --keyboard auto --at D22E=0x3920 --png menu.png
+    python comrun.py GAME.COM --adapter ega --keys 2 --png ega.png
     python comrun.py GAME.COM --call 0x14D8 --png level1.png
     python comrun.py GAME.COM --call 0x14D8 --watch 0x217,0x268,0x2b1 \\
                               --json blits.json
@@ -130,13 +150,17 @@ from pathlib import Path
 
 try:
     from unicorn import (Uc, UC_ARCH_X86, UC_MODE_16, UC_HOOK_CODE, UC_HOOK_MEM_WRITE,
-                         UC_HOOK_INTR, UC_HOOK_INSN, UC_PROT_ALL,
-                         UcError)
+                         UC_HOOK_MEM_READ, UC_HOOK_INTR, UC_HOOK_INSN, UC_HOOK_INSN_INVALID,
+                         UC_PROT_ALL, UcError)
     from unicorn.x86_const import (
         UC_X86_REG_AX, UC_X86_REG_BX, UC_X86_REG_CX, UC_X86_REG_DX,
         UC_X86_REG_SI, UC_X86_REG_DI, UC_X86_REG_BP, UC_X86_REG_SP,
         UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, UC_X86_REG_SS,
         UC_X86_REG_IP, UC_X86_REG_AL, UC_X86_REG_EFLAGS,
+        UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX,
+        UC_X86_REG_ESI, UC_X86_REG_EDI, UC_X86_REG_EBP, UC_X86_REG_ESP,
+        UC_X86_REG_EIP, UC_X86_REG_FS, UC_X86_REG_GS,
+        UC_X86_REG_FPCW, UC_X86_REG_FPSW, UC_X86_REG_FPTAG, UC_X86_REG_FP0,
         UC_X86_INS_IN, UC_X86_INS_OUT)
 except ImportError:  # pragma: no cover
     print("comrun: unicorn is required (pip install unicorn)", file=sys.stderr)
@@ -148,6 +172,13 @@ VIDEO = 0xB800 << 4             # CGA framebuffer
 MEMSZ = 0x200000                # 2 MB flat, covers the program and the screen
 LOAD = 0x100                    # a .COM starts here, after its PSP
 STUBS = 0x0F000                 # interrupt stubs, just below the program
+# F000:FF53, where the IBM BIOS keeps an `iret`: a program points a vector at
+# it to switch a handler off. Jungle Hunt (1983) points INT 1Ch there, and the
+# first tick the BIOS's INT 08h passed on ran into the empty memory that is
+# all this harness has at F000. A vector holding it has no handler, here as
+# on the machine. Kept out of memory, so that a run that wanders through F000
+# goes as it always went.
+BIOS_IRET = (0xF000, 0xFF53)
 
 # CGA mode 4 palette 1, high intensity -- the one nearly every game used.
 PALETTES = {
@@ -160,6 +191,60 @@ ZF = 0x40                       # the zero flag, bit 6 of FLAGS
 IF = 0x200                      # the interrupt flag, bit 9 -- see _fire_isr
 TF = 0x100                      # the trap flag, cleared with IF on entry
 CF = 0x01                       # the carry flag -- DOS's error flag
+
+# The processor the program is run as. Unicorn is a later x86, and it differs
+# from the 8088 in two ways a program of the period can meet: it refuses a
+# LOCK prefix on some instructions the 8088 ran it on, and it reports a
+# divide error at the divide rather than after it. --cpu 8088 (the default,
+# as sweep.py's) gives the 8088's answer to both; 386 leaves Unicorn's.
+CPUS = ("8088", "386")
+
+# The 8088's prefixes: the four segment overrides, LOCK and the two repeats.
+# 0x66, 0x67, 0x64 and 0x65 are prefixes from the 386 on; on an 8088 they are
+# other instructions altogether.
+PREFIXES = frozenset((0x26, 0x2E, 0x36, 0x3E, 0xF0, 0xF2, 0xF3))
+
+
+def lock_prefix(raw):
+    """Where a LOCK prefix is among an instruction's prefixes, or None."""
+    for at, byte in enumerate(raw):
+        if byte == 0xF0:
+            return at
+        if byte not in PREFIXES:
+            return None
+    return None
+
+
+def divide_length(raw):
+    """The length of the instruction at the start of `raw` when it is one that
+    raises the divide error -- DIV or IDIV (F6 or F7 with ModRM reg 6 or 7)
+    or AAM, which divides AL by its immediate -- or None. 16-bit addressing,
+    as an 8088 has: ModRM mod 1 adds a byte, mod 2 a word, and mod 0 a word
+    when r/m is 6 (a direct address)."""
+    at = 0
+    while at < len(raw) and raw[at] in PREFIXES:
+        at += 1
+    if at + 1 >= len(raw):
+        return None
+    opcode, modrm = raw[at], raw[at + 1]
+    if opcode == 0xD4:
+        return at + 2
+    if opcode not in (0xF6, 0xF7) or (modrm >> 3) & 7 not in (6, 7):
+        return None
+    mod, rm = modrm >> 6, modrm & 7
+    disp = {0: 2 if rm == 6 else 0, 1: 1, 2: 2, 3: 0}[mod]
+    return at + 2 + disp
+
+
+# What a context restore must carry over: every register a real-mode program
+# can change. Restoring a context resets the rest -- which is the point, see
+# _clear_exception.
+CPU_REGISTERS = (UC_X86_REG_EAX, UC_X86_REG_EBX, UC_X86_REG_ECX, UC_X86_REG_EDX,
+                 UC_X86_REG_ESI, UC_X86_REG_EDI, UC_X86_REG_EBP, UC_X86_REG_ESP,
+                 UC_X86_REG_CS, UC_X86_REG_DS, UC_X86_REG_ES, UC_X86_REG_SS,
+                 UC_X86_REG_FS, UC_X86_REG_GS, UC_X86_REG_EIP, UC_X86_REG_EFLAGS,
+                 UC_X86_REG_FPCW, UC_X86_REG_FPSW, UC_X86_REG_FPTAG) + tuple(
+                     UC_X86_REG_FP0 + i for i in range(8))
 
 # Instructions between two scancodes from --keyboard hw: a key is pressed,
 # held this long, released, and the next one pressed this long after. An
@@ -348,6 +433,420 @@ class CGA:
         return (f"{kind}, 3D8=0x{m:02X} 3D9=0x{self.color:02X}, {r[1]} columns by "
                 f"{r[6]} rows of {(r[9] & 0x1F) + 1} scanlines, start "
                 f"0x{(r[12] << 8 | r[13]) & 0x3FFF:04X}")
+
+
+class PIT:
+    """The 8253's three counters, as far as a program reads one back.
+
+    The Ancient Art of War (1987) measures the processor before its title: it
+    loads counter 2 with 0x7950, latches it (port 0x43, read/write bits 00)
+    and counts its own loops until the latched count is below 100. The
+    alternating answer that keeps a timing loop moving never is, and the loop
+    never ends. A latched count is answered from this model: what the program
+    loaded, counted down at the 8253's 1,193,182 Hz -- in this harness's time
+    65,536 counts to a timer tick, so 3.28 to an instruction by default.
+    Modes 2 and 3 reload when they reach the end (mode 3 counting in twos),
+    the others count on through zero; counter 2 holds while port 0x61 bit 0
+    closes its gate and starts again when it opens. A read with no latch is
+    answered as before: games read port 0x40 for a random number, and those
+    runs are not changed."""
+
+    def __init__(self):
+        self.reload = [0x10000] * 3
+        self.loaded = [0] * 3           # the clock at which each began counting
+        self.mode = [3, 3, 3]
+        self.access = [3, 3, 3]         # 1 low byte, 2 high byte, 3 low then high
+        self.pending = [None] * 3       # a low byte waiting for its high byte
+        self.latched = [[], [], []]     # a latched count's bytes still to be read
+        self.gate2 = False
+        self.latches = 0
+
+    def count(self, channel, now):
+        if channel == 2 and not self.gate2:
+            return self.reload[2] & 0xFFFF
+        elapsed, reload = now - self.loaded[channel], self.reload[channel]
+        if self.mode[channel] & 3 in (2, 3):
+            step = 2 if self.mode[channel] & 3 == 3 else 1
+            return (reload - (elapsed * step) % reload) & 0xFFFF
+        return (reload - elapsed) & 0xFFFF
+
+    def control(self, value, now):
+        channel = value >> 6
+        if channel == 3:
+            return                      # the 8254's read-back; the 8253 has none
+        if (value >> 4) & 3 == 0:
+            c = self.count(channel, now)
+            self.latched[channel] = [c & 0xFF, c >> 8]
+            self.latches += 1
+            return
+        self.access[channel], self.mode[channel] = (value >> 4) & 3, (value >> 1) & 7
+        self.pending[channel] = None
+
+    def write(self, channel, value, now):
+        if self.access[channel] == 1:
+            count = value
+        elif self.access[channel] == 2:
+            count = value << 8
+        elif self.pending[channel] is None:
+            self.pending[channel] = value
+            return
+        else:
+            count, self.pending[channel] = self.pending[channel] | (value << 8), None
+        self.reload[channel] = count or 0x10000
+        self.loaded[channel] = now
+
+    def gate(self, on, now):
+        if on and not self.gate2:
+            self.loaded[2] = now
+        self.gate2 = on
+
+    def read(self, channel):
+        """The next byte of a latched count, or None when none is latched."""
+        return self.latched[channel].pop(0) if self.latched[channel] else None
+
+
+# The CGA's frame in the 8253's counts: 912 dots by 262 lines at 14.318 MHz,
+# which the 8253's clock divides by 12 -- 59.92 frames a second.
+CGA_FRAME = 912 * 262 // 12
+
+
+def light_pen(crtc, now):
+    """The address the 6845 is reading at `now`, in the 8253's counts: what
+    its light pen registers (16 and 17) take when the latch is set through
+    port 0x3DC. Jungle Hunt (1983) sets it to find the beam, divides the
+    address by forty to get the row, and waits for row 99 to start its
+    timer; the alternating answer a port read gets made that division
+    overflow. The beam sweeps the CRTC's total -- columns by scanlines, rows
+    of R9+1 lines and R5 more -- once a frame; the address is the row's
+    start plus the column, as the 6845's counter runs on through the margins."""
+    lines_per_row = (crtc[9] & 0x1F) + 1
+    columns = crtc[0] + 1
+    lines = (crtc[4] + 1) * lines_per_row + crtc[5]
+    t = now % CGA_FRAME
+    line = t * lines // CGA_FRAME
+    column = (t * lines % CGA_FRAME) * columns // CGA_FRAME
+    start = (crtc[12] << 8) | crtc[13]
+    return (start + (line // lines_per_row) * crtc[1] + column) & 0x3FFF
+
+
+# What --adapter ega and tandy answer when a program asks which adapter there
+# is. The equipment word (INT 11h, and 0040:0010) says one floppy drive and
+# the planar RAM bits an XT sets; bits 4 and 5 are the video at start-up: 00
+# for an adapter with its own BIOS (an EGA), 10 for 80-column colour (a
+# Tandy 1000, like a CGA). The machine byte at F000:FFFE is 0xFF, an IBM PC's,
+# which is also what a Tandy 1000's ROM holds; a Tandy is told apart by the
+# 0x21 at F000:C000. --adapter cga writes none of these: comrun never has,
+# and cga keeps every run as it was.
+EQUIPMENT = {"ega": 0x000D, "tandy": 0x002D}
+MACHINE_BYTE = 0xFFFFE
+TANDY_SIGNATURE = 0xFC000
+ADAPTERS = ("cga", "ega", "tandy")
+
+
+def rgbi(value):
+    """An EGA palette register in a 200-line mode, as the RGBI colour it
+    shows: bits 0-2 are blue, green and red, bit 4 the intensity -- the
+    CGA's sixteen, which is what a 200-line monitor can show."""
+    return (value & 7) | ((value >> 1) & 8)
+
+
+class EGA:
+    """The EGA in mode 0Dh -- 320 by 200 in sixteen colours -- register by
+    register: what Rampage (1986) and The Ancient Art of War (1987) use,
+    measured, and no more.
+
+    Video memory is four planes of 64 KB behind the window at A000. A byte
+    written there goes to each plane the sequencer's map mask (3C4/3C5 index
+    2) enables, as the graphics controller (3CE/3CF) makes it: in write mode
+    0 the byte rotated by the data rotate register, or the set/reset colour
+    on the planes enable set/reset names; then combined with the latches by
+    the function (replace, and, or, xor); then the bit mask chooses, bit by
+    bit, between that and the latches. Write mode 1 stores the latches; write
+    mode 2 spreads the byte's low four bits over the planes. A read loads all
+    four latches and returns, in read mode 0, the plane read map select
+    names, or in read mode 1 a bit for each pixel whose colour matches the
+    colour compare register in the planes colour don't care keeps.
+
+    What is drawn: 200 lines of the planes from the CRTC's start address
+    (3D4/3D5 index 12 and 13), the CRTC's offset register (index 0x13) apart,
+    each pixel's four bits through the sixteen palette registers of the
+    attribute controller (3C0, or INT 10h AH=10h). In a 200-line mode a
+    palette register is RGBI: bits 0-2 and bit 4.
+
+    Not modelled, and refused rather than guessed: odd/even addressing (the
+    graphics controller's mode bit 4, its miscellaneous register's chain bit,
+    the sequencer's memory mode bit 2 clear), write mode 3, which the EGA does
+    not have, the CGA-style shift register (mode bit 5), horizontal panning
+    and a split screen (the CRTC's line compare inside the picture). A write
+    to a register index the EGA does not have is ignored, as the EGA ignores
+    it, and counted."""
+
+    GC_NAMES = ("set/reset", "enable set/reset", "colour compare", "data rotate",
+                "read map select", "mode", "miscellaneous", "colour don't care",
+                "bit mask")
+    # The registers the IBM EGA BIOS loads for mode 0Dh that matter here; its
+    # CRTC table holds more, which change only the timing.
+    SEQ_0D = [0x03, 0x0B, 0x0F, 0x00, 0x06]
+    GC_0D = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x0F, 0xFF]
+    PALETTE_0D = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+                  0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17]
+    CRTC_0D = {0x01: 0x27, 0x07: 0x11, 0x09: 0x00, 0x0C: 0x00, 0x0D: 0x00,
+               0x13: 0x14, 0x18: 0xFF}
+
+    def __init__(self):
+        self.planes = [bytearray(0x10000) for _ in range(4)]
+        self.latches = [0, 0, 0, 0]
+        # As DOS leaves an EGA: text mode 3, the A000 window not mapped.
+        self.mode = 3
+        self.seq, self.seq_index = [0x03, 0x00, 0x03, 0x00, 0x03], 0
+        self.gc, self.gc_index = [0, 0, 0, 0, 0, 0x10, 0x0E, 0x00, 0xFF], 0
+        self.crtc, self.crtc_index = [0] * 25, 0
+        self.palette = list(self.PALETTE_0D)
+        self.attr = {0x10: 0x08, 0x11: 0x00, 0x12: 0x0F, 0x13: 0x00}
+        self.attr_index, self.attr_data = 0, False
+        self.ignored = {}           # (port, index) -> writes to a register the EGA lacks
+        self.writes = {"bios": [], "ports": set()}
+        self.reads = self.written = 0
+
+    def bios_mode(self, al):
+        """INT 10h AH=00 on an EGA. Mode 0Dh loads its registers and clears
+        the planes unless AL bit 7 asks to keep them; another mode leaves the
+        window unmapped here, and a CGA mode is drawn by the CGA's model."""
+        self.mode = al & 0x7F
+        self.writes["bios"].append(f"mode {self.mode:02X}h")
+        if self.mode != 0x0D:
+            self.seq[4], self.gc[5], self.gc[6] = 0x03, 0x10, 0x0E
+            return
+        self.seq = list(self.SEQ_0D)
+        self.gc = list(self.GC_0D)
+        self.palette = list(self.PALETTE_0D)
+        self.attr = {0x10: 0x01, 0x11: 0x00, 0x12: 0x0F, 0x13: 0x00}
+        for index, value in self.CRTC_0D.items():
+            self.crtc[index] = value
+        if not al & 0x80:
+            for plane in self.planes:
+                plane[:] = bytes(0x10000)
+
+    def set_palette(self, index, value):
+        if index < 16:
+            self.palette[index] = value & 0x3F
+        elif index in self.attr:
+            self.attr[index] = value
+
+    def out(self, port, value, size=1):
+        """A write to the EGA's ports. A word goes out as two bytes, to the
+        port and the next: `out dx, ax` at 3C4 writes the index then the
+        register, as at 3CE and 3D4. True when the port was the EGA's."""
+        if port not in (0x3C0, 0x3C4, 0x3C5, 0x3CE, 0x3CF, 0x3D4, 0x3D5):
+            return False
+        self.writes["ports"].add(port)
+        self._out(port, value & 0xFF)
+        if size == 2:
+            self._out(port + 1, (value >> 8) & 0xFF)
+        return True
+
+    def _out(self, port, v):
+        if port == 0x3C4:
+            self.seq_index = v & 0x07
+        elif port == 0x3C5:
+            if self.seq_index < len(self.seq):
+                self.seq[self.seq_index] = v
+            else:
+                self._ignore(0x3C5, self.seq_index)
+        elif port == 0x3CE:
+            self.gc_index = v & 0x0F
+        elif port == 0x3CF:
+            if self.gc_index < len(self.gc):
+                self.gc[self.gc_index] = v
+            else:
+                # Rampage writes `out dx, ax` with AX 0x00CD here: index 0x0D,
+                # which the EGA does not have, so the write goes nowhere.
+                self._ignore(0x3CF, self.gc_index)
+        elif port == 0x3C0:
+            # One port for both: a flip-flop, which a read of 3DA resets,
+            # takes an index, then a value, then an index again.
+            if not self.attr_data:
+                self.attr_index = v & 0x1F
+            else:
+                self.set_palette(self.attr_index, v)
+            self.attr_data = not self.attr_data
+        elif port == 0x3D4:
+            self.crtc_index = v & 0x1F
+        elif port == 0x3D5 and self.crtc_index < len(self.crtc):
+            self.crtc[self.crtc_index] = v
+
+    def _ignore(self, port, index):
+        self.ignored[(port, index)] = self.ignored.get((port, index), 0) + 1
+
+    def maps_a000(self):
+        """Whether the window at A000 reaches the planes: the miscellaneous
+        register's memory map 0 or 1."""
+        return (self.gc[6] >> 2) & 3 in (0, 1)
+
+    def refusal(self):
+        """Why memory cannot be read or written as modelled now, or None."""
+        if self.gc[5] & 0x10 or self.gc[6] & 0x02 or not self.seq[4] & 0x04:
+            return (f"odd/even addressing (graphics mode {self.gc[5]:02X}h, "
+                    f"miscellaneous {self.gc[6]:02X}h, sequencer memory mode "
+                    f"{self.seq[4]:02X}h) is not modelled")
+        if self.gc[5] & 3 == 3:
+            return "write mode 3 is not an EGA write mode"
+        return None
+
+    def write(self, at, value):
+        gc, latches, planes = self.gc, self.latches, self.planes
+        mode, mask, bits = gc[5] & 3, self.seq[2] & 0x0F, gc[8]
+        function = (gc[3] >> 3) & 3
+        if mode == 0:
+            turn = gc[3] & 7
+            value = ((value >> turn) | (value << (8 - turn))) & 0xFF
+        for p in range(4):
+            if not mask >> p & 1:
+                continue
+            if mode == 1:
+                planes[p][at] = latches[p]
+                continue
+            if mode == 0:
+                data = ((0xFF if gc[0] >> p & 1 else 0) if gc[1] >> p & 1 else value)
+            else:
+                data = 0xFF if value >> p & 1 else 0
+            if function == 1:
+                data &= latches[p]
+            elif function == 2:
+                data |= latches[p]
+            elif function == 3:
+                data ^= latches[p]
+            planes[p][at] = (data & bits) | (latches[p] & ~bits & 0xFF)
+        self.written += 1
+
+    def read(self, at):
+        gc, latches = self.gc, self.latches
+        for p in range(4):
+            latches[p] = self.planes[p][at]
+        self.reads += 1
+        if not gc[5] & 0x08:
+            return latches[gc[4] & 3]
+        same = 0xFF
+        for p in range(4):
+            if gc[7] >> p & 1:
+                same &= ~(latches[p] ^ (0xFF if gc[2] >> p & 1 else 0)) & 0xFF
+        return same
+
+    def display_refusal(self):
+        """Why the picture cannot be drawn as modelled, or None."""
+        if self.gc[5] & 0x20:
+            return "the CGA-style shift register (graphics mode bit 5) is not modelled"
+        if self.attr.get(0x13, 0) & 0x0F:
+            return f"horizontal panning ({self.attr[0x13]:02X}h) is not modelled"
+        line_compare = self.crtc[0x18] | ((self.crtc[0x07] >> 4) & 1) << 8
+        if line_compare < 200:
+            return f"a split screen at line {line_compare} is not modelled"
+        return None
+
+    def start(self):
+        return (self.crtc[0x0C] << 8) | self.crtc[0x0D]
+
+    def describe(self):
+        return (f"mode 0Dh, 320x200 in 16 colours: start 0x{self.start():04X}, "
+                f"{self.crtc[0x13] * 2} bytes a line, palette "
+                + " ".join(f"{v:02X}" for v in self.palette))
+
+
+def render_ega(ega):
+    """Mode 0Dh as the registers say to draw it, three times in both
+    directions, as a 320-wide CGA picture is: (PIL image, notes)."""
+    from PIL import Image
+    img = Image.new("RGB", (320, 200))
+    px = img.load()
+    start, stride = ega.start(), ega.crtc[0x13] * 2
+    enabled = ega.attr.get(0x12, 0x0F) & 0x0F
+    colours = [RGBI[rgbi(v)] for v in ega.palette]
+    p0, p1, p2, p3 = ega.planes
+    for y in range(200):
+        base = start + y * stride
+        for column in range(40):
+            at = (base + column) & 0xFFFF
+            b0, b1, b2, b3 = p0[at], p1[at], p2[at], p3[at]
+            for k in range(8):
+                bit = 7 - k
+                index = (((b0 >> bit) & 1) | (((b1 >> bit) & 1) << 1)
+                         | (((b2 >> bit) & 1) << 2) | (((b3 >> bit) & 1) << 3)) & enabled
+                px[column * 8 + k, y] = colours[index]
+    notes = []
+    if ega.ignored:
+        notes.append("ignored, as the EGA ignores them: " + ", ".join(
+            f"{n:,} write{'' if n == 1 else 's'} to {port:X}h index {index:02X}h"
+            for (port, index), n in sorted(ega.ignored.items())))
+    return img.resize((960, 600), Image.NEAREST), notes
+
+
+class Tandy:
+    """The Tandy 1000's video in mode 9 -- 320 by 200 in sixteen colours,
+    32 KB -- as Rampage (1986) uses it.
+
+    Video memory is part of the machine's RAM, counted in 16 KB pages, and two
+    page registers say which: the CRT page is shown, the CPU page is what the
+    window at B800 reaches, and a program draws on one while showing the
+    other. Port 3DF holds both (bits 0-2 the CRT page, 3-5 the CPU page, 6-7
+    the addressing; 11 is the 32 KB graphics modes'), as INT 10h AH=05h
+    AL=80h-83h reads and sets them. In 32 KB modes a page number's low bit is
+    ignored. The eight pages are kept here, and the window is the CPU page's
+    two: when the CPU page changes, the window is put away and the new page
+    brought in. A program that reaches the pages through their place in its
+    own RAM rather than through B800 is not modelled.
+
+    A line is 160 bytes, two pixels a byte, high nibble first, and the lines
+    are in four banks of 8 KB: line y at (y mod 4) * 0x2000 + (y div 4) *
+    160. Each pixel goes through a palette register of the video gate array
+    (index 3DA, data 3DE, registers 10h-1Fh; or INT 10h AH=10h), whose four
+    bits are the CGA's RGBI."""
+
+    WINDOW = 0x8000
+
+    def __init__(self):
+        self.pages = bytearray(0x20000)
+        self.mode = 3
+        # The BIOS sets both page registers to the top of the 128 KB the
+        # video pages are counted in, and Rampage's own first write agrees.
+        self.crt_page, self.cpu_page, self.addressing = 6, 6, 3
+        self.palette = list(range(16))
+        self.border = 0
+        self.gate_index = 0
+        self.gate = {}              # video gate array registers other than the palette
+        self.writes = {"bios": [], "ports": set()}
+
+    def base(self, page):
+        return (page & 6) * 0x4000
+
+    def set_palette(self, index, value):
+        if index < 16:
+            self.palette[index] = value & 0x0F
+
+    def set_border(self, value):
+        self.border = value & 0x0F
+
+    def describe(self):
+        return (f"mode 9, 320x200 in 16 colours: CRT page {self.crt_page}, CPU page "
+                f"{self.cpu_page}, palette " + " ".join(f"{v:X}" for v in self.palette))
+
+
+def render_tandy(tandy, shown):
+    """Mode 9 from the 32 KB `shown`, three times in both directions."""
+    from PIL import Image
+    img = Image.new("RGB", (320, 200))
+    px = img.load()
+    colours = [RGBI[v] for v in tandy.palette]
+    for y in range(200):
+        base = (y & 3) * 0x2000 + (y >> 2) * 160
+        for column in range(160):
+            v = shown[base + column]
+            px[column * 2, y] = colours[v >> 4]
+            px[column * 2 + 1, y] = colours[v & 0x0F]
+    notes = []
+    if tandy.gate:
+        notes.append("video gate array registers written and not modelled: " + ", ".join(
+            f"{index:02X}h={value:02X}h" for index, value in sorted(tandy.gate.items())))
+    return img.resize((960, 600), Image.NEAREST), notes
 
 
 # The glyphs a picture can be drawn from without a font: blank, the full
@@ -606,6 +1105,30 @@ class Machine:
                           "held": 0, "masked": 0, "eoi": 0}
         self._watching_timer = False
         self.cga = CGA()            # what the program told the display adapter
+        # Which adapter the machine has: --adapter. cga answers every question
+        # as comrun always has; ega and tandy add their identity, registers
+        # and memory (set_adapter).
+        self.adapter = "cga"
+        self.ega = None             # the EGA model, with --adapter ega
+        self.tandy = None           # the Tandy 1000's video, with --adapter tandy
+        self.identity_reads = {}    # ROM address -> reads, with ega or tandy
+        self.pit = PIT()            # the 8253, for a count the program latches
+        self.pen = 0                # the light pen latch: the address it took
+        self.pen_presets = 0
+        # The processor: --cpu. See CPUS, _on_invalid and _cpu_exception.
+        self.cpu = "8088"
+        self.lock_steps = 0         # LOCK prefixes the 8088 stepped over
+        self.lock_sites = set()     # and where
+        self._lock_resume = None    # the instruction a LOCK was stepped over in
+        self._lock_patch = None     # (address, byte) to put back after it ran
+        self.exceptions = {}        # vector -> (deliveries, handlers), as dispatched
+        self._exception_taken = False
+        # --at: each key's path, (step, image offset, AX, path) in order.
+        self.at_log = []
+        self.at_hardware = False    # an --at key went through IRQ 1
+        self._at_resume = None      # the address an --at key's IRQ 1 interrupted
+        self._at_queued = []        # at_log entries of --at keys in hw_keys, in order
+        self._at_pressed = None     # the at_log entry of the key in flight, if one
         # Text written through INT 10h -- the cursor calls and AH=09h, 0Ah and
         # 0Eh -- drawn into the framebuffer with the font, as the BIOS does:
         # --bios-text. Off by default, and while off those calls are what they
@@ -696,6 +1219,11 @@ class Machine:
         self.uc.hook_add(UC_HOOK_INSN, self._on_in, None, 1, 0, UC_X86_INS_IN)
         self.uc.hook_add(UC_HOOK_INSN, self._on_out, None, 1, 0, UC_X86_INS_OUT)
         self.uc.hook_add(UC_HOOK_CODE, self._on_code)
+        # Called only for an instruction Unicorn refuses, so it costs nothing
+        # until then; see _on_invalid.
+        self.uc.hook_add(UC_HOOK_INSN_INVALID, self._on_invalid)
+        # The CPU's state with no exception in progress: see _clear_exception.
+        self._clean = self.uc.context_save()
 
     def _load_mz(self, image, h):
         """Load an MZ the way DOS does, relocations and all.
@@ -754,6 +1282,15 @@ class Machine:
     TICK_EVERY = 20_000
 
     def _on_code(self, uc, addr, size, _):
+        if (self._lock_resume is not None or self._lock_patch is not None) \
+                and self._after_lock(addr):
+            return
+        if self._at_resume == addr:
+            # Back where an --at key's IRQ 1 interrupted the program, before
+            # the instruction ran: the same arrival, already counted, so no
+            # second key, step, watch or stop hit.
+            self._at_resume = None
+            return
         self.steps += 1
         # A ring of the last few addresses. A fault reports where it landed;
         # what you need is where it came from, and by then the registers no
@@ -808,7 +1345,7 @@ class Machine:
             self._sync_kbd()
         pending = self.at_keys.get(off)
         if pending:
-            self.keys.append(pending.pop(0))
+            self._at_arrival(uc, addr, off, pending.pop(0))
         if off in self.watch:
             self.watch[off](off)
         # Stopping on the *nth* arrival, not the first, is what makes a game
@@ -837,9 +1374,26 @@ class Machine:
         """seg:off of the handler the program put in vector `num`, or None
         while the vector still holds this harness's stub (or nothing)."""
         off, seg = struct.unpack("<HH", self.uc.mem_read(num * 4, 4))
-        if (seg, off) in ((STUBS >> 4, num * 4), (0, 0)):
+        if (seg, off) in ((STUBS >> 4, num * 4), (0, 0), BIOS_IRET):
             return None
         return seg, off
+
+    # The one-byte forms: `int3` (CC) raises INT 3 and `into` (CE) INT 4 when
+    # the overflow flag is set. Both leave IP past themselves, as `int n` does.
+    ONE_BYTE = {3: 0xCC, 4: 0xCE}
+
+    def _software_int(self, uc, num, cs, ip):
+        """Whether the instruction just before CS:IP raised INT num: `int n`,
+        or `int3` or `into`. A CPU exception is not one: its IP is the
+        faulting instruction's or the next one's, and neither is preceded by
+        an instruction naming the vector."""
+        try:
+            if bytes(uc.mem_read((cs << 4) + ip - 2, 2)) == bytes((0xCD, num)):
+                return True
+            return (num in self.ONE_BYTE
+                    and uc.mem_read((cs << 4) + ip - 1, 1)[0] == self.ONE_BYTE[num])
+        except UcError:
+            return False
 
     def _to_program(self, uc, num):
         """Send an `int n` the program executed to its own handler, when it
@@ -849,14 +1403,21 @@ class Machine:
         at = (cs << 4) + ip - 2
         if STUBS <= at < STUBS + 0x400:
             return False                        # passed on to the vector it replaced
-        try:
-            if bytes(uc.mem_read(at, 2)) != bytes((0xCD, num)):
-                return False                    # a CPU exception, not an `int n`
-        except UcError:
-            return False
+        if not self._software_int(uc, num, cs, ip):
+            return False                        # a CPU exception, not an `int n`
         handler = self._program_vector(num)
         if handler is None:
             return False
+        self._enter(uc, handler, cs, ip)
+        count, handlers = self.dispatched.get(num, (0, []))
+        if handler not in handlers:
+            handlers.append(handler)
+        self.dispatched[num] = (count + 1, handlers)
+        return True
+
+    def _enter(self, uc, handler, cs, ip):
+        """What the CPU does to take an interrupt: FLAGS, CS and the return
+        IP pushed, IF and TF cleared, and on at the handler."""
         seg, off = handler
         flags = uc.reg_read(UC_X86_REG_EFLAGS) & 0xFFFF
         sp = (uc.reg_read(UC_X86_REG_SP) - 6) & 0xFFFF
@@ -866,11 +1427,169 @@ class Machine:
         uc.reg_write(UC_X86_REG_EFLAGS, flags & ~(IF | TF))
         uc.reg_write(UC_X86_REG_CS, seg)
         uc.reg_write(UC_X86_REG_IP, off)
-        count, handlers = self.dispatched.get(num, (0, []))
+
+    # -- the exceptions the CPU raises itself --------------------------------
+    #
+    # The Microsoft C and Turbo Pascal runtimes put their own handler in
+    # vector 0, and so does The Dam Busters (1984); a divide error went to
+    # this harness's answer all the same, which was to do nothing -- and
+    # Unicorn, asked to carry on, ran the divide again and called the second
+    # fault a double fault and the third a reason to stop, with nothing said.
+    # The 8088 raises two exceptions of its own: the divide error, INT 0, by
+    # DIV, IDIV and AAM, and with the trap flag set INT 1 after every
+    # instruction. Both go through the vector as an interrupt does. Where they
+    # return differs from later processors: an 8088's divide error pushes the
+    # address of the instruction AFTER the divide, a 286's or later's the
+    # divide itself. Intel says so in the 80386 Programmer's Reference Manual
+    # (1986), section 14.7, "Differences From 8086", item 3: "Divide
+    # exceptions on the 80386 always leave the saved CS:IP value pointing to
+    # the instruction that failed. On the 8086/8088, the CS:IP value points
+    # to the next instruction." --cpu 8088 returns after the divide; 386 to it.
+
+    def _cpu_exception(self, uc, num):
+        """INT 0 or INT 1 raised by the CPU rather than by an instruction
+        naming it: to the program's handler when it has one. True when this
+        dealt with it."""
+        cs = uc.reg_read(UC_X86_REG_CS)
+        ip = uc.reg_read(UC_X86_REG_IP)
+        here = (cs << 4) + ip
+        if self._software_int(uc, num, cs, ip) or STUBS <= here < STUBS + 0x400:
+            return False
+        handler = self._program_vector(num)
+        if num == 0:
+            # Unicorn leaves IP on the divide, as a later x86 does.
+            try:
+                size = divide_length(bytes(uc.mem_read(here, 8)))
+            except UcError:
+                size = None
+            if size is None:
+                return False
+            if handler is None:
+                self.stopped = (f"divide error at {cs:04X}:{ip:04X} (image "
+                                f"{here - self.img_bias:#08x}); the program has no INT 00h "
+                                f"handler of its own, and DOS's prints \"Divide overflow\" "
+                                f"and ends the program")
+                uc.emu_stop()
+                return True
+            back = (ip + size) & 0xFFFF if self.cpu == "8088" else ip
+            # Unicorn keeps a record of the fault until something it trusts
+            # delivers it, and this hook is not that: the next divide error
+            # would arrive as a double fault. The run loop clears the record.
+            self._exception_taken = True
+            uc.emu_stop()
+        else:
+            # The trap flag: IP is already past the instruction, on any CPU.
+            # With no handler of the program's, the BIOS's INT 1 is an `iret`.
+            if handler is None:
+                return True
+            back = ip
+        self._enter(uc, handler, cs, back)
+        count, handlers = self.exceptions.get(num, (0, []))
         if handler not in handlers:
             handlers.append(handler)
-        self.dispatched[num] = (count + 1, handlers)
+        self.exceptions[num] = (count + 1, handlers)
         return True
+
+    def _clear_exception(self):
+        """After a divide error went to the program's handler: put the CPU in
+        a state with no exception in progress, every register as it is.
+
+        Unicorn takes an exception the way QEMU does, remembering it until it
+        has been delivered by QEMU's own code -- which a hook that delivers it
+        is not. A second divide error is then taken for a fault during the
+        first and becomes a double fault (INT 8), and a third ends the run
+        with no hook called: measured, on four divides by zero in a row. A
+        context saved before the run has nothing in progress; restored, with
+        the registers written back, the next divide error is INT 0 again."""
+        values = [(r, self.uc.reg_read(r)) for r in CPU_REGISTERS]
+        self.uc.context_restore(self._clean)
+        for r, value in values:
+            self.uc.reg_write(r, value)
+        self._exception_taken = False
+
+    # -- LOCK on an 8088 -------------------------------------------------------
+    #
+    # Jungle Hunt (1983) times its port writes with `lock nop` and loops with
+    # `lock loop`. The 8088 asserts its LOCK pin for the instruction and runs
+    # it, whatever it is. A 386 refuses LOCK on anything that is not a
+    # read-modify-write of memory, and Unicorn refuses it on fewer -- measured,
+    # on `nop` and on arithmetic into a register (add, inc, not, cmp), with
+    # or without a segment override; it runs `lock mov`, `lock loop`, `lock
+    # out` and the memory forms, ignoring the prefix itself. Under --cpu 8088
+    # an instruction it refuses for its LOCK runs without it.
+
+    def _on_invalid(self, uc, _):
+        """An instruction Unicorn refuses: under --cpu 8088, run one it
+        refuses for its LOCK prefix without the prefix. True to go on."""
+        if self.cpu != "8088":
+            return False
+        cs = uc.reg_read(UC_X86_REG_CS)
+        ip = uc.reg_read(UC_X86_REG_IP)
+        here = (cs << 4) + ip
+        try:
+            raw = bytes(uc.mem_read(here, 15))
+        except UcError:
+            return False
+        at = lock_prefix(raw)
+        if at is None:
+            return False
+        self.lock_steps += 1
+        self.lock_sites.add(here - self.img_bias)
+        if at == 0:
+            # The prefix first: start the instruction one byte later.
+            uc.reg_write(UC_X86_REG_IP, (ip + 1) & 0xFFFF)
+            self._lock_resume = here + 1
+        else:
+            # After other prefixes: in its place, a copy of the prefix before
+            # it, which changes nothing a prefix means, until the instruction
+            # has run (_after_lock).
+            self._lock_patch = (here + at, 0xF0)
+            uc.mem_write(here + at, raw[at - 1:at])
+            uc.ctl_remove_cache(here + at, here + at + 1)
+            self._lock_resume = here
+        return True
+
+    def _after_lock(self, addr):
+        """True for the instruction a LOCK was just stepped over in, arriving
+        again: it was counted when it first arrived. Otherwise put back the
+        byte a LOCK after other prefixes was replaced with, now that its
+        instruction has run."""
+        if addr == self._lock_resume:
+            self._lock_resume = None
+            return True
+        self._restore_lock()
+        return False
+
+    def _restore_lock(self):
+        if self._lock_patch is not None:
+            at, byte = self._lock_patch
+            self._lock_patch = None
+            self.uc.mem_write(at, bytes((byte,)))
+            self.uc.ctl_remove_cache(at, at + 1)
+
+    def cpu_summary(self):
+        """One line on what the CPU model did that Unicorn would not have, or
+        None when it did nothing."""
+        parts = []
+        if self.lock_steps:
+            sites = sorted(self.lock_sites)
+            parts.append(f"a LOCK prefix stepped over {self.lock_steps:,} time"
+                         f"{'' if self.lock_steps == 1 else 's'}, at "
+                         + ", ".join(f"{a:#x}" for a in sites[:6])
+                         + (f" and {len(sites) - 6} more" if len(sites) > 6 else ""))
+        names = {0: "divide error", 1: "single-step trap"}
+        for num, (count, handlers) in sorted(self.exceptions.items()):
+            where = ", ".join(f"{s:04X}:{o:04X}" for s, o in handlers)
+            how = ""
+            if num == 0:
+                how = (", each returning after its divide, as an 8088's does"
+                       if self.cpu == "8088" else
+                       ", each returning to its divide, as a 386's does")
+            parts.append(f"{names[num]} {count:,} time{'' if count == 1 else 's'} to the "
+                         f"program's INT {num:02X}h at {where}{how}")
+        if not parts:
+            return None
+        return f"cpu       : {self.cpu}: " + "; ".join(parts)
 
     def replaced_vectors(self):
         """The vectors that hold the program's own handlers now."""
@@ -895,6 +1614,8 @@ class Machine:
         self.ints.append((num, ah))
         if self._to_program(uc, num):
             return
+        if num in (0, 1) and self._cpu_exception(uc, num):
+            return
         if num == 0x20:
             self.stopped = "int 0x20"
             uc.emu_stop()
@@ -907,6 +1628,14 @@ class Machine:
             self.cga.bios_mode(uc.reg_read(UC_X86_REG_AX) & 0xFF)
             if self.bios_text:
                 self._bios_set_mode(uc.reg_read(UC_X86_REG_AX) & 0xFF)
+            if self.ega is not None:
+                self.ega.bios_mode(uc.reg_read(UC_X86_REG_AX) & 0xFF)
+            if self.tandy is not None:
+                self._tandy_mode(uc.reg_read(UC_X86_REG_AX) & 0xFF)
+        elif num == 0x10 and self.adapter != "cga" and self._adapter_bios(uc, ah):
+            pass
+        elif num == 0x11 and self.adapter != "cga":
+            uc.reg_write(UC_X86_REG_AX, EQUIPMENT[self.adapter])
         elif num == 0x10 and ah == 0x0B:
             bx = uc.reg_read(UC_X86_REG_BX)
             self.cga.bios_palette(bx >> 8, bx & 0xFF)
@@ -1329,6 +2058,21 @@ class Machine:
                 v = 0x14 | (1 if self.kbd_full else 0)
             self.ports.append(("in", port, v))
             return v
+        if 0x40 <= port <= 0x42:
+            v = self.pit.read(port - 0x40)
+            if v is not None:
+                self.ports.append(("in", port, v))
+                return v
+        if port == 0x3D5 and self.cga.index in (0x10, 0x11):
+            # The light pen registers: the address the latch took.
+            v = (self.pen >> 8) & 0x3F if self.cga.index == 0x10 else self.pen & 0xFF
+            self.ports.append(("in", port, v))
+            return v
+        if port == 0x3DA and self.ega is not None:
+            # The status port; reading it also resets the attribute
+            # controller's flip-flop to take an index next. The value is the
+            # alternating one below, as before.
+            self.ega.attr_data = False
         if port == 0x201 and self.no_joystick:
             # No game adapter: an empty port reads 0xFF, so the axis bits
             # never fall and no button is down. Rollo probes for a joystick
@@ -1347,6 +2091,10 @@ class Machine:
     def _on_out(self, uc, port, size, value, _=None):
         self.ports.append(("out", port, value))
         self.cga.out(port, value, size)
+        if self.ega is not None:
+            self.ega.out(port, value, size)
+        elif self.tandy is not None and port in (0x3DA, 0x3DE, 0x3DF):
+            self._tandy_out(port, value & 0xFF)
         if port == 0x20 and (value == 0x20 or 0x60 <= value <= 0x67):
             # End of interrupt: 0x20 acknowledges the most urgent level in
             # service (the lowest number), 0x60+n acknowledges level n.
@@ -1360,7 +2108,23 @@ class Machine:
                     self.timer_log["eoi"] += 1
         elif port == 0x21:
             self.pic_mask = value & 0xFF
+        elif port == 0x43:
+            self.pit.control(value & 0xFF, self.pit_now())
+        elif 0x40 <= port <= 0x42:
+            self.pit.write(port - 0x40, value & 0xFF, self.pit_now())
+        elif port == 0x61:
+            self.pit.gate(bool(value & 1), self.pit_now())
+        elif port == 0x3DC:
+            # Preset the light pen latch: it takes the address now. 0x3DB
+            # clears it, which changes nothing a program can read back.
+            self.pen = light_pen(self.cga.crtc, self.pit_now())
+            self.pen_presets += 1
         return True
+
+    def pit_now(self):
+        """The time in the 8253's counts: 65,536 to a timer tick, and a tick
+        is --timer-every instructions."""
+        return self.steps * 0x10000 // self.timer_every
 
     # -- text through the BIOS ----------------------------------------------
     #
@@ -1472,6 +2236,193 @@ class Machine:
             lines = bytes(self.uc.mem_read(bank + 4 * 80, 96 * 80))
             self.uc.mem_write(bank, lines + bytes(4 * 80))
 
+    # -- the adapter ----------------------------------------------------------
+    #
+    # The Ancient Art of War (1987) will not start without "EGA or VGA card or
+    # Tandy 1000", and asks in four ways before its title: INT 11h, INT 10h
+    # AX=1A00h (a VGA's BIOS answers AL=1Ah), INT 10h AH=12h BL=10h (an EGA's
+    # BIOS changes BL; it wants 3, 256 KB) and the byte at F000:C000 (0x21
+    # on a Tandy 1000). Rampage (1986) asks nothing: the player chooses CGA,
+    # EGA or Tandy, and it draws as it was told. An adapter answers as its
+    # BIOS would; AX=1A00h goes unanswered on all three, which is how a BIOS
+    # without VGA support leaves it.
+
+    def set_adapter(self, name):
+        """--adapter: the display adapter the machine has."""
+        if name not in ADAPTERS:
+            raise ValueError(f"adapter {name!r}: one of {', '.join(ADAPTERS)}")
+        self.adapter = name
+        if name == "cga":
+            return
+        self.uc.mem_write(0x410, struct.pack("<H", EQUIPMENT[name]))
+        self.uc.mem_write(MACHINE_BYTE, bytes((0xFF,)))
+        if name == "tandy":
+            self.uc.mem_write(TANDY_SIGNATURE, bytes((0x21,)))
+            self.tandy = Tandy()
+        else:
+            self.ega = EGA()
+            self.uc.hook_add(UC_HOOK_MEM_WRITE, self._on_planes_write, None,
+                             0xA0000, 0xAFFFF)
+            self.uc.hook_add(UC_HOOK_MEM_READ, self._on_planes_read, None,
+                             0xA0000, 0xAFFFF)
+        # Which of the questions the program asked, for the summary: the two
+        # ROM bytes are read, not asked for, so only a hook sees them.
+        for at in (TANDY_SIGNATURE, MACHINE_BYTE, 0x410):
+            self.uc.hook_add(UC_HOOK_MEM_READ, self._on_identity_read, None, at, at + 1)
+
+    def _on_identity_read(self, uc, access, address, size, value, _):
+        at = address & ~1               # each hooked range is two bytes from an even one
+        self.identity_reads[at] = self.identity_reads.get(at, 0) + 1
+
+    def _refuse(self, uc, why):
+        if self.stopped is None:
+            cs, ip = uc.reg_read(UC_X86_REG_CS), uc.reg_read(UC_X86_REG_IP)
+            self.stopped = (f"EGA at {cs:04X}:{ip:04X}: {why}; the run stops rather "
+                            f"than draw it wrong")
+        uc.emu_stop()
+
+    def _on_planes_write(self, uc, access, address, size, value, _):
+        ega = self.ega
+        if not ega.maps_a000():
+            return
+        why = ega.refusal()
+        if why:
+            self._refuse(uc, why)
+            return
+        for i in range(size):
+            ega.write((address - 0xA0000 + i) & 0xFFFF, (value >> (8 * i)) & 0xFF)
+
+    def _on_planes_read(self, uc, access, address, size, value, _):
+        # A read hook runs before the read, so what is written here is what
+        # the program reads: measured, a word read included.
+        ega = self.ega
+        if not ega.maps_a000():
+            return
+        why = ega.refusal()
+        if why:
+            self._refuse(uc, why)
+            return
+        uc.mem_write(address, bytes(ega.read((address - 0xA0000 + i) & 0xFFFF)
+                                    for i in range(size)))
+
+    def _adapter_bios(self, uc, ah):
+        """INT 10h as an EGA's or a Tandy 1000's BIOS answers it, for the
+        calls the CGA's does not have. True when this answered it."""
+        ax, bx = uc.reg_read(UC_X86_REG_AX), uc.reg_read(UC_X86_REG_BX)
+        al = ax & 0xFF
+        target = self.ega or self.tandy
+        if ah == 0x12 and self.ega is not None and bx & 0xFF == 0x10:
+            # EGA information: BH 0, a colour adapter; BL 3, 256 KB; CH 0,
+            # no feature bits; CL 9, the switches of an Enhanced Color Display.
+            uc.reg_write(UC_X86_REG_BX, 0x0003)
+            uc.reg_write(UC_X86_REG_CX, 0x0009)
+            return True
+        if ah == 0x10 and al in (0x00, 0x01, 0x02):
+            # Palette registers: AL 00h one (BL) to BH, 01h the border to BH,
+            # 02h all sixteen and the border from 17 bytes at ES:DX. The
+            # border is the EGA's overscan register, 11h.
+            if al == 0x00:
+                writes = [(bx & 0xFF, bx >> 8)]
+            elif al == 0x01:
+                writes = [(16, bx >> 8)]
+            else:
+                es, dx = uc.reg_read(UC_X86_REG_ES), uc.reg_read(UC_X86_REG_DX)
+                writes = list(enumerate(bytes(uc.mem_read((es << 4) + dx, 17))))
+            for index, value in writes:
+                if index < 16:
+                    target.set_palette(index, value)
+                elif self.ega is not None:
+                    self.ega.set_palette(0x11, value)
+                else:
+                    self.tandy.set_border(value)
+            target.writes["bios"].append(f"AX={ax:04X}h")
+            return True
+        if ah == 0x05 and self.tandy is not None and al & 0x80:
+            # The Tandy's CRT and CPU page registers: AL 80h reads them into
+            # BH and BL, 81h sets the CPU page from BL, 82h the CRT page from
+            # BH, 83h both.
+            t = self.tandy
+            if al == 0x80:
+                uc.reg_write(UC_X86_REG_BX, (t.crt_page << 8) | t.cpu_page)
+            else:
+                crt = (bx >> 8) & 7 if al & 0x02 else t.crt_page
+                cpu = bx & 7 if al & 0x01 else t.cpu_page
+                self._tandy_pages(crt, cpu, t.addressing)
+            return True
+        return False
+
+    def _tandy_mode(self, al):
+        """INT 10h AH=00 on a Tandy 1000: mode 9 is its 320x200 in sixteen
+        colours, drawn from the pages; the CGA's modes are the CGA's."""
+        t = self.tandy
+        t.mode = al & 0x7F
+        t.writes["bios"].append(f"mode {t.mode:02X}h")
+        if t.mode != 9:
+            return
+        t.palette = list(range(16))
+        self._tandy_pages(6, 6, 3)
+        if not al & 0x80:
+            self.uc.mem_write(VIDEO, bytes(Tandy.WINDOW))
+
+    def _tandy_pages(self, crt, cpu, addressing):
+        """New page registers: the window put away into the CPU page it
+        showed, and the new CPU page brought into it."""
+        t = self.tandy
+        old, new = t.base(t.cpu_page), t.base(cpu)
+        if old != new:
+            t.pages[old:old + Tandy.WINDOW] = bytes(self.uc.mem_read(VIDEO, Tandy.WINDOW))
+            self.uc.mem_write(VIDEO, bytes(t.pages[new:new + Tandy.WINDOW]))
+        t.crt_page, t.cpu_page, t.addressing = crt, cpu, addressing
+
+    def _tandy_out(self, port, value):
+        t = self.tandy
+        if port == 0x3DF:
+            t.writes["ports"].add(port)
+            self._tandy_pages(value & 7, (value >> 3) & 7, (value >> 6) & 3)
+        elif port == 0x3DA:
+            t.gate_index = value & 0x1F
+        elif port == 0x3DE:
+            t.writes["ports"].add(port)
+            if 0x10 <= t.gate_index <= 0x1F:
+                t.set_palette(t.gate_index - 0x10, value)
+            elif t.gate_index == 0x02:
+                t.set_border(value)
+            else:
+                t.gate[t.gate_index] = value & 0xFF
+
+    def tandy_shown(self):
+        """The 32 KB the CRT page shows: the window when it is also the CPU
+        page, else the page as it was put away."""
+        t = self.tandy
+        if t.base(t.crt_page) == t.base(t.cpu_page):
+            return bytes(self.uc.mem_read(VIDEO, Tandy.WINDOW))
+        start = t.base(t.crt_page)
+        return bytes(t.pages[start:start + Tandy.WINDOW])
+
+    def adapter_summary(self):
+        """One line on the adapter and what the program asked it, or None for
+        cga when the program asked nothing an EGA or a VGA would answer."""
+        asked = {}
+        for num, ah in self.ints:
+            if num == 0x11 or (num == 0x10 and ah in (0x12, 0x1A)):
+                key = "INT 11h" if num == 0x11 else f"INT 10h AH={ah:02X}h"
+                asked[key] = asked.get(key, 0) + 1
+        if self.adapter == "cga":
+            if not any(k.startswith("INT 10h") for k in asked):
+                return None
+            return ("adapter   : cga -- the program asked for an EGA (INT 10h AH=12h) or a "
+                    "VGA (AH=1Ah) and was told none; --adapter ega answers as an EGA")
+        parts = [f"{k} {n:,} time{'' if n == 1 else 's'}" for k, n in sorted(asked.items())]
+        names = {TANDY_SIGNATURE: "F000:C000", MACHINE_BYTE: "F000:FFFE", 0x410: "0040:0010"}
+        parts += [f"read {names[at]} {n:,} time{'' if n == 1 else 's'}"
+                  for at, n in sorted(self.identity_reads.items())]
+        said = {"ega": "an EGA with 256 KB (INT 10h AH=12h BL=10h), no VGA, equipment word "
+                       f"{EQUIPMENT['ega']:04X}h",
+                "tandy": "a Tandy 1000 (0x21 at F000:C000), equipment word "
+                         f"{EQUIPMENT['tandy']:04X}h"}[self.adapter]
+        return (f"adapter   : {self.adapter}, answering as {said}; the program asked: "
+                + (", ".join(parts) if parts else "nothing"))
+
     # -- running -------------------------------------------------------------
 
     def run(self, start=None, stop=None, budget=20_000_000):
@@ -1517,6 +2468,8 @@ class Machine:
             except UcError as e:
                 self.stopped = self.stopped or f"fault: {e} at {self._where()}"
                 break
+            finally:
+                self._restore_lock()
             # What actually ran, which is n unless --keyboard auto ended the
             # slice at the moment the program replaced vector 9.
             ran = self.steps - before
@@ -1524,12 +2477,15 @@ class Machine:
             timer_left -= ran
             if self.stopped is not None:
                 break
+            taken = self._exception_taken
+            if taken:
+                self._clear_exception()
             cs = self.uc.reg_read(UC_X86_REG_CS)
             ip = self.uc.reg_read(UC_X86_REG_IP)
             addr = (cs << 4) + ip
             wait = self._keyboard_wait()
             tick = self._timer_wait()
-            if addr == end or left <= 0 or not (self.isr_vector or wait is not None
+            if addr == end or left <= 0 or not (taken or self.isr_vector or wait is not None
                                                 or tick is not None
                                                 or self._auto_undecided()):
                 break
@@ -1570,7 +2526,59 @@ class Machine:
 
     def _hardware_keys(self):
         """True while keys go through port 0x60 rather than INT 16h."""
-        return self.keyboard == "hw" or self.kbd_route == "hardware"
+        return self.keyboard == "hw" or self.kbd_route == "hardware" or self.at_hardware
+
+    # -- a key at a chosen moment --------------------------------------------
+    #
+    # --at hands a key over when the program reaches an address, and it goes
+    # the way the program reads the keyboard at that moment, whatever
+    # --keyboard says about the --keys queue. The Dam Busters (1984) reads its
+    # title's key through INT 16h and installs its own INT 09h only after the
+    # title; a key sent to port 0x60 there would reach the BIOS and, through
+    # its buffer, INT 16h anyway, and one put in the buffer after the program
+    # has its own handler would never be seen. So: while vector 9 is the
+    # BIOS's, the key goes into the BIOS's buffer, for INT 16h; once it is the
+    # program's, it is a make code in port 0x60 and IRQ 1 through its handler
+    # at once, and the break code --key-every instructions later. A handler
+    # that chains to the BIOS's puts it in the buffer as well, so a program
+    # that reads both gets both.
+
+    def _at_arrival(self, uc, addr, off, ax):
+        """An --at key, at the moment the program reached `off`."""
+        handler = self._program_vector(9)
+        if handler is None or scancode_of(ax) is None:
+            self.keys.append(ax)
+            self._sync_kbd()
+            path = ("the BIOS's buffer, for INT 16h" if handler is None else
+                    f"the BIOS's buffer: it names no key, so no scancode can go to "
+                    f"the handler at {handler[0]:04X}:{handler[1]:04X}")
+            self.at_log.append([self.steps, off, ax, path])
+            return
+        self.at_hardware = True
+        # Ahead of the --keys still queued, behind any --at key not yet pressed.
+        self.hw_keys.insert(len(self._at_queued), ax)
+        self._at_queued.append(len(self.at_log))
+        if not (self.hw_scancodes or self.hw_waiting):
+            self.hw_due = self.steps
+        self.at_log.append([self.steps, off, ax,
+                            f"port 0x60 and IRQ 1, to the program's INT 09h at "
+                            f"{handler[0]:04X}:{handler[1]:04X}"])
+        # Stopped here, before this instruction runs, so that the run loop
+        # raises IRQ 1 now rather than at the end of its slice; it then runs
+        # from here again, which _on_code knows is not a second arrival.
+        self._at_resume = addr
+        uc.emu_stop()
+
+    def at_summary(self):
+        """The lines that say which way each --at key went."""
+        lines = [f"key at {off:#x}, instruction {step:,}: AX {ax:#06x} through {path}"
+                 for step, off, ax, path in self.at_log]
+        left = {off: len(keys) for off, keys in self.at_keys.items() if keys}
+        for off, n in sorted(left.items()):
+            lines.append(f"key at {off:#x}: {n} never handed over -- the program did not "
+                         f"get there {'again' if any(o == off for _, o, _, _ in self.at_log) else ''}"
+                         .rstrip())
+        return lines
 
     def _auto_undecided(self):
         """An --keyboard or --timer auto still waiting for the program to
@@ -1619,7 +2627,7 @@ class Machine:
         """The program's vector 9 is now seg:off; with --keyboard auto, decide."""
         if self.keyboard != "auto" or self.kbd_route is not None:
             return
-        if seg == (STUBS >> 4) or (seg, off) == (0, 0):
+        if seg == (STUBS >> 4) or (seg, off) in ((0, 0), BIOS_IRET):
             return
         # The program has its own handler now, so the keys it has not read
         # yet go the way its handler expects them.
@@ -1640,6 +2648,7 @@ class Machine:
                 if not self.hw_keys:
                     return here
                 self.hw_ax = self.hw_keys.pop(0)
+                self._at_pressed = self._at_queued.pop(0) if self._at_queued else None
                 make = scancode_of(self.hw_ax)
                 self.hw_scancodes = [make, make | 0x80]
             # The scancode is in port 0x60 from now on, whether or not the
@@ -1664,9 +2673,16 @@ class Machine:
             self.hw_due = self.steps + KEY_RETRY
             return here
         seg, off = self._vector9()
-        hooked = seg != (STUBS >> 4) and (seg, off) != (0, 0)
+        hooked = seg != (STUBS >> 4) and (seg, off) not in ((0, 0), BIOS_IRET)
         if hooked and self.kbd_hooked is None:
             self.kbd_hooked = (self.steps, seg, off)
+        if (seg, off) == BIOS_IRET:
+            # Straight back, and no end of interrupt: the PIC holds IRQ 1.
+            self.in_service.add(1)
+            self.hw_waiting = False
+            self.kbd_log["irq"] += 1
+            self.hw_due = self.steps + self.hw_every
+            return here
         sp = (self.uc.reg_read(UC_X86_REG_SP) - 6) & 0xFFFF
         ss = self.uc.reg_read(UC_X86_REG_SS)
         self.uc.mem_write((ss << 4) + sp, struct.pack("<HHH", ip, cs, flags))
@@ -1695,6 +2711,11 @@ class Machine:
             self.keys.append(self.hw_ax)
             self._sync_kbd()
             self.kbd_log["to_bios"] += 1
+            if self._at_pressed is not None:
+                entry = self.at_log[self._at_pressed]
+                if entry[2] == self.hw_ax and "INT 16h too" not in entry[3]:
+                    entry[3] += (", which passed it on to the BIOS's, so it is in the "
+                                 "buffer for INT 16h too")
         self.in_service.discard(1)
 
     def keyboard_summary(self, total):
@@ -1768,7 +2789,7 @@ class Machine:
         decide. True when this decided it."""
         if self.timer != "auto" or self.timer_route is not None:
             return False
-        if seg == (STUBS >> 4) or (seg, off) == (0, 0):
+        if seg == (STUBS >> 4) or (seg, off) in ((0, 0), BIOS_IRET):
             return False
         self.timer_route = "hardware"
         self.timer_hooked = (self.steps, vector, seg, off)
@@ -1793,6 +2814,12 @@ class Machine:
             self.timer_due = self.steps + KEY_RETRY
             return here
         off, seg = struct.unpack("<HH", self.uc.mem_read(8 * 4, 4))
+        if (seg, off) == BIOS_IRET:
+            # Straight back, and no end of interrupt: the PIC holds IRQ 0.
+            self.in_service.add(0)
+            self.timer_log["irq"] += 1
+            self.timer_due = self.steps + self.timer_every
+            return here
         sp = (self.uc.reg_read(UC_X86_REG_SP) - 6) & 0xFFFF
         ss = self.uc.reg_read(UC_X86_REG_SS)
         self.uc.mem_write((ss << 4) + sp, struct.pack("<HHH", ip, cs, flags))
@@ -1820,7 +2847,7 @@ class Machine:
         self.timer_log["to_bios"] += 1
         self.in_service.discard(0)
         off, seg = struct.unpack("<HH", uc.mem_read(0x1C * 4, 4))
-        if seg != (STUBS >> 4) and (seg, off) != (0, 0):
+        if seg != (STUBS >> 4) and (seg, off) not in ((0, 0), BIOS_IRET):
             # Raised between two slices, from the stub's `iret`, which then
             # returns from the IRQ 0 frame as the BIOS's own handler would.
             self.pending_1c = True
@@ -1927,7 +2954,7 @@ class Machine:
             return (cs << 4) + ip
         vec = self.uc.mem_read(self.isr_vector * 4, 4)
         off, seg = struct.unpack("<HH", vec)
-        if seg == (STUBS >> 4) or (seg == 0 and off == 0):
+        if seg == (STUBS >> 4) or (seg, off) in ((0, 0), BIOS_IRET):
             return (cs << 4) + ip          # not hooked yet -- nothing to do
         sp = self.uc.reg_read(UC_X86_REG_SP)
         ss = self.uc.reg_read(UC_X86_REG_SS)
@@ -2014,10 +3041,20 @@ class Machine:
             start = (seg << 4) + off
         else:
             start = BASE + LOAD + off
-        try:
-            self.uc.emu_start(start, BASE + sentinel, count=budget)
-        except UcError as e:
-            self.stopped = self.stopped or f"fault: {e} at {self._where()}"
+        first = self.steps
+        while True:
+            try:
+                self.uc.emu_start(start, BASE + sentinel,
+                                  count=max(1, budget - (self.steps - first)))
+            except UcError as e:
+                self.stopped = self.stopped or f"fault: {e} at {self._where()}"
+            finally:
+                self._restore_lock()
+            if self.stopped is not None or not self._exception_taken:
+                break
+            # A divide error went to the program's handler: on from there.
+            self._clear_exception()
+            start = (self.uc.reg_read(UC_X86_REG_CS) << 4) + self.uc.reg_read(UC_X86_REG_IP)
         return self.stopped or "returned"
 
     def key(self, scancode, handler):
@@ -2143,8 +3180,14 @@ def run_summary(machine, args, why, keys, screen_lines):
         lines["keyboard"] = m.keyboard_summary(len(keys))
     if m.dispatched:
         lines["vectors"] = m.vector_summary()
+    for key, line in (("cpu", m.cpu_summary()), ("adapter", m.adapter_summary())):
+        if line:
+            lines[key] = line
+    if m.at_log or any(m.at_keys.values()):
+        lines["at"] = m.at_summary()
     printed = "".join(m.output).replace("\r\n", "\n").strip()
-    return {
+    png = args.png if args.png is None or Path(args.png).exists() else None
+    summary = {
         "binary": str(args.binary), "format": "COM" if m.mz is None else "MZ",
         "instructions": m.steps, "stopped": why,
         "interrupts": sorted({f"{n:02X}h" for n, _ in m.ints}),
@@ -2157,9 +3200,25 @@ def run_summary(machine, args, why, keys, screen_lines):
         "files_not_found": list(dict.fromkeys(m.file_misses)),
         "printed": printed.split("\n") if printed else [],
         "bios_characters": m.bios_chars, "summary_lines": lines,
-        "screen": screen_lines, "png": args.png, "exec_map_json": args.exec_map_json,
+        "screen": screen_lines, "png": png, "exec_map_json": args.exec_map_json,
         "exec_map": args.exec_map,
     }
+    # Only when there is something to say, so that a run that met none of
+    # these writes what it always wrote.
+    if m.adapter != "cga":
+        summary["adapter"] = m.adapter
+    if m.lock_steps or m.exceptions:
+        summary["cpu"] = {
+            "model": m.cpu, "lock_prefixes_stepped_over": m.lock_steps,
+            "lock_sites": [f"0x{a:X}" for a in sorted(m.lock_sites)],
+            "exceptions": {f"{n:02X}h": {"count": c,
+                                         "handlers": [f"{s:04X}:{o:04X}" for s, o in h]}
+                           for n, (c, h) in sorted(m.exceptions.items())}}
+    if m.at_log or any(m.at_keys.values()):
+        summary["at_keys"] = [{"image_offset": f"0x{off:X}", "instruction": step,
+                               "ax": f"0x{ax:04X}", "path": path}
+                              for step, off, ax, path in m.at_log]
+    return summary
 
 
 def draw_screen(machine, path, render="cga", palette=None, font=None):
@@ -2167,13 +3226,40 @@ def draw_screen(machine, path, render="cga", palette=None, font=None):
 
     As mode 4, exactly as before, when asked to or when the program never
     touched the adapter -- and then there is nothing to say. Otherwise from
-    the CGA's registers, and the lines say what they held."""
+    the CGA's registers, and the lines say what they held. With --adapter
+    ega or tandy, in mode 0Dh or 9, from that adapter's model instead -- or
+    not at all, and the lines say why, when the registers hold what the model
+    does not model; then no PNG is left at `path`, not even an earlier one."""
     cga = machine.cga
+    if render == "cga" and machine.ega is not None and machine.ega.mode == 0x0D:
+        ega = machine.ega
+        why = ega.display_refusal()
+        if why:
+            Path(path).unlink(missing_ok=True)
+            return [f"screen    : EGA {ega.describe()}",
+                    f"            not drawn: {why}"]
+        img, notes = render_ega(ega)
+        img.save(path)
+        how = ", ".join(ega.writes["bios"][-3:] + [f"port 0x{p:X}" for p in sorted(ega.writes["ports"])])
+        return ([f"screen    : EGA {ega.describe()}", f"            set by {how}"]
+                + [f"            {note}" for note in notes])
+    if render == "cga" and machine.tandy is not None and machine.tandy.mode == 9:
+        t = machine.tandy
+        img, notes = render_tandy(t, machine.tandy_shown())
+        img.save(path)
+        how = ", ".join(t.writes["bios"][-3:] + [f"port 0x{p:X}" for p in sorted(t.writes["ports"])])
+        return ([f"screen    : Tandy {t.describe()}", f"            set by {how}"]
+                + [f"            {note}" for note in notes])
     if render == "mode4" or not cga.programmed or cga.unsupported is not None:
         to_png(machine.framebuffer(), path, palette or "1")
         if cga.unsupported is not None and render == "cga":
-            return [f"screen    : INT 10h set mode {cga.unsupported}, which this "
-                    f"renderer does not model; drawn as mode 4"]
+            lines = [f"screen    : INT 10h set mode {cga.unsupported}, which this "
+                     f"renderer does not model; drawn as mode 4"]
+            owner = {0x0D: "EGA's: --adapter ega", 0x09: "Tandy 1000's: --adapter tandy"}
+            if cga.unsupported in owner and machine.adapter == "cga":
+                lines.append(f"            mode {cga.unsupported:02X}h is the "
+                             f"{owner[cga.unsupported]} draws it")
+            return lines
         return []
     font, missing = (font, ()) if font is not None else shipped_font()
     img, notes = render_cga(machine.framebuffer(), cga, palette, font, missing)
@@ -2198,9 +3284,34 @@ def main():
     ap.add_argument("--trace-io", action="store_true",
                     help="log every file open, read and seek")
     ap.add_argument("--at", metavar="ADDR=KEY[,...]", default="",
-                    help="hand a key over when the program reaches an address, "
-                         "rather than queueing it blind. Repeat an address to "
-                         "deliver several, in order.")
+                    help="hand a key over when the program reaches an image "
+                         "offset, rather than queueing it blind. Repeat an "
+                         "address to deliver several, one each time it is "
+                         "reached. It goes the way the program reads the "
+                         "keyboard then, whatever --keyboard says: into the "
+                         "BIOS's buffer for INT 16h while vector 9 is the "
+                         "BIOS's, as a scancode and IRQ 1 through the "
+                         "program's own INT 09h once it has one. The output "
+                         "says which, for each key")
+    ap.add_argument("--adapter", choices=ADAPTERS, default="cga",
+                    help="the display adapter. cga (the default): as always. "
+                         "ega: answers INT 10h AH=12h as an EGA with 256 KB, "
+                         "INT 11h and 0040:0010 with an equipment word saying "
+                         "so, and draws mode 0Dh from four planes at A000 "
+                         "through the sequencer, graphics controller, CRTC "
+                         "and attribute registers. tandy: 0x21 at F000:C000, "
+                         "as a Tandy 1000's ROM, and mode 9 drawn from its "
+                         "pages. A register value the model does not model "
+                         "stops the run, or the picture, and says which")
+    ap.add_argument("--cpu", choices=CPUS, default="8088",
+                    help="the processor. 8088 (the default): a LOCK prefix "
+                         "Unicorn refuses is stepped over, as the 8088 ran it "
+                         "on any instruction, and a divide error returns to "
+                         "the instruction after the divide. 386: as Unicorn "
+                         "is -- LOCK refused on nop and arithmetic into a "
+                         "register, a divide error returning to the divide. "
+                         "On both, a divide error or the trap flag's INT 1 "
+                         "goes to the program's own handler when it has one")
     ap.add_argument("--poke", metavar="OFF=VAL[,...]", default="",
                     help="write a word at an image offset before --call. A "
                          "routine usually refuses to run without the state a "
@@ -2328,10 +3439,19 @@ def main():
         if unnamed:
             ap.error(f"no scancode for {', '.join(repr(chr(k)) for k in unnamed)}; give "
                      f"such a key as 0xSSCC, its scancode and ASCII code")
-        if args.gate or args.at:
-            ap.error("--gate and --at hand keys to INT 16h at chosen places; with "
-                     "--keyboard hw or auto the keys go through port 0x60 on a "
-                     "schedule instead. Use one or the other")
+        if args.gate:
+            ap.error("--gate hands keys to INT 16h at chosen places; with --keyboard hw "
+                     "or auto the keys go through port 0x60 on a schedule instead. Use "
+                     "--at, which goes the way the program reads at that moment")
+    at_keys = {}
+    for item in (x for x in args.at.split(",") if x.strip()):
+        a, _, k = item.partition("=")
+        if not k:
+            ap.error(f"--at {item!r}: give ADDR=KEY, an image offset in hex and a key")
+        # Same convention as --keys: 0x.. is a full AX, anything else is the
+        # character itself.
+        val = int(k, 0) if k.lower().startswith("0x") else ord(k[0])
+        at_keys.setdefault(int(a, 16), []).append(val)
     if args.timer != "bios" and args.timer_isr:
         ap.error("--timer-isr sends one interrupt straight to its handler; --timer hw "
                  "or auto raises IRQ 0 through vector 8, and the BIOS's INT 08h raises "
@@ -2349,6 +3469,12 @@ def main():
     m.keyboard, m.hw_every = args.keyboard, args.key_every
     m.timer, m.timer_every = args.timer, args.timer_every
     m.no_joystick = args.no_joystick
+    m.cpu = args.cpu
+    m.set_adapter(args.adapter)
+    # Before the start-up run, so that a key can wait for the place the
+    # program reads it during start-up -- a title screen. They were read after
+    # it, and so reached only a routine run by --call.
+    m.at_keys = at_keys
     if args.bios_text:
         m.enable_bios_text(font)
     if args.keyboard == "hw":
@@ -2376,6 +3502,9 @@ def main():
         m.gated, m.keys = m.keys, []
         print(f"gated: {len(m.gated)} keys, released at "
               f"{len(m.gates)} addresses")
+    if m.at_keys:
+        print("keys on arrival: " + ", ".join(
+            f"{a:#x} -> {len(v)}" for a, v in sorted(m.at_keys.items())))
     m.trace_io = args.trace_io
     for item in (x for x in args.watch_ptr.split(",") if x.strip()):
         a, _, n = item.partition(":")
@@ -2429,6 +3558,12 @@ def main():
               f"{len(keys)} keys unused")
     if m.dispatched:
         print("  " + m.vector_summary())
+    if not args.call:
+        for line in m.at_summary():
+            print("  " + line)
+    for line in (m.cpu_summary(), m.adapter_summary()):
+        if line:
+            print("  " + line)
 
     # These three were collected and then thrown away, which was the wrong
     # trade: when a program stops early it usually says why, and what it went
@@ -2446,16 +3581,6 @@ def main():
             for line in text.split("\n"):
                 print(f"      {line}")
 
-    for item in (x for x in args.at.split(",") if x.strip()):
-        a, _, k = item.partition("=")
-        # Same convention as --keys: 0x.. is a full AX, anything else is the
-        # character itself.
-        val = int(k, 0) if k.lower().startswith("0x") else ord(k[0])
-        m.at_keys.setdefault(int(a, 16), []).append(val)
-    if m.at_keys:
-        print("keys on arrival: " + ", ".join(
-            f"{a:#x} -> {len(v)}" for a, v in sorted(m.at_keys.items())))
-
     for item in (x for x in args.poke.split(",") if x.strip()):
         off, _, val = item.partition("=")
         at, v = int(off, 0), int(val, 0)
@@ -2472,6 +3597,8 @@ def main():
         else:
             why = m.call(int(args.call, 16), budget=args.budget)
         print(f"call {args.call}: {m.steps - before:,} instructions, {why}")
+        for line in m.at_summary():
+            print("  " + line)
 
     if args.scancodes and args.handler:
         h = int(args.handler, 16)
@@ -2501,7 +3628,8 @@ def main():
             print("")
             for line in lines:
                 print(line)
-        print(f"\nwrote {args.png}")
+        if Path(args.png).exists():
+            print(f"\nwrote {args.png}")
     if args.json:
         Path(args.json).write_text(json.dumps(
             {"stopped": why, "steps": m.steps, "blits": m.blits}, indent=2),
