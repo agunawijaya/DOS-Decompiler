@@ -56,6 +56,7 @@ high.
 | `sweep-8088` | the 8088's `IDIV` rule in `tools/sweep.py` | `tests/sweep` | 336 | 1,615 s |
 | `annotate` | the count of the evidence behind a name in `tools/annotate.py` | `tests/annotate` | 312 | 24 s (prompt 13, 16 workers) |
 | `comdiff` | the routine comparison and its emulation's verdict in `tools/comdiff.py` | `tests/comdiff` | 755 | 128 s (prompt 13, 16 workers) |
+| `comrun-8088` | the LOCK step-over, a divide's length and the divide error's delivery in `tools/comrun.py` | `tests/comrun` | 619 | 2,337 s (prompt 16, 16 workers) |
 
 The first five took 58 minutes of wall time together in prompt 07 (the
 handshake's 142 s in a run of its own); the last four take about an hour
@@ -80,6 +81,7 @@ code (`known.toml`):
 | `sweep-8088` | | | 316 / 316 |
 | `annotate` | 225 / 368 (61.1%), with `load_symbols` whole (prompt 13) | | 307 / 307 after prompt 13's tests, on `named` instead |
 | `comdiff` | 350 / 745 (47.0%) (prompt 13) | | 717 / 717 after prompt 13's tests |
+| `comrun-8088` | 527 / 586 (89.9%) (prompt 16) | | 586 / 586 after prompt 16's tests |
 
 Prompt 15 changed triage's verdict (LINK overlays, `--format`, the `.COM`
 hint) and gave `loadimage.verify` the view record, and mutated both again,
@@ -88,6 +90,16 @@ mutants in 1,091 s, 3 not explained; `triage` 637 in 3,431 s (sharing the
 machine with other runs), 31 not explained. After that prompt's tests, a
 `-Retest`: `loadimage` 1,053 / 1,053, `triage` 615 / 615, every survivor left
 an equivalent in `known.toml`.
+
+Prompt 16 gave comrun and the sweep one step-over for a LOCK the 8088
+ignores, and comrun the divide error on its way to a program's own handler.
+`sweep-8088` gained the sweep's new functions; `comrun-8088` is new. 16
+workers: `sweep-8088` 382 mutants in 2,378 s, 8 not explained;
+`comrun-8088` 619 in 2,337 s, 92 not explained. After that prompt's tests, a
+`-Retest` (two for comrun, the second for the seven the first left):
+`sweep-8088` 358 / 358, `comrun-8088` 586 / 586. Every survivor left is an
+equivalent in `known.toml` but one, an `except` that cannot run, kept as a
+code problem.
 
 The scripts, and the suites that need Ghidra, are out of its reach; each of
 those tests was shown able to fail once by hand, with an injected fault
